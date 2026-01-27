@@ -311,10 +311,10 @@ fn detect_image_change(
             // If there's an active transition, show new image instantly
             // to avoid visual artifacts when rapidly switching
             if transition_state.active.is_some() {
-                // Transition is active - show new image instantly
-                info!("Interrupting transition - showing image {} instantly", current_index + 1);
+                // Transition is active - show new image instantly (from displayed_image)
+                info!("Interrupting transition - switching to image {} instantly", current_index + 1);
                 transition_events.send(TransitionEvent {
-                    from_image: current_handle.clone(),
+                    from_image: current_handle.clone(),  // Not used (trigger_transition uses displayed_image)
                     to_image: current_handle.clone(),
                     duration: 0.0, // Instant display
                     mode,
@@ -366,6 +366,7 @@ fn trigger_transition(
     windows: Query<&Window>,
     existing_entity: Query<(Entity, &MeshMaterial2d<TransitionMaterial>), With<TransitionEntity>>,
     images: Res<Assets<Image>>,
+    transition_state: Res<TransitionState>,
 ) {
     for event in transition_events.read() {
         // Check if both images are loaded before creating/updating entity
@@ -396,18 +397,21 @@ fn trigger_transition(
 
         let bg = config.bg_color_f32();
 
+        // Use displayed_image for texture_a, or fallback to event.from_image
+        let texture_a = transition_state.displayed_image
+            .clone()
+            .unwrap_or_else(|| event.from_image.clone());
+
         // Try to reuse existing entity to avoid spawn/despawn overhead
         if let Ok((entity, material_handle)) = existing_entity.get_single() {
             // Reuse existing entity - just update the material
             if let Some(material) = materials.get_mut(&material_handle.0) {
-                // Update textures
-                material.texture_a = event.from_image.clone();
+                // Update textures - texture_a is always displayed_image now
+                material.texture_a = texture_a.clone();
                 material.texture_b = event.to_image.clone();
 
-                // Set blend based on duration
-                // For instant display (duration=0), use blend=1.0 to show texture_b immediately
-                // For normal transition, use blend=0.0 to start from texture_a
-                material.uniforms.blend = if event.duration == 0.0 { 1.0 } else { 0.0 };
+                // Always start blend from 0.0 (displayed_image → new image)
+                material.uniforms.blend = 0.0;
 
                 material.uniforms.mode = event.mode;
                 material.uniforms.bg_color = Vec4::new(bg[0], bg[1], bg[2], bg[3]);
@@ -426,14 +430,10 @@ fn trigger_transition(
 
             let mesh = meshes.add(Rectangle::new(window_size.x, window_size.y));
 
-            // Check if this is a zero-duration transition (instant display)
-            // For instant display: use blend=1.0 to show texture_b immediately
-            // For normal transition: use blend=0.0 to start from texture_a
-            let initial_blend = if event.duration == 0.0 { 1.0 } else { 0.0 };
-
+            // Always start blend from 0.0 (displayed_image → new image)
             let material = materials.add(TransitionMaterial {
                 uniforms: TransitionUniform {
-                    blend: initial_blend,
+                    blend: 0.0,
                     mode: event.mode,
                     aspect_ratio: Vec2::new(1.0, 1.0),
                     bg_color: Vec4::new(bg[0], bg[1], bg[2], bg[3]),
@@ -441,7 +441,7 @@ fn trigger_transition(
                     image_a_size,
                     image_b_size,
                 },
-                texture_a: event.from_image.clone(),
+                texture_a,
                 texture_b: event.to_image.clone(),
             });
 

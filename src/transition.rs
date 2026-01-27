@@ -75,6 +75,8 @@ impl Material2d for TransitionMaterial {
 /// Transition state resource
 #[derive(Resource, Default)]
 pub struct TransitionState {
+    /// The image currently displayed on screen
+    pub displayed_image: Option<Handle<Image>>,
     /// Currently active transition
     pub active: Option<ActiveTransition>,
 }
@@ -113,6 +115,11 @@ fn handle_transition_events(
     time: Res<Time>,
 ) {
     for event in events.read() {
+        // Initialize displayed_image on first transition
+        if state.displayed_image.is_none() {
+            state.displayed_image = Some(event.from_image.clone());
+        }
+
         state.active = Some(ActiveTransition {
             start_time: time.elapsed_secs(),
             duration: event.duration,
@@ -137,9 +144,11 @@ fn update_transitions(
 
     // Handle instant transitions (duration = 0)
     if transition.duration == 0.0 {
+        // Update displayed_image to target
+        state.displayed_image = Some(transition.to_image.clone());
         // Instant transition - mark as complete immediately
         state.active = None;
-        info!("Transition complete");
+        info!("Transition complete (instant)");
         return;
     }
 
@@ -153,6 +162,7 @@ fn update_transitions(
 
     // Remove transition when complete
     if progress >= 1.0 {
+        state.displayed_image = Some(transition.to_image.clone());
         state.active = None;
         info!("Transition complete");
     }
