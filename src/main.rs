@@ -356,6 +356,7 @@ fn detect_image_change(
 ///
 /// Removes old transition entities and creates new fullscreen quads with
 /// transition materials that blend between source and target images.
+#[allow(clippy::too_many_arguments)]
 fn trigger_transition(
     mut commands: Commands,
     mut transition_events: EventReader<TransitionEvent>,
@@ -463,6 +464,7 @@ fn trigger_transition(
 }
 
 /// Handle keyboard and mouse input for navigation and control
+#[allow(clippy::too_many_arguments)]
 fn keyboard_input_system(
     keys: Res<ButtonInput<KeyCode>>,
     mouse_buttons: Res<ButtonInput<MouseButton>>,
@@ -517,12 +519,11 @@ fn keyboard_input_system(
             && (keys.pressed(KeyCode::ArrowRight) || keys.pressed(KeyCode::Space))
             && repeat_timer.repeat_timer.just_finished());
 
-    if should_advance_next {
-        if loader.next(config.viewer.pause_at_last) {
+    if should_advance_next
+        && loader.next(config.viewer.pause_at_last) {
             info!("Next image ({}/{})", loader.current_index + 1, loader.len());
             timer.reset(); // Reset timer when manually advancing
         }
-    }
 
     // Left arrow: previous image (supports key hold with delay)
     let should_advance_prev = keys.just_pressed(KeyCode::ArrowLeft)
@@ -530,12 +531,11 @@ fn keyboard_input_system(
             && keys.pressed(KeyCode::ArrowLeft)
             && repeat_timer.repeat_timer.just_finished());
 
-    if should_advance_prev {
-        if loader.previous() {
+    if should_advance_prev
+        && loader.previous() {
             info!("Previous image ({}/{})", loader.current_index + 1, loader.len());
             timer.reset(); // Reset timer when manually advancing
         }
-    }
 
     // Home: first image
     if keys.just_pressed(KeyCode::Home) {
@@ -545,13 +545,12 @@ fn keyboard_input_system(
     }
 
     // End: last image
-    if keys.just_pressed(KeyCode::End) {
-        if !loader.is_empty() {
+    if keys.just_pressed(KeyCode::End)
+        && !loader.is_empty() {
             loader.current_index = loader.len() - 1;
             info!("Last image");
             timer.reset();
         }
-    }
 
     // P: toggle pause
     if keys.just_pressed(KeyCode::KeyP) {
@@ -580,20 +579,18 @@ fn keyboard_input_system(
     }
 
     // Mouse left click: next image
-    if mouse_buttons.just_pressed(MouseButton::Left) {
-        if loader.next(config.viewer.pause_at_last) {
+    if mouse_buttons.just_pressed(MouseButton::Left)
+        && loader.next(config.viewer.pause_at_last) {
             info!("Next image ({}/{})", loader.current_index + 1, loader.len());
             timer.reset();
         }
-    }
 
     // Mouse right click: previous image
-    if mouse_buttons.just_pressed(MouseButton::Right) {
-        if loader.previous() {
+    if mouse_buttons.just_pressed(MouseButton::Right)
+        && loader.previous() {
             info!("Previous image ({}/{})", loader.current_index + 1, loader.len());
             timer.reset();
         }
-    }
 
     // Mouse wheel: scroll through images
     for event in mouse_wheel.read() {

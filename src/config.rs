@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
 /// Application configuration
-#[derive(Debug, Clone, Serialize, Deserialize, Resource)]
+#[derive(Debug, Clone, Serialize, Deserialize, Resource, Default)]
 pub struct Config {
     #[serde(default)]
     pub window: WindowConfig,
@@ -14,17 +14,6 @@ pub struct Config {
     pub transition: TransitionConfig,
     #[serde(default)]
     pub style: StyleConfig,
-}
-
-impl Default for Config {
-    fn default() -> Self {
-        Self {
-            window: WindowConfig::default(),
-            viewer: ViewerConfig::default(),
-            transition: TransitionConfig::default(),
-            style: StyleConfig::default(),
-        }
-    }
 }
 
 /// Window configuration
