@@ -1,0 +1,354 @@
+use anyhow::Result;
+use bevy::prelude::*;
+use bevy::render::render_asset::RenderAssetUsages;
+use bevy::tasks::{AsyncComputeTaskPool, Task};
+use std::collections::HashMap;
+use std::path::{Path, PathBuf};
+
+/// Supported image file extensions
+const SUPPORTED_EXTENSIONS: &[&str] = &[
+    "png", "jpg", "jpeg", "gif", "webp", "bmp", "tga", "tiff", "tif", "ico", "hdr",
+];
+
+/// Image file entry with metadata
+#[derive(Debug, Clone)]
+#[allow(dead_code)]
+pub struct ImageEntry {
+    pub path: PathBuf,
+    pub index: usize,
+}
+
+/// Image loader state
+#[derive(Resource)]
+pub struct ImageLoader {
+    /// List of all scanned image paths
+    pub paths: Vec<PathBuf>,
+    /// Current display index
+    pub current_index: usize,
+    /// Whether shuffle mode is enabled
+    pub shuffle: bool,
+    /// Cache extent (number of images to preload before/after current)
+    pub cache_extent: usize,
+    /// Loaded image handles
+    pub handles: HashMap<usize, Handle<Image>>,
+    /// Active loading tasks (index -> task)
+    pub loading_tasks: HashMap<usize, Task<Result<(usize, Image)>>>,
+}
+
+impl Default for ImageLoader {
+    fn default() -> Self {
+        Self {
+            paths: Vec::new(),
+            current_index: 0,
+            shuffle: false,
+            cache_extent: 5,
+            handles: HashMap::new(),
+            loading_tasks: HashMap::new(),
+        }
+    }
+}
+
+impl ImageLoader {
+    /// Create a new image loader
+    #[allow(dead_code)]
+    pub fn new(cache_extent: usize) -> Self {
+        Self {
+            cache_extent,
+            ..Default::default()
+        }
+    }
+
+    /// Scan paths for images (files or directories)
+    #[allow(dead_code)]
+    pub fn scan_paths(&mut self, input_paths: &[PathBuf], scan_subfolders: bool) -> Result<()> {
+        let sorted_paths = scan_image_paths(input_paths, scan_subfolders)?;
+        self.paths = sorted_paths;
+        info!("Scanned {} images", self.paths.len());
+        Ok(())
+    }
+
+    /// Shuffle the image list
+    pub fn shuffle_paths(&mut self) {
+        use rand::seq::SliceRandom;
+        let mut rng = rand::thread_rng();
+        self.paths.shuffle(&mut rng);
+    }
+
+
+
+    /// Get current image path
+    #[allow(dead_code)]
+    pub fn current_path(&self) -> Option<&Path> {
+        self.paths.get(self.current_index).map(|p| p.as_path())
+    }
+
+    /// Move to next image
+    pub fn next(&mut self, pause_at_last: bool) -> bool {
+        if self.paths.is_empty() {
+            return false;
+        }
+
+        if self.current_index + 1 < self.paths.len() {
+            self.current_index += 1;
+            true
+        } else if !pause_at_last {
+            self.current_index = 0;
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Move to previous image
+    pub fn previous(&mut self) -> bool {
+        if self.paths.is_empty() {
+            return false;
+        }
+
+        if self.current_index > 0 {
+            self.current_index -= 1;
+        } else {
+            self.current_index = self.paths.len() - 1;
+        }
+        true
+    }
+
+    /// Get indices to preload based on cache extent
+    pub fn get_preload_indices(&self) -> Vec<usize> {
+        let mut indices = Vec::new();
+
+        if self.paths.is_empty() {
+            return indices;
+        }
+
+        let len = self.paths.len();
+
+        // Current image first
+        indices.push(self.current_index);
+
+        // Then alternate: next, previous, next+1, previous-1, etc.
+        for i in 1..=self.cache_extent {
+            // Next images
+            let next_idx = (self.current_index + i) % len;
+            indices.push(next_idx);
+
+            // Previous images
+            let prev_idx = if self.current_index >= i {
+                self.current_index - i
+            } else {
+                len - (i - self.current_index)
+            };
+            indices.push(prev_idx);
+        }
+
+        indices
+    }
+
+    /// Get current image handle
+    pub fn current_handle(&self) -> Option<&Handle<Image>> {
+        self.handles.get(&self.current_index)
+    }
+
+    /// Get image count
+    pub fn len(&self) -> usize {
+        self.paths.len()
+    }
+
+    /// Check if empty
+    pub fn is_empty(&self) -> bool {
+        self.paths.is_empty()
+    }
+}
+
+/// Check if a path is a supported image file
+pub fn is_supported_image(path: &Path) -> bool {
+    path.extension()
+        .and_then(|ext| ext.to_str())
+        .map(|ext| SUPPORTED_EXTENSIONS.contains(&ext.to_lowercase().as_str()))
+        .unwrap_or(false)
+}
+
+/// Load an image directly from a filesystem path (for absolute paths)
+fn load_image_from_path(path: &Path) -> Result<Image> {
+    // Load image
+    let img = image::open(path)?;
+    let img_rgba = img.to_rgba8();
+    let (width, height) = img_rgba.dimensions();
+
+    Ok(Image::new(
+        bevy::render::render_resource::Extent3d {
+            width,
+            height,
+            depth_or_array_layers: 1,
+        },
+        bevy::render::render_resource::TextureDimension::D2,
+        img_rgba.into_raw(),
+        bevy::render::render_resource::TextureFormat::Rgba8UnormSrgb,
+        RenderAssetUsages::all(),
+    ))
+}
+
+/// Image loading plugin
+pub struct ImageLoaderPlugin;
+
+impl Plugin for ImageLoaderPlugin {
+    fn build(&self, app: &mut App) {
+        app.init_resource::<ImageLoader>()
+            .add_systems(Update, load_images_system);
+    }
+}
+
+/// System to handle image loading (async version)
+fn load_images_system(
+    mut loader: ResMut<ImageLoader>,
+    mut images: ResMut<Assets<Image>>,
+) {
+    if loader.paths.is_empty() {
+        return;
+    }
+
+    // Poll existing tasks and collect completed results
+    let mut completed_results = Vec::new();
+    loader.loading_tasks.retain(|idx, task| {
+        if let Some(result) = bevy::tasks::block_on(bevy::tasks::poll_once(task)) {
+            completed_results.push((*idx, result));
+            false // Remove completed task
+        } else {
+            true // Keep pending task
+        }
+    });
+
+    // Add completed images to assets
+    for (idx, result) in completed_results {
+        match result {
+            Ok((task_idx, image)) => {
+                debug!("Successfully loaded image: {}x{}", image.width(), image.height());
+                let handle = images.add(image);
+                loader.handles.insert(task_idx, handle);
+            }
+            Err(e) => {
+                error!("Failed to load image at index {}: {}", idx, e);
+            }
+        }
+    }
+
+    // Get indices that should be loaded
+    let preload_indices = loader.get_preload_indices();
+
+    // Start loading tasks for images that aren't already loaded or loading
+    let task_pool = AsyncComputeTaskPool::get();
+    for &idx in &preload_indices {
+        if !loader.handles.contains_key(&idx) && !loader.loading_tasks.contains_key(&idx) {
+            if let Some(path) = loader.paths.get(idx).cloned() {
+                debug!("Starting async load for image: {}", path.display());
+
+                // Spawn async task to load image
+                let task = task_pool.spawn(async move {
+                    load_image_from_path(&path).map(|img| (idx, img))
+                });
+
+                loader.loading_tasks.insert(idx, task);
+            }
+        }
+    }
+
+    // Remove handles and tasks that are too far from current index
+    let indices_to_keep: Vec<usize> = preload_indices;
+    loader.handles.retain(|idx, handle| {
+        if indices_to_keep.contains(idx) {
+            true
+        } else {
+            // Only remove if the image is actually loaded (to avoid thrashing)
+            if images.get(handle).is_some() {
+                // Image is loaded, we can drop it
+                false
+            } else {
+                // Still loading, keep it
+                true
+            }
+        }
+    });
+    loader.loading_tasks.retain(|idx, _| indices_to_keep.contains(idx));
+}
+
+
+/// Standalone function to scan paths (can be run in background thread)
+pub fn scan_image_paths(input_paths: &[PathBuf], scan_subfolders: bool) -> Result<Vec<PathBuf>> {
+    let mut paths = Vec::new();
+
+    for path in input_paths {
+        if path.is_file() {
+            if is_supported_image(path) {
+                paths.push(path.clone());
+            }
+        } else if path.is_dir() {
+            scan_directory_recursive(path, scan_subfolders, &mut paths)?;
+        }
+    }
+
+    // Sort paths alphanumerically
+    paths.sort_by(|a, b| {
+        alphanumeric_sort::compare_str(
+            a.to_string_lossy().as_ref(),
+            b.to_string_lossy().as_ref(),
+        )
+    });
+
+    Ok(paths)
+}
+
+/// Helper for recursive directory scanning
+fn scan_directory_recursive(dir: &Path, recursive: bool, paths: &mut Vec<PathBuf>) -> Result<()> {
+    let entries = match std::fs::read_dir(dir) {
+        Ok(e) => e,
+        Err(e) => {
+            warn!("Failed to read directory {}: {}", dir.display(), e);
+            return Ok(());
+        }
+    };
+
+    for entry in entries.flatten() {
+        let path = entry.path();
+
+        if path.is_file() && is_supported_image(&path) {
+            paths.push(path);
+        } else if path.is_dir() && recursive {
+            let _ = scan_directory_recursive(&path, recursive, paths);
+        }
+    }
+
+    Ok(())
+}
+
+#[cfg(test)]
+
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_supported_extensions() {
+        assert!(is_supported_image(Path::new("test.png")));
+        assert!(is_supported_image(Path::new("test.jpg")));
+        assert!(is_supported_image(Path::new("test.JPEG")));
+        assert!(!is_supported_image(Path::new("test.txt")));
+        assert!(!is_supported_image(Path::new("test")));
+    }
+
+    #[test]
+    fn test_preload_indices() {
+        let mut loader = ImageLoader::new(2);
+        loader.paths = vec![
+            PathBuf::from("1.png"),
+            PathBuf::from("2.png"),
+            PathBuf::from("3.png"),
+            PathBuf::from("4.png"),
+            PathBuf::from("5.png"),
+        ];
+        loader.current_index = 2;
+
+        let indices = loader.get_preload_indices();
+        assert!(indices.contains(&2)); // current
+        assert!(indices.contains(&3)); // next
+        assert!(indices.contains(&1)); // previous
+    }
+}

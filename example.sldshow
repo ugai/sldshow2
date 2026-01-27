@@ -1,0 +1,42 @@
+# sldshow2 configuration file example
+# Place this file as ~/.sldshow or specify with command line argument
+
+[window]
+width = 1280
+height = 720
+fullscreen = false
+always_on_top = false
+decorations = true  # Show window titlebar/borders
+resizable = false
+monitor_index = 0   # Which monitor to display on (0 = primary)
+
+[viewer]
+# Image paths - can be directories or individual files
+image_paths = [
+    "D:\\git\\sldshow2\\assets\\test_images",
+    # "C:\\Users\\YourName\\Pictures",
+    # "/home/user/photos",
+]
+
+timer = 10              # Seconds per image (0 = paused)
+scan_subfolders = true  # Recursively scan directories
+shuffle = true          # Random order
+pause_at_last = false   # Stop at last image instead of looping
+cache_extent = 5        # Number of images to preload (before/after current)
+
+[transition]
+time = 0.5              # Transition duration in seconds
+random = true           # Use random transition effects
+mode = 0                # Specific mode if random = false (0-21)
+                        # 0: crossfade, 1: smooth crossfade
+                        # 2-9: roll (top/bottom/left/right/diagonals)
+                        # 10-11: sliding door (open/close)
+                        # 12-15: blind effects
+                        # 16-17: box (expand/contract)
+                        # 18: random squares
+                        # 19: angular wipe
+
+[style]
+bg_color = [0, 0, 0, 255]           # Background color RGBA [0-255]
+show_image_path = true               # Display current file path
+show_controls = true                 # Show control hints
