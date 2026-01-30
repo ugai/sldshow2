@@ -2,26 +2,32 @@ use anyhow::{Context, Result};
 use bevy::prelude::Resource;
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
+use validator::Validate;
 
 /// Application configuration
-#[derive(Debug, Clone, Serialize, Deserialize, Resource, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, Resource, Default, Validate)]
 pub struct Config {
     #[serde(default)]
+    #[validate(nested)]
     pub window: WindowConfig,
     #[serde(default)]
+    #[validate(nested)]
     pub viewer: ViewerConfig,
     #[serde(default)]
+    #[validate(nested)]
     pub transition: TransitionConfig,
     #[serde(default)]
     pub style: StyleConfig,
 }
 
 /// Window configuration
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Validate)]
 pub struct WindowConfig {
     #[serde(default = "default_width")]
+    #[validate(range(min = 320, max = 7680))]  // Min VGA width, Max 8K width
     pub width: u32,
     #[serde(default = "default_height")]
+    #[validate(range(min = 240, max = 4320))]  // Min VGA height, Max 8K height
     pub height: u32,
     #[serde(default)]
     pub fullscreen: bool,
@@ -50,11 +56,12 @@ impl Default for WindowConfig {
 }
 
 /// Viewer configuration
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Validate)]
 pub struct ViewerConfig {
     #[serde(default)]
     pub image_paths: Vec<PathBuf>,
     #[serde(default = "default_timer")]
+    #[validate(range(min = 0.1))]  // Minimum 100ms between images
     pub timer: f32,
     #[serde(default = "default_true")]
     pub scan_subfolders: bool,
@@ -63,6 +70,7 @@ pub struct ViewerConfig {
     #[serde(default)]
     pub pause_at_last: bool,
     #[serde(default = "default_cache_extent")]
+    #[validate(range(min = 1, max = 100))]  // Reasonable cache limits
     pub cache_extent: usize,
 }
 
@@ -80,13 +88,15 @@ impl Default for ViewerConfig {
 }
 
 /// Transition configuration
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Validate)]
 pub struct TransitionConfig {
     #[serde(default = "default_transition_time")]
+    #[validate(range(min = 0.0, max = 10.0))]  // 0 to 10 seconds
     pub time: f32,
     #[serde(default = "default_true")]
     pub random: bool,
     #[serde(default)]
+    #[validate(range(min = 0, max = 21))]  // 0-21 transition modes
     pub mode: i32,
 }
 
@@ -158,6 +168,10 @@ impl Config {
 
         let config: Config = toml::from_str(&content)
             .with_context(|| format!("Failed to parse config file: {}", path.as_ref().display()))?;
+
+        // Validate configuration
+        config.validate()
+            .with_context(|| "Invalid configuration")?;
 
         Ok(config)
     }
