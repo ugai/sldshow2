@@ -4,6 +4,7 @@
 //! reactive rendering for power efficiency, and flexible TOML configuration.
 
 mod config;
+mod error;
 mod image_loader;
 mod slideshow;
 mod transition;

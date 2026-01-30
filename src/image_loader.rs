@@ -1,4 +1,4 @@
-use anyhow::Result;
+use crate::error::{Result, SldshowError};
 use bevy::prelude::*;
 use bevy::render::render_asset::RenderAssetUsages;
 use bevy::tasks::{AsyncComputeTaskPool, Task};
@@ -171,7 +171,10 @@ pub fn is_supported_image(path: &Path) -> bool {
 /// Load an image directly from a filesystem path (for absolute paths)
 fn load_image_from_path(path: &Path) -> Result<Image> {
     // Load image
-    let img = image::open(path)?;
+    let img = image::open(path).map_err(|e| SldshowError::ImageLoadError {
+        path: path.to_path_buf(),
+        source: e,
+    })?;
     let img_rgba = img.to_rgba8();
     let (width, height) = img_rgba.dimensions();
 
@@ -293,6 +296,13 @@ pub fn scan_image_paths(input_paths: &[PathBuf], scan_subfolders: bool) -> Resul
             b.to_string_lossy().as_ref(),
         )
     });
+
+    // Return error if no images found
+    if paths.is_empty() {
+        return Err(SldshowError::NoImagesFound {
+            paths: input_paths.to_vec(),
+        });
+    }
 
     Ok(paths)
 }

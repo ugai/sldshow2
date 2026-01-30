@@ -41,6 +41,12 @@ dirs = "5.0"
 # Logging
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
 
+# Error handling
+thiserror = "2.0"
+
+# Validation
+validator = { version = "0.19", features = ["derive"] }
+
 [target.'cfg(windows)'.dependencies]
 windows = { version = "0.58", features = [
     "Win32_System_Power",
