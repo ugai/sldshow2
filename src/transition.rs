@@ -144,7 +144,15 @@ fn update_transitions(
 
     // Handle instant transitions (duration = 0)
     if transition.duration == 0.0 {
+        // Update all materials to blend=1.0 to show texture_b immediately
+        for (_id, material) in materials.iter_mut() {
+            material.uniforms.blend = 1.0;
+        }
+
         // Update displayed_image to target
+        info!("DEBUG: Instant transition - updating displayed_image from {:?} to {:?}",
+              state.displayed_image.as_ref().map(|h| h.id()),
+              transition.to_image.id());
         state.displayed_image = Some(transition.to_image.clone());
         // Instant transition - mark as complete immediately
         state.active = None;
@@ -162,9 +170,15 @@ fn update_transitions(
 
     // Remove transition when complete
     if progress >= 1.0 {
+        info!("DEBUG: Normal transition complete - updating displayed_image from {:?} to {:?}",
+              state.displayed_image.as_ref().map(|h| h.id()),
+              transition.to_image.id());
         state.displayed_image = Some(transition.to_image.clone());
         state.active = None;
         info!("Transition complete");
+
+        // Note: pending_target will be processed by detect_image_change
+        // when it detects that active is None
     }
 }
 

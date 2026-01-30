@@ -308,28 +308,23 @@ fn detect_image_change(
                 config.transition.mode
             };
 
-            // If there's an active transition, show new image instantly
-            // to avoid visual artifacts when rapidly switching
+            // If there's an active transition, skip processing to reduce GPU load
+            // This throttles updates during rapid switching
             if transition_state.active.is_some() {
-                // Transition is active - show new image instantly (from displayed_image)
-                info!("Interrupting transition - switching to image {} instantly", current_index + 1);
-                transition_events.send(TransitionEvent {
-                    from_image: current_handle.clone(),  // Not used (trigger_transition uses displayed_image)
-                    to_image: current_handle.clone(),
-                    duration: 0.0, // Instant display
-                    mode,
-                });
-            } else {
-                // No active transition - normal transition
-                info!("Normal transition: image {} -> image {}",
-                      tracker.last_index.unwrap_or(0) + 1, current_index + 1);
-                transition_events.send(TransitionEvent {
-                    from_image: prev_handle,
-                    to_image: current_handle.clone(),
-                    duration: config.transition.time,
-                    mode,
-                });
+                // Transition is active - skip this update
+                // The next detect_image_change call will sync when transition completes
+                return;
             }
+
+            // No active transition - start new transition
+            info!("Normal transition: image {} -> image {}",
+                  tracker.last_index.unwrap_or(0) + 1, current_index + 1);
+            transition_events.send(TransitionEvent {
+                from_image: prev_handle,
+                to_image: current_handle.clone(),
+                duration: config.transition.time,
+                mode,
+            });
         } else {
             // First image - show it instantly with zero-duration transition
             info!("First image loaded - showing instantly");
@@ -366,7 +361,7 @@ fn trigger_transition(
     windows: Query<&Window>,
     existing_entity: Query<(Entity, &MeshMaterial2d<TransitionMaterial>), With<TransitionEntity>>,
     images: Res<Assets<Image>>,
-    transition_state: Res<TransitionState>,
+    mut transition_state: ResMut<TransitionState>,
 ) {
     for event in transition_events.read() {
         // Check if both images are loaded before creating/updating entity
@@ -402,16 +397,40 @@ fn trigger_transition(
             .clone()
             .unwrap_or_else(|| event.from_image.clone());
 
+        info!("DEBUG: displayed_image={:?}, texture_a={:?}, texture_b={:?}, duration={}",
+              transition_state.displayed_image.as_ref().map(|h| h.id()),
+              texture_a.id(),
+              event.to_image.id(),
+              event.duration);
+
         // Try to reuse existing entity to avoid spawn/despawn overhead
         if let Ok((entity, material_handle)) = existing_entity.get_single() {
             // Reuse existing entity - just update the material
             if let Some(material) = materials.get_mut(&material_handle.0) {
-                // Update textures - texture_a is always displayed_image now
-                material.texture_a = texture_a.clone();
-                material.texture_b = event.to_image.clone();
+                info!("DEBUG: Before update - current blend={}, texture_a={:?}, texture_b={:?}",
+                      material.uniforms.blend,
+                      material.texture_a.id(),
+                      material.texture_b.id());
 
-                // Always start blend from 0.0 (displayed_image → new image)
-                material.uniforms.blend = 0.0;
+                // Update textures based on duration
+                if event.duration == 0.0 {
+                    // For instant display, set both textures to the target image
+                    // This ensures clean state for next transition
+                    material.texture_a = event.to_image.clone();
+                    material.texture_b = event.to_image.clone();
+                    material.uniforms.blend = 1.0;  // Can be 0.0 or 1.0, both show same image
+
+                    // Immediately update displayed_image for instant transitions
+                    // This prevents stale displayed_image when rapidly switching
+                    transition_state.displayed_image = Some(event.to_image.clone());
+                    info!("DEBUG: Instant transition in trigger_transition - updated displayed_image to {:?}",
+                          event.to_image.id());
+                } else {
+                    // For normal transition, use displayed_image → target
+                    material.texture_a = texture_a.clone();
+                    material.texture_b = event.to_image.clone();
+                    material.uniforms.blend = 0.0;  // Start from texture_a
+                }
 
                 material.uniforms.mode = event.mode;
                 material.uniforms.bg_color = Vec4::new(bg[0], bg[1], bg[2], bg[3]);
@@ -430,10 +449,22 @@ fn trigger_transition(
 
             let mesh = meshes.add(Rectangle::new(window_size.x, window_size.y));
 
-            // Always start blend from 0.0 (displayed_image → new image)
+            // Set textures and blend based on duration
+            let (final_texture_a, final_texture_b, initial_blend) = if event.duration == 0.0 {
+                // For instant display, set both textures to the target image
+                // Immediately update displayed_image for instant transitions
+                transition_state.displayed_image = Some(event.to_image.clone());
+                info!("DEBUG: Instant transition in trigger_transition (new entity) - updated displayed_image to {:?}",
+                      event.to_image.id());
+                (event.to_image.clone(), event.to_image.clone(), 1.0)
+            } else {
+                // For normal transition, use displayed_image → target
+                (texture_a, event.to_image.clone(), 0.0)
+            };
+
             let material = materials.add(TransitionMaterial {
                 uniforms: TransitionUniform {
-                    blend: 0.0,
+                    blend: initial_blend,
                     mode: event.mode,
                     aspect_ratio: Vec2::new(1.0, 1.0),
                     bg_color: Vec4::new(bg[0], bg[1], bg[2], bg[3]),
@@ -441,8 +472,8 @@ fn trigger_transition(
                     image_a_size,
                     image_b_size,
                 },
-                texture_a,
-                texture_b: event.to_image.clone(),
+                texture_a: final_texture_a,
+                texture_b: final_texture_b,
             });
 
             let entity = commands.spawn((
