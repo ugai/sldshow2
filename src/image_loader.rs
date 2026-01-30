@@ -2,7 +2,7 @@ use anyhow::Result;
 use bevy::prelude::*;
 use bevy::render::render_asset::RenderAssetUsages;
 use bevy::tasks::{AsyncComputeTaskPool, Task};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 /// Supported image file extensions
@@ -253,7 +253,7 @@ fn load_images_system(
     }
 
     // Remove handles and tasks that are too far from current index
-    let indices_to_keep: Vec<usize> = preload_indices;
+    let indices_to_keep: HashSet<usize> = preload_indices.into_iter().collect();
     loader.handles.retain(|idx, handle| {
         if indices_to_keep.contains(idx) {
             true

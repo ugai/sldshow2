@@ -16,7 +16,6 @@ use bevy::tasks::{AsyncComputeTaskPool, Task};
 use bevy::window::{WindowMode, PresentMode, MonitorSelection};
 use bevy::winit::WinitSettings;
 use config::Config;
-use futures_lite::future;
 use image_loader::{ImageLoader, ImageLoaderPlugin, scan_image_paths};
 use slideshow::{SlideshowAdvanceEvent, SlideshowPlugin, SlideshowTimer};
 use std::path::PathBuf;
@@ -24,13 +23,23 @@ use transition::{TransitionEvent, TransitionMaterial, TransitionPlugin, Transiti
 
 /// Main entry point for sldshow2 application
 fn main() {
+    // Initialize structured logging with environment filter
+    // Use RUST_LOG environment variable to control log level (e.g., RUST_LOG=sldshow2=debug)
+    use tracing_subscriber::{fmt, EnvFilter};
+    fmt()
+        .with_env_filter(
+            EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| EnvFilter::new("sldshow2=info"))
+        )
+        .init();
+
     // Load configuration
     let args: Vec<String> = std::env::args().collect();
     let config_path = args.get(1).map(std::path::PathBuf::from);
 
     let config = Config::load_default(config_path).unwrap_or_else(|e| {
-        eprintln!("Failed to load config: {}", e);
-        eprintln!("Using default configuration");
+        error!("Failed to load config: {}", e);
+        warn!("Using default configuration");
         Config::default()
     });
 
@@ -204,7 +213,7 @@ fn poll_image_scan(
 ) {
     for (entity, mut task) in &mut tasks {
         // Non-blocking check
-        if let Some(result) = future::block_on(future::poll_once(&mut task.0)) {
+        if let Some(result) = bevy::tasks::block_on(bevy::tasks::poll_once(&mut task.0)) {
             match result {
                 Ok(paths) => {
                     info!("Image scan complete: {} images found", paths.len());
