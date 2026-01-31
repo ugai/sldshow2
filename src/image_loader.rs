@@ -416,4 +416,77 @@ mod tests {
         assert!(indices.contains(&3)); // next
         assert!(indices.contains(&1)); // previous
     }
+
+    #[test]
+    fn test_next_wraps_around() {
+        let mut loader = ImageLoader::new(1);
+        loader.paths = vec![
+            PathBuf::from("1.png"),
+            PathBuf::from("2.png"),
+            PathBuf::from("3.png"),
+        ];
+        loader.current_index = 2; // Last image
+
+        // Next should wrap to first
+        assert!(loader.next(false));
+        assert_eq!(loader.current_index, 0);
+    }
+
+    #[test]
+    fn test_next_pause_at_last() {
+        let mut loader = ImageLoader::new(1);
+        loader.paths = vec![
+            PathBuf::from("1.png"),
+            PathBuf::from("2.png"),
+        ];
+        loader.current_index = 1; // Last image
+
+        // Should not advance when pause_at_last is true
+        assert!(!loader.next(true));
+        assert_eq!(loader.current_index, 1);
+    }
+
+    #[test]
+    fn test_previous_wraps_around() {
+        let mut loader = ImageLoader::new(1);
+        loader.paths = vec![
+            PathBuf::from("1.png"),
+            PathBuf::from("2.png"),
+            PathBuf::from("3.png"),
+        ];
+        loader.current_index = 0; // First image
+
+        // Previous should wrap to last
+        assert!(loader.previous());
+        assert_eq!(loader.current_index, 2);
+    }
+
+    #[test]
+    fn test_empty_loader() {
+        let loader = ImageLoader::default();
+        assert!(loader.is_empty());
+        assert_eq!(loader.len(), 0);
+        assert!(loader.current_path().is_none());
+    }
+
+    #[test]
+    fn test_shuffle_changes_order() {
+        let mut loader = ImageLoader::new(1);
+        loader.paths = vec![
+            PathBuf::from("1.png"),
+            PathBuf::from("2.png"),
+            PathBuf::from("3.png"),
+            PathBuf::from("4.png"),
+            PathBuf::from("5.png"),
+        ];
+        let original = loader.paths.clone();
+
+        loader.shuffle_paths();
+
+        // Paths should exist but may be in different order
+        assert_eq!(loader.paths.len(), original.len());
+        for path in &original {
+            assert!(loader.paths.contains(path));
+        }
+    }
 }

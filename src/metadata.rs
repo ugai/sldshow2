@@ -12,12 +12,15 @@ pub struct ImageMetadata {
     /// Image height in pixels (from EXIF or actual)
     pub height: Option<u32>,
     /// Camera make (from EXIF)
+    #[allow(dead_code)]
     pub camera_make: Option<String>,
     /// Camera model (from EXIF)
+    #[allow(dead_code)]
     pub camera_model: Option<String>,
     /// Date/time taken (from EXIF)
     pub datetime: Option<String>,
     /// Orientation (from EXIF)
+    #[allow(dead_code)]
     pub orientation: Option<u32>,
 }
 

@@ -4,6 +4,7 @@
 //! reactive rendering for power efficiency, and flexible TOML configuration.
 
 mod config;
+mod consts;
 mod error;
 mod image_loader;
 mod metadata;
@@ -19,6 +20,7 @@ use bevy::tasks::{AsyncComputeTaskPool, Task};
 use bevy::window::{WindowMode, PresentMode, MonitorSelection};
 use bevy::winit::WinitSettings;
 use config::Config;
+use consts::EMBEDDED_FONT_HANDLE;
 use image_loader::{ImageLoader, ImageLoaderPlugin, scan_image_paths};
 use slideshow::{SlideshowAdvanceEvent, SlideshowPlugin, SlideshowTimer};
 use std::path::PathBuf;
@@ -100,8 +102,7 @@ fn main() {
         .run();
 }
 
-/// Font handle for the embedded M PLUS 2 font
-const EMBEDDED_FONT_HANDLE: Handle<Font> = Handle::weak_from_u128(0xabcd_1234_5678_90ef);
+// Font handle is now defined in consts module
 
 /// Resource to track initial scan state
 #[derive(Resource, Default)]
@@ -313,69 +314,175 @@ fn detect_image_change(
     images: Res<Assets<Image>>,
     transition_state: Res<TransitionState>,
 ) {
+    // Early returns for invalid states
     if loader.is_empty() {
         return;
     }
 
     let current_index = loader.current_index;
     let Some(current_handle) = loader.current_handle() else {
-        return; // No handle yet, skip silently
+        return;
     };
 
-    // Check if image is loaded
     if images.get(current_handle).is_none() {
-        return; // Image not loaded yet, skip silently
+        return;
     }
 
-    // Detect change
-    if tracker.last_index != Some(current_index) {
-        if let Some(prev_index) = tracker.last_index {
-            // Get previous handle from loader
-            if let Some(prev_handle) = loader.handles.get(&prev_index) {
-                // Image changed, trigger transition
-                let mode = if config.transition.random {
-                    transition::random_transition_mode()
-                } else {
-                    config.transition.mode
-                };
+    // No change detected
+    if tracker.last_index == Some(current_index) {
+        return;
+    }
 
-                // If there's an active transition, skip processing to reduce GPU load
-                // This throttles updates during rapid switching
-                if transition_state.active.is_some() {
-                    // Transition is active - skip this update
-                    // The next detect_image_change call will sync when transition completes
-                    return;
-                }
+    // Throttle during active transitions
+    if transition_state.active.is_some() {
+        return;
+    }
 
-                // No active transition - start new transition
-                info!("Normal transition: image {} -> image {}",
-                      prev_index + 1, current_index + 1);
-                transition_events.send(TransitionEvent {
-                    from_image: prev_handle.clone(),
-                    to_image: current_handle.clone(),
-                    duration: config.transition.time,
-                    mode,
-                });
-            }
-        } else {
-            // First image - show it instantly with zero-duration transition
-            info!("First image loaded - showing instantly");
-            let mode = if config.transition.random {
-                transition::random_transition_mode()
-            } else {
-                config.transition.mode
-            };
+    let mode = if config.transition.random {
+        transition::random_transition_mode()
+    } else {
+        config.transition.mode
+    };
 
-            transition_events.send(TransitionEvent {
-                from_image: current_handle.clone(),
-                to_image: current_handle.clone(),
-                duration: 0.0, // Instant display
-                mode,
-            });
-        }
-
+    // Handle first image (instant display)
+    let Some(prev_index) = tracker.last_index else {
+        info!("First image loaded - showing instantly");
+        transition_events.send(TransitionEvent {
+            from_image: current_handle.clone(),
+            to_image: current_handle.clone(),
+            duration: 0.0,
+            mode,
+        });
         tracker.last_index = Some(current_index);
+        return;
+    };
+
+    // Handle normal transition
+    let Some(prev_handle) = loader.handles.get(&prev_index) else {
+        return;
+    };
+
+    info!("Normal transition: image {} -> image {}",
+          prev_index + 1, current_index + 1);
+    transition_events.send(TransitionEvent {
+        from_image: prev_handle.clone(),
+        to_image: current_handle.clone(),
+        duration: config.transition.time,
+        mode,
+    });
+
+    tracker.last_index = Some(current_index);
+}
+
+/// Get window size from query or fallback to config
+fn get_window_size(windows: &Query<&Window>, config: &Config) -> Vec2 {
+    if let Ok(window) = windows.get_single() {
+        Vec2::new(window.width(), window.height())
+    } else {
+        Vec2::new(config.window.width as f32, config.window.height as f32)
     }
+}
+
+/// Get image size from handle or fallback to window size
+fn get_image_size(handle: &Handle<Image>, images: &Assets<Image>, fallback: Vec2) -> Vec2 {
+    if let Some(img) = images.get(handle) {
+        Vec2::new(img.width() as f32, img.height() as f32)
+    } else {
+        fallback
+    }
+}
+
+/// Update existing transition material with new transition parameters
+fn update_transition_material(
+    material: &mut TransitionMaterial,
+    event: &TransitionEvent,
+    texture_a: Handle<Image>,
+    transition_state: &mut TransitionState,
+    window_size: Vec2,
+    image_a_size: Vec2,
+    image_b_size: Vec2,
+    bg: [f32; 4],
+) {
+    info!("DEBUG: Before update - current blend={}, texture_a={:?}, texture_b={:?}",
+          material.uniforms.blend,
+          material.texture_a.id(),
+          material.texture_b.id());
+
+    if event.duration == 0.0 {
+        // For instant display, set both textures to the target image
+        material.texture_a = event.to_image.clone();
+        material.texture_b = event.to_image.clone();
+        material.uniforms.blend = 1.0;
+
+        transition_state.displayed_image = Some(event.to_image.clone());
+        info!("DEBUG: Instant transition in trigger_transition - updated displayed_image to {:?}",
+              event.to_image.id());
+    } else {
+        // For normal transition, use displayed_image → target
+        material.texture_a = texture_a;
+        material.texture_b = event.to_image.clone();
+        material.uniforms.blend = 0.0;
+    }
+
+    material.uniforms.mode = event.mode;
+    material.uniforms.bg_color = Vec4::new(bg[0], bg[1], bg[2], bg[3]);
+    material.uniforms.window_size = window_size;
+    material.uniforms.image_a_size = image_a_size;
+    material.uniforms.image_b_size = image_b_size;
+}
+
+/// Spawn a new transition entity with the given parameters
+#[allow(clippy::too_many_arguments)]
+fn spawn_transition_entity(
+    commands: &mut Commands,
+    meshes: &mut Assets<Mesh>,
+    materials: &mut Assets<TransitionMaterial>,
+    event: &TransitionEvent,
+    texture_a: Handle<Image>,
+    transition_state: &mut TransitionState,
+    window_size: Vec2,
+    image_a_size: Vec2,
+    image_b_size: Vec2,
+    bg: [f32; 4],
+) -> Entity {
+    info!("Creating first transition entity - window_size: {:?}, image_a: {:?}, image_b: {:?}",
+          window_size, image_a_size, image_b_size);
+
+    let mesh = meshes.add(Rectangle::new(window_size.x, window_size.y));
+
+    let (final_texture_a, final_texture_b, initial_blend) = if event.duration == 0.0 {
+        transition_state.displayed_image = Some(event.to_image.clone());
+        info!("DEBUG: Instant transition (new entity) - updated displayed_image to {:?}",
+              event.to_image.id());
+        (event.to_image.clone(), event.to_image.clone(), 1.0)
+    } else {
+        (texture_a, event.to_image.clone(), 0.0)
+    };
+
+    let material = materials.add(TransitionMaterial {
+        uniforms: TransitionUniform {
+            blend: initial_blend,
+            mode: event.mode,
+            aspect_ratio: Vec2::new(1.0, 1.0),
+            bg_color: Vec4::new(bg[0], bg[1], bg[2], bg[3]),
+            window_size,
+            image_a_size,
+            image_b_size,
+        },
+        texture_a: final_texture_a,
+        texture_b: final_texture_b,
+    });
+
+    commands.spawn((
+        Mesh2d(mesh),
+        MeshMaterial2d(material),
+        Transform::from_xyz(0.0, 0.0, 0.0),
+        GlobalTransform::default(),
+        Visibility::Visible,
+        InheritedVisibility::default(),
+        ViewVisibility::default(),
+        TransitionEntity,
+    )).id()
 }
 
 /// Create and spawn transition entities in response to transition events
@@ -401,26 +508,10 @@ fn trigger_transition(
             continue;
         }
 
-        // Get window size
-        let window_size = if let Ok(window) = windows.get_single() {
-            Vec2::new(window.width(), window.height())
-        } else {
-            Vec2::new(config.window.width as f32, config.window.height as f32)
-        };
-
-        // Get image dimensions for both textures
-        let image_a_size = if let Some(img) = images.get(&event.from_image) {
-            Vec2::new(img.width() as f32, img.height() as f32)
-        } else {
-            window_size // Fallback
-        };
-
-        let image_b_size = if let Some(img) = images.get(&event.to_image) {
-            Vec2::new(img.width() as f32, img.height() as f32)
-        } else {
-            window_size // Fallback
-        };
-
+        // Gather size and color information
+        let window_size = get_window_size(&windows, &config);
+        let image_a_size = get_image_size(&event.from_image, &images, window_size);
+        let image_b_size = get_image_size(&event.to_image, &images, window_size);
         let bg = config.bg_color_f32();
 
         // Use displayed_image for texture_a, or fallback to event.from_image
@@ -436,91 +527,35 @@ fn trigger_transition(
 
         // Try to reuse existing entity to avoid spawn/despawn overhead
         if let Ok((entity, material_handle)) = existing_entity.get_single() {
-            // Reuse existing entity - just update the material
             if let Some(material) = materials.get_mut(&material_handle.0) {
-                info!("DEBUG: Before update - current blend={}, texture_a={:?}, texture_b={:?}",
-                      material.uniforms.blend,
-                      material.texture_a.id(),
-                      material.texture_b.id());
-
-                // Update textures based on duration
-                if event.duration == 0.0 {
-                    // For instant display, set both textures to the target image
-                    // This ensures clean state for next transition
-                    material.texture_a = event.to_image.clone();
-                    material.texture_b = event.to_image.clone();
-                    material.uniforms.blend = 1.0;  // Can be 0.0 or 1.0, both show same image
-
-                    // Immediately update displayed_image for instant transitions
-                    // This prevents stale displayed_image when rapidly switching
-                    transition_state.displayed_image = Some(event.to_image.clone());
-                    info!("DEBUG: Instant transition in trigger_transition - updated displayed_image to {:?}",
-                          event.to_image.id());
-                } else {
-                    // For normal transition, use displayed_image → target
-                    material.texture_a = texture_a.clone();
-                    material.texture_b = event.to_image.clone();
-                    material.uniforms.blend = 0.0;  // Start from texture_a
-                }
-
-                material.uniforms.mode = event.mode;
-                material.uniforms.bg_color = Vec4::new(bg[0], bg[1], bg[2], bg[3]);
-                material.uniforms.window_size = window_size;
-                material.uniforms.image_a_size = image_a_size;
-                material.uniforms.image_b_size = image_b_size;
-
+                update_transition_material(
+                    material,
+                    event,
+                    texture_a,
+                    &mut transition_state,
+                    window_size,
+                    image_a_size,
+                    image_b_size,
+                    bg,
+                );
                 info!("Transition started (reused): mode {} duration {}s, entity: {:?}",
                       event.mode, event.duration, entity);
             }
         } else {
-            // No existing entity - create new one
-            // This is the first transition entity, created when the second image loads
-            info!("Creating first transition entity - window_size: {:?}, image_a: {:?}, image_b: {:?}",
-                  window_size, image_a_size, image_b_size);
-
-            let mesh = meshes.add(Rectangle::new(window_size.x, window_size.y));
-
-            // Set textures and blend based on duration
-            let (final_texture_a, final_texture_b, initial_blend) = if event.duration == 0.0 {
-                // For instant display, set both textures to the target image
-                // Immediately update displayed_image for instant transitions
-                transition_state.displayed_image = Some(event.to_image.clone());
-                info!("DEBUG: Instant transition in trigger_transition (new entity) - updated displayed_image to {:?}",
-                      event.to_image.id());
-                (event.to_image.clone(), event.to_image.clone(), 1.0)
-            } else {
-                // For normal transition, use displayed_image → target
-                (texture_a, event.to_image.clone(), 0.0)
-            };
-
-            let material = materials.add(TransitionMaterial {
-                uniforms: TransitionUniform {
-                    blend: initial_blend,
-                    mode: event.mode,
-                    aspect_ratio: Vec2::new(1.0, 1.0),
-                    bg_color: Vec4::new(bg[0], bg[1], bg[2], bg[3]),
-                    window_size,
-                    image_a_size,
-                    image_b_size,
-                },
-                texture_a: final_texture_a,
-                texture_b: final_texture_b,
-            });
-
-            let entity = commands.spawn((
-                Mesh2d(mesh),
-                MeshMaterial2d(material),
-                Transform::from_xyz(0.0, 0.0, 0.0),
-                GlobalTransform::default(),
-                Visibility::Visible, // Show immediately
-                InheritedVisibility::default(),
-                ViewVisibility::default(),
-                TransitionEntity,
-            ));
-
-
+            let entity = spawn_transition_entity(
+                &mut commands,
+                &mut meshes,
+                &mut materials,
+                event,
+                texture_a,
+                &mut transition_state,
+                window_size,
+                image_a_size,
+                image_b_size,
+                bg,
+            );
             info!("Transition started (new): mode {} duration {}s, entity: {:?}",
-                  event.mode, event.duration, entity.id());
+                  event.mode, event.duration, entity);
         }
     }
 }

@@ -18,6 +18,7 @@ pub enum SldshowError {
 
     /// Failed to scan a directory
     #[error("Failed to scan directory {path}: {source}")]
+    #[allow(dead_code)]
     DirectoryScanError {
         path: PathBuf,
         #[source]
@@ -30,6 +31,7 @@ pub enum SldshowError {
 
     /// Invalid configuration
     #[error("Invalid configuration: {0}")]
+    #[allow(dead_code)]
     ConfigError(String),
 
     /// IO error
