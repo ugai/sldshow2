@@ -1,4 +1,5 @@
 use crate::error::{Result, SldshowError};
+use crate::metadata::ImageMetadata;
 use bevy::prelude::*;
 use bevy::render::render_asset::RenderAssetUsages;
 use bevy::tasks::{AsyncComputeTaskPool, Task};
@@ -34,6 +35,8 @@ pub struct ImageLoader {
     pub handles: HashMap<usize, Handle<Image>>,
     /// Active loading tasks (index -> task)
     pub loading_tasks: HashMap<usize, Task<Result<(usize, Image)>>>,
+    /// Cached metadata for images
+    pub metadata_cache: HashMap<usize, ImageMetadata>,
 }
 
 impl Default for ImageLoader {
@@ -45,6 +48,7 @@ impl Default for ImageLoader {
             cache_extent: 5,
             handles: HashMap::new(),
             loading_tasks: HashMap::new(),
+            metadata_cache: HashMap::new(),
         }
     }
 }
@@ -158,6 +162,28 @@ impl ImageLoader {
     /// Check if empty
     pub fn is_empty(&self) -> bool {
         self.paths.is_empty()
+    }
+
+    /// Get metadata for an image, loading it if not cached
+    pub fn get_metadata(&mut self, index: usize) -> Option<ImageMetadata> {
+        // Return cached if available
+        if let Some(metadata) = self.metadata_cache.get(&index) {
+            return Some(metadata.clone());
+        }
+
+        // Load metadata if path exists
+        if let Some(path) = self.paths.get(index) {
+            let metadata = ImageMetadata::from_path(path);
+            self.metadata_cache.insert(index, metadata.clone());
+            Some(metadata)
+        } else {
+            None
+        }
+    }
+
+    /// Get metadata for the current image
+    pub fn current_metadata(&mut self) -> Option<ImageMetadata> {
+        self.get_metadata(self.current_index)
     }
 }
 
