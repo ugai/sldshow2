@@ -3,9 +3,10 @@ use crate::metadata::ImageMetadata;
 use bevy::prelude::*;
 use bevy::render::render_asset::RenderAssetUsages;
 use bevy::tasks::{AsyncComputeTaskPool, Task};
+use camino::{Utf8Path, Utf8PathBuf};
 use rayon::prelude::*;
 use std::collections::{HashMap, HashSet};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 /// Supported image file extensions
 const SUPPORTED_EXTENSIONS: &[&str] = &[
@@ -16,7 +17,7 @@ const SUPPORTED_EXTENSIONS: &[&str] = &[
 #[derive(Debug, Clone)]
 #[allow(dead_code)]
 pub struct ImageEntry {
-    pub path: PathBuf,
+    pub path: Utf8PathBuf,
     pub index: usize,
 }
 
@@ -24,7 +25,7 @@ pub struct ImageEntry {
 #[derive(Resource)]
 pub struct ImageLoader {
     /// List of all scanned image paths
-    pub paths: Vec<PathBuf>,
+    pub paths: Vec<Utf8PathBuf>,
     /// Current display index
     pub current_index: usize,
     /// Whether shuffle mode is enabled
@@ -65,7 +66,7 @@ impl ImageLoader {
 
     /// Scan paths for images (files or directories)
     #[allow(dead_code)]
-    pub fn scan_paths(&mut self, input_paths: &[PathBuf], scan_subfolders: bool) -> Result<()> {
+    pub fn scan_paths(&mut self, input_paths: &[Utf8PathBuf], scan_subfolders: bool) -> Result<()> {
         let sorted_paths = scan_image_paths(input_paths, scan_subfolders)?;
         self.paths = sorted_paths;
         info!("Scanned {} images", self.paths.len());
@@ -83,7 +84,7 @@ impl ImageLoader {
 
     /// Get current image path
     #[allow(dead_code)]
-    pub fn current_path(&self) -> Option<&Path> {
+    pub fn current_path(&self) -> Option<&Utf8Path> {
         self.paths.get(self.current_index).map(|p| p.as_path())
     }
 
@@ -199,7 +200,8 @@ pub fn is_supported_image(path: &Path) -> bool {
 fn load_image_from_path(path: &Path) -> Result<Image> {
     // Load image
     let img = image::open(path).map_err(|e| SldshowError::ImageLoadError {
-        path: path.to_path_buf(),
+        path: Utf8PathBuf::try_from(path.to_path_buf())
+            .unwrap_or_else(|_| Utf8PathBuf::from(path.to_string_lossy().to_string())),
         source: e,
     })?;
     let img_rgba = img.to_rgba8();
@@ -270,11 +272,11 @@ fn load_images_system(
     for &idx in &preload_indices {
         if !loader.handles.contains_key(&idx) && !loader.loading_tasks.contains_key(&idx) {
             if let Some(path) = loader.paths.get(idx).cloned() {
-                debug!("Starting async load for image: {}", path.display());
+                debug!("Starting async load for image: {}", path);
 
                 // Spawn async task to load image
                 let task = task_pool.spawn(async move {
-                    load_image_from_path(&path).map(|img| (idx, img))
+                    load_image_from_path(path.as_std_path()).map(|img| (idx, img))
                 });
 
                 loader.loading_tasks.insert(idx, task);
@@ -304,24 +306,25 @@ fn load_images_system(
 
 /// Standalone function to scan paths (can be run in background thread)
 /// Uses parallel iteration for improved performance on large directories
-pub fn scan_image_paths(input_paths: &[PathBuf], scan_subfolders: bool) -> Result<Vec<PathBuf>> {
+pub fn scan_image_paths(input_paths: &[Utf8PathBuf], scan_subfolders: bool) -> Result<Vec<Utf8PathBuf>> {
     // Parallel iteration over input paths
-    let mut paths: Vec<PathBuf> = input_paths
+    let mut paths: Vec<Utf8PathBuf> = input_paths
         .par_iter()
         .flat_map_iter(|path| {
-            if path.is_file() {
+            let std_path = path.as_std_path();
+            if std_path.is_file() {
                 // File case: return iterator with single element if supported
-                if is_supported_image(path) {
+                if is_supported_image(std_path) {
                     vec![path.clone()].into_iter()
                 } else {
                     vec![].into_iter()
                 }
-            } else if path.is_dir() {
+            } else if std_path.is_dir() {
                 // Directory case: scan recursively in parallel
-                match scan_directory_recursive_parallel(path, scan_subfolders) {
+                match scan_directory_recursive_parallel(std_path, scan_subfolders) {
                     Ok(dir_paths) => dir_paths.into_iter(),
                     Err(e) => {
-                        warn!("Failed to scan directory {}: {}", path.display(), e);
+                        warn!("Failed to scan directory {}: {}", path, e);
                         vec![].into_iter()
                     }
                 }
@@ -334,8 +337,8 @@ pub fn scan_image_paths(input_paths: &[PathBuf], scan_subfolders: bool) -> Resul
     // Sort paths alphanumerically (must be sequential for consistent ordering)
     paths.sort_by(|a, b| {
         alphanumeric_sort::compare_str(
-            a.to_string_lossy().as_ref(),
-            b.to_string_lossy().as_ref(),
+            a.as_str(),
+            b.as_str(),
         )
     });
 
@@ -351,7 +354,7 @@ pub fn scan_image_paths(input_paths: &[PathBuf], scan_subfolders: bool) -> Resul
 
 /// Parallel recursive directory scanning
 /// Uses rayon for work-stealing parallelism across directory tree
-fn scan_directory_recursive_parallel(dir: &Path, recursive: bool) -> Result<Vec<PathBuf>> {
+fn scan_directory_recursive_parallel(dir: &Path, recursive: bool) -> Result<Vec<Utf8PathBuf>> {
     let entries = match std::fs::read_dir(dir) {
         Ok(e) => e,
         Err(e) => {
@@ -361,15 +364,18 @@ fn scan_directory_recursive_parallel(dir: &Path, recursive: bool) -> Result<Vec<
     };
 
     // Parallel iteration over directory entries
-    let paths: Vec<PathBuf> = entries
+    let paths: Vec<Utf8PathBuf> = entries
         .flatten()  // Filter out Err entries
         .par_bridge()  // Convert iterator to parallel iterator
         .flat_map_iter(|entry| {
             let path = entry.path();
 
             if path.is_file() && is_supported_image(&path) {
-                // File case: return single-element iterator
-                vec![path].into_iter()
+                // File case: convert to Utf8PathBuf, skip if not valid UTF-8
+                match Utf8PathBuf::try_from(path) {
+                    Ok(utf8_path) => vec![utf8_path].into_iter(),
+                    Err(_) => vec![].into_iter(),
+                }
             } else if path.is_dir() && recursive {
                 // Recursive case: scan subdirectory in parallel
                 match scan_directory_recursive_parallel(&path, recursive) {
@@ -403,11 +409,11 @@ mod tests {
     fn test_preload_indices() {
         let mut loader = ImageLoader::new(2);
         loader.paths = vec![
-            PathBuf::from("1.png"),
-            PathBuf::from("2.png"),
-            PathBuf::from("3.png"),
-            PathBuf::from("4.png"),
-            PathBuf::from("5.png"),
+            Utf8PathBuf::from("1.png"),
+            Utf8PathBuf::from("2.png"),
+            Utf8PathBuf::from("3.png"),
+            Utf8PathBuf::from("4.png"),
+            Utf8PathBuf::from("5.png"),
         ];
         loader.current_index = 2;
 
@@ -421,9 +427,9 @@ mod tests {
     fn test_next_wraps_around() {
         let mut loader = ImageLoader::new(1);
         loader.paths = vec![
-            PathBuf::from("1.png"),
-            PathBuf::from("2.png"),
-            PathBuf::from("3.png"),
+            Utf8PathBuf::from("1.png"),
+            Utf8PathBuf::from("2.png"),
+            Utf8PathBuf::from("3.png"),
         ];
         loader.current_index = 2; // Last image
 
@@ -436,8 +442,8 @@ mod tests {
     fn test_next_pause_at_last() {
         let mut loader = ImageLoader::new(1);
         loader.paths = vec![
-            PathBuf::from("1.png"),
-            PathBuf::from("2.png"),
+            Utf8PathBuf::from("1.png"),
+            Utf8PathBuf::from("2.png"),
         ];
         loader.current_index = 1; // Last image
 
@@ -450,9 +456,9 @@ mod tests {
     fn test_previous_wraps_around() {
         let mut loader = ImageLoader::new(1);
         loader.paths = vec![
-            PathBuf::from("1.png"),
-            PathBuf::from("2.png"),
-            PathBuf::from("3.png"),
+            Utf8PathBuf::from("1.png"),
+            Utf8PathBuf::from("2.png"),
+            Utf8PathBuf::from("3.png"),
         ];
         loader.current_index = 0; // First image
 
@@ -473,11 +479,11 @@ mod tests {
     fn test_shuffle_changes_order() {
         let mut loader = ImageLoader::new(1);
         loader.paths = vec![
-            PathBuf::from("1.png"),
-            PathBuf::from("2.png"),
-            PathBuf::from("3.png"),
-            PathBuf::from("4.png"),
-            PathBuf::from("5.png"),
+            Utf8PathBuf::from("1.png"),
+            Utf8PathBuf::from("2.png"),
+            Utf8PathBuf::from("3.png"),
+            Utf8PathBuf::from("4.png"),
+            Utf8PathBuf::from("5.png"),
         ];
         let original = loader.paths.clone();
 

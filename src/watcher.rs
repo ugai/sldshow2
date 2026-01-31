@@ -3,9 +3,9 @@
 //! Monitors image directories for changes and automatically refreshes the image list.
 
 use bevy::prelude::*;
+use camino::Utf8PathBuf;
 use notify::{Event, EventKind, RecommendedWatcher, RecursiveMode};
 use notify_debouncer_full::{new_debouncer, DebounceEventResult, Debouncer, FileIdMap};
-use std::path::PathBuf;
 use std::sync::{mpsc::{channel, Receiver, Sender}, Arc, Mutex};
 use std::time::Duration;
 
@@ -17,13 +17,13 @@ pub struct FileWatcher {
     #[allow(dead_code)]
     debouncer: Debouncer<RecommendedWatcher, FileIdMap>,
     receiver: Arc<Mutex<Receiver<DebounceEventResult>>>,
-    watched_paths: Vec<PathBuf>,
+    watched_paths: Vec<Utf8PathBuf>,
     scan_subfolders: bool,
 }
 
 impl FileWatcher {
     /// Create a new FileWatcher for the given paths
-    pub fn new(paths: Vec<PathBuf>, scan_subfolders: bool) -> anyhow::Result<Self> {
+    pub fn new(paths: Vec<Utf8PathBuf>, scan_subfolders: bool) -> anyhow::Result<Self> {
         let (tx, rx): (Sender<DebounceEventResult>, Receiver<DebounceEventResult>) = channel();
 
         // Create debouncer with 500ms delay to avoid rapid re-scans
@@ -45,11 +45,11 @@ impl FileWatcher {
         };
 
         for path in &paths {
-            if path.is_dir() {
+            if path.as_std_path().is_dir() {
                 debouncer
-                    .watch(path, recursive_mode)
-                    .map_err(|e| anyhow::anyhow!("Failed to watch path {}: {}", path.display(), e))?;
-                info!("Watching directory: {}", path.display());
+                    .watch(path.as_std_path(), recursive_mode)
+                    .map_err(|e| anyhow::anyhow!("Failed to watch path {}: {}", path, e))?;
+                info!("Watching directory: {}", path);
             }
         }
 
@@ -111,7 +111,7 @@ impl FileWatcher {
         }
     }
 
-    pub fn watched_paths(&self) -> &[PathBuf] {
+    pub fn watched_paths(&self) -> &[Utf8PathBuf] {
         &self.watched_paths
     }
 }

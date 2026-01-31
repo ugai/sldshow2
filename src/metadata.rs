@@ -2,7 +2,7 @@
 //!
 //! Provides lightweight metadata reading without full image decode.
 
-use std::path::Path;
+use camino::Utf8Path;
 
 /// Image metadata extracted from EXIF and file info
 #[derive(Debug, Clone)]
@@ -26,8 +26,8 @@ pub struct ImageMetadata {
 
 impl ImageMetadata {
     /// Extract metadata from an image file
-    pub fn from_path(path: &Path) -> Self {
-        match std::fs::File::open(path) {
+    pub fn from_path(path: &Utf8Path) -> Self {
+        match std::fs::File::open(path.as_std_path()) {
             Ok(mut file) => {
                 let mut bufreader = std::io::BufReader::new(&mut file);
                 match exif::Reader::new().read_from_container(&mut bufreader) {
