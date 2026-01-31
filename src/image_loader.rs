@@ -34,8 +34,8 @@ pub struct ImageLoader {
     pub cache_extent: usize,
     /// Loaded image handles
     pub handles: HashMap<usize, Handle<Image>>,
-    /// Active loading tasks (index -> task)
-    pub loading_tasks: HashMap<usize, Task<Result<(usize, Image)>>>,
+    /// Active loading tasks (index -> task) - now includes metadata
+    pub loading_tasks: HashMap<usize, Task<Result<(usize, Image, ImageMetadata)>>>,
     /// Cached metadata for images
     pub metadata_cache: HashMap<usize, ImageMetadata>,
 }
@@ -165,26 +165,18 @@ impl ImageLoader {
         self.paths.is_empty()
     }
 
-    /// Get metadata for an image, loading it if not cached
-    pub fn get_metadata(&mut self, index: usize) -> Option<ImageMetadata> {
-        // Return cached if available
-        if let Some(metadata) = self.metadata_cache.get(&index) {
-            return Some(metadata.clone());
-        }
-
-        // Load metadata if path exists
-        if let Some(path) = self.paths.get(index) {
-            let metadata = ImageMetadata::from_path(path);
-            self.metadata_cache.insert(index, metadata.clone());
-            Some(metadata)
-        } else {
-            None
-        }
+    /// Get metadata for an image (cache-only, non-blocking)
+    /// Metadata is loaded asynchronously by load_images_system
+    #[allow(dead_code)]
+    pub fn get_metadata(&self, index: usize) -> Option<ImageMetadata> {
+        // IMPORTANT: Only read from cache - DO NOT load on main thread!
+        // Metadata is loaded in background by the async task
+        self.metadata_cache.get(&index).cloned()
     }
 
-    /// Get metadata for the current image
-    pub fn current_metadata(&mut self) -> Option<ImageMetadata> {
-        self.get_metadata(self.current_index)
+    /// Get cached metadata for the current image (read-only)
+    pub fn current_metadata(&self) -> Option<&ImageMetadata> {
+        self.metadata_cache.get(&self.current_index)
     }
 }
 
@@ -239,10 +231,12 @@ fn load_images_system(
         return;
     }
 
-    // Poll existing tasks and collect completed results
+    // Poll existing tasks and collect completed results (non-blocking check)
     let mut completed_results = Vec::new();
     loader.loading_tasks.retain(|idx, task| {
-        if let Some(result) = bevy::tasks::block_on(bevy::tasks::poll_once(task)) {
+        if task.is_finished() {
+            // Task is done, extract result (block_on is instant for finished tasks)
+            let result = bevy::tasks::block_on(task);
             completed_results.push((*idx, result));
             false // Remove completed task
         } else {
@@ -250,13 +244,14 @@ fn load_images_system(
         }
     });
 
-    // Add completed images to assets
+    // Add completed images and metadata to assets
     for (idx, result) in completed_results {
         match result {
-            Ok((task_idx, image)) => {
+            Ok((task_idx, image, metadata)) => {
                 debug!("Successfully loaded image: {}x{}", image.width(), image.height());
                 let handle = images.add(image);
                 loader.handles.insert(task_idx, handle);
+                loader.metadata_cache.insert(task_idx, metadata); // Cache metadata loaded in background
             }
             Err(e) => {
                 error!("Failed to load image at index {}: {}", idx, e);
@@ -274,9 +269,13 @@ fn load_images_system(
             if let Some(path) = loader.paths.get(idx).cloned() {
                 debug!("Starting async load for image: {}", path);
 
-                // Spawn async task to load image
+                // Spawn async task to load image and metadata together
                 let task = task_pool.spawn(async move {
-                    load_image_from_path(path.as_std_path()).map(|img| (idx, img))
+                    // Load image from file
+                    let image = load_image_from_path(path.as_std_path())?;
+                    // Load metadata in background (non-blocking)
+                    let metadata = ImageMetadata::from_path(&path);
+                    Ok((idx, image, metadata))
                 });
 
                 loader.loading_tasks.insert(idx, task);

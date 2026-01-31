@@ -5,6 +5,7 @@
 
 mod config;
 mod consts;
+mod diagnostics;
 mod error;
 mod image_loader;
 mod metadata;
@@ -87,18 +88,25 @@ fn main() {
         .add_plugins(ImageLoaderPlugin)
         .add_plugins(SlideshowPlugin)
         .add_plugins(TransitionPlugin)
+        .add_plugins(diagnostics::DiagnosticsPlugin)
         .add_systems(Startup, setup)
         .add_systems(Update, (
             start_image_scan,
-            poll_image_scan,
+            poll_image_scan.after(start_image_scan),
             keyboard_input_system,
             handle_slideshow_advance,
             detect_image_change,
             trigger_transition.after(detect_image_change),
             update_transition_on_resize,
-        ).chain())
+        ))
         .add_systems(Update, update_image_path_text)
         .add_systems(Update, poll_file_watcher_system)
+        .add_systems(Update, optimize_power_mode)
+        // Transition systems - explicit ordering for smooth animation
+        .add_systems(Update, (
+            transition::handle_transition_events,
+            transition::update_transitions.after(transition::handle_transition_events),
+        ))
         .run();
 }
 
@@ -218,8 +226,10 @@ fn poll_image_scan(
     config: Res<Config>,
 ) {
     for (entity, mut task) in &mut tasks {
-        // Non-blocking check
-        if let Some(result) = bevy::tasks::block_on(bevy::tasks::poll_once(&mut task.0)) {
+        // Non-blocking check - only process if task is finished
+        if task.0.is_finished() {
+            // Task is done, extract result (block_on is instant for finished tasks)
+            let result = bevy::tasks::block_on(&mut task.0);
             match result {
                 Ok(paths) => {
                     info!("Image scan complete: {} images found", paths.len());
@@ -312,7 +322,9 @@ fn detect_image_change(
     mut transition_events: EventWriter<TransitionEvent>,
     config: Res<Config>,
     images: Res<Assets<Image>>,
-    transition_state: Res<TransitionState>,
+    mut transition_state: ResMut<TransitionState>,
+    mut metrics: ResMut<diagnostics::TransitionMetrics>,
+    time: Res<Time>,
 ) {
     // Early returns for invalid states
     if loader.is_empty() {
@@ -324,8 +336,26 @@ fn detect_image_change(
         return;
     };
 
+    // Ensure current image is fully loaded before triggering transition
     if images.get(current_handle).is_none() {
         return;
+    }
+
+    // Also check if we're preloading the next image - don't start transition until it's ready
+    // This prevents stuttering caused by loading during animation
+    let next_index = if config.viewer.pause_at_last && current_index >= loader.len().saturating_sub(1) {
+        current_index
+    } else {
+        (current_index + 1) % loader.len()
+    };
+
+    if next_index != current_index {
+        if let Some(next_handle) = loader.handles.get(&next_index) {
+            if images.get(next_handle).is_none() {
+                // Next image is still loading - wait for it to prevent stutter
+                return;
+            }
+        }
     }
 
     // No change detected
@@ -333,9 +363,27 @@ fn detect_image_change(
         return;
     }
 
-    // Throttle during active transitions
-    if transition_state.active.is_some() {
-        return;
+    // Handle rapid switching with debouncing
+    if let Some(ref transition) = transition_state.active {
+        let elapsed = time.elapsed_secs() - transition.start_time;
+        let min_transition_time = 0.1; // Allow at least 100ms before cancelling
+
+        // Only cancel if transition has been running for at least min_transition_time
+        // This prevents excessive cancellations during normal usage
+        if elapsed >= min_transition_time {
+            // Rapid switching detected - cancel current transition
+            diagnostics::track_transition_cancel(&mut metrics);
+            info!("Transition cancelled after {:.3}s due to rapid switching", elapsed);
+
+            // Update displayed_image to current transition target immediately
+            transition_state.displayed_image = Some(transition.to_image.clone());
+            transition_state.active = None;
+            // Fall through to start new transition below
+        } else {
+            // Transition just started - let it run a bit before allowing cancellation
+            // Track the pending change but don't start new transition yet
+            return;
+        }
     }
 
     let mode = if config.transition.random {
@@ -403,11 +451,6 @@ fn update_transition_material(
     image_b_size: Vec2,
     bg: [f32; 4],
 ) {
-    info!("DEBUG: Before update - current blend={}, texture_a={:?}, texture_b={:?}",
-          material.uniforms.blend,
-          material.texture_a.id(),
-          material.texture_b.id());
-
     if event.duration == 0.0 {
         // For instant display, set both textures to the target image
         material.texture_a = event.to_image.clone();
@@ -415,8 +458,6 @@ fn update_transition_material(
         material.uniforms.blend = 1.0;
 
         transition_state.displayed_image = Some(event.to_image.clone());
-        info!("DEBUG: Instant transition in trigger_transition - updated displayed_image to {:?}",
-              event.to_image.id());
     } else {
         // For normal transition, use displayed_image → target
         material.texture_a = texture_a;
@@ -452,8 +493,6 @@ fn spawn_transition_entity(
 
     let (final_texture_a, final_texture_b, initial_blend) = if event.duration == 0.0 {
         transition_state.displayed_image = Some(event.to_image.clone());
-        info!("DEBUG: Instant transition (new entity) - updated displayed_image to {:?}",
-              event.to_image.id());
         (event.to_image.clone(), event.to_image.clone(), 1.0)
     } else {
         (texture_a, event.to_image.clone(), 0.0)
@@ -518,12 +557,6 @@ fn trigger_transition(
         let texture_a = transition_state.displayed_image
             .clone()
             .unwrap_or_else(|| event.from_image.clone());
-
-        info!("DEBUG: displayed_image={:?}, texture_a={:?}, texture_b={:?}, duration={}",
-              transition_state.displayed_image.as_ref().map(|h| h.id()),
-              texture_a.id(),
-              event.to_image.id(),
-              event.duration);
 
         // Try to reuse existing entity to avoid spawn/despawn overhead
         if let Ok((entity, material_handle)) = existing_entity.get_single() {
@@ -722,13 +755,27 @@ fn handle_slideshow_advance(
 
 /// Update the image path text display
 fn update_image_path_text(
-    mut loader: ResMut<ImageLoader>,
+    loader: Res<ImageLoader>,
     config: Res<Config>,
     mut text_query: Query<&mut Text, With<ImagePathText>>,
+    mut last_index: Local<Option<usize>>,
+    transition_state: Res<TransitionState>,
 ) {
     if !config.style.show_image_path {
         return;
     }
+
+    // Don't update during transitions to prevent flickering
+    if transition_state.active.is_some() {
+        return;
+    }
+
+    // Only update if the current index has changed
+    let current_index = Some(loader.current_index);
+    if *last_index == current_index {
+        return;
+    }
+    *last_index = current_index;
 
     for mut text in text_query.iter_mut() {
         if let Some(path) = loader.current_path() {
@@ -786,4 +833,29 @@ fn update_transition_on_resize(
             }
         }
     }
+}
+
+/// Dynamically adjust power mode based on activity
+/// - Continuous: During transitions or active slideshow playback (smooth animation)
+/// - Reactive: When paused and idle (save GPU/CPU power)
+fn optimize_power_mode(
+    mut winit_settings: ResMut<WinitSettings>,
+    transition_state: Res<TransitionState>,
+    slideshow_timer: Res<SlideshowTimer>,
+) {
+    let is_transitioning = transition_state.active.is_some();
+    let is_playing = !slideshow_timer.paused && slideshow_timer.interval > 0.0;
+
+    if is_transitioning || is_playing {
+        // Need smooth animation or accurate timer firing
+        winit_settings.focused_mode = bevy::winit::UpdateMode::Continuous;
+    } else {
+        // Totally static (paused and not transitioning)
+        // Wait for input (mouse, key, resize) instead of continuous rendering
+        // Wait indefinitely for events - maximum power saving
+        winit_settings.focused_mode = bevy::winit::UpdateMode::reactive(std::time::Duration::MAX);
+    }
+
+    // Always save power when unfocused
+    winit_settings.unfocused_mode = bevy::winit::UpdateMode::reactive(std::time::Duration::MAX);
 }
