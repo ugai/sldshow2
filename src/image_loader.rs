@@ -2,6 +2,7 @@ use crate::error::{Result, SldshowError};
 use bevy::prelude::*;
 use bevy::render::render_asset::RenderAssetUsages;
 use bevy::tasks::{AsyncComputeTaskPool, Task};
+use rayon::prelude::*;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
@@ -276,20 +277,35 @@ fn load_images_system(
 
 
 /// Standalone function to scan paths (can be run in background thread)
+/// Uses parallel iteration for improved performance on large directories
 pub fn scan_image_paths(input_paths: &[PathBuf], scan_subfolders: bool) -> Result<Vec<PathBuf>> {
-    let mut paths = Vec::new();
-
-    for path in input_paths {
-        if path.is_file() {
-            if is_supported_image(path) {
-                paths.push(path.clone());
+    // Parallel iteration over input paths
+    let mut paths: Vec<PathBuf> = input_paths
+        .par_iter()
+        .flat_map_iter(|path| {
+            if path.is_file() {
+                // File case: return iterator with single element if supported
+                if is_supported_image(path) {
+                    vec![path.clone()].into_iter()
+                } else {
+                    vec![].into_iter()
+                }
+            } else if path.is_dir() {
+                // Directory case: scan recursively in parallel
+                match scan_directory_recursive_parallel(path, scan_subfolders) {
+                    Ok(dir_paths) => dir_paths.into_iter(),
+                    Err(e) => {
+                        warn!("Failed to scan directory {}: {}", path.display(), e);
+                        vec![].into_iter()
+                    }
+                }
+            } else {
+                vec![].into_iter()
             }
-        } else if path.is_dir() {
-            scan_directory_recursive(path, scan_subfolders, &mut paths)?;
-        }
-    }
+        })
+        .collect();
 
-    // Sort paths alphanumerically
+    // Sort paths alphanumerically (must be sequential for consistent ordering)
     paths.sort_by(|a, b| {
         alphanumeric_sort::compare_str(
             a.to_string_lossy().as_ref(),
@@ -307,27 +323,40 @@ pub fn scan_image_paths(input_paths: &[PathBuf], scan_subfolders: bool) -> Resul
     Ok(paths)
 }
 
-/// Helper for recursive directory scanning
-fn scan_directory_recursive(dir: &Path, recursive: bool, paths: &mut Vec<PathBuf>) -> Result<()> {
+/// Parallel recursive directory scanning
+/// Uses rayon for work-stealing parallelism across directory tree
+fn scan_directory_recursive_parallel(dir: &Path, recursive: bool) -> Result<Vec<PathBuf>> {
     let entries = match std::fs::read_dir(dir) {
         Ok(e) => e,
         Err(e) => {
             warn!("Failed to read directory {}: {}", dir.display(), e);
-            return Ok(());
+            return Ok(Vec::new());  // Return empty vec, don't fail entire scan
         }
     };
 
-    for entry in entries.flatten() {
-        let path = entry.path();
+    // Parallel iteration over directory entries
+    let paths: Vec<PathBuf> = entries
+        .flatten()  // Filter out Err entries
+        .par_bridge()  // Convert iterator to parallel iterator
+        .flat_map_iter(|entry| {
+            let path = entry.path();
 
-        if path.is_file() && is_supported_image(&path) {
-            paths.push(path);
-        } else if path.is_dir() && recursive {
-            let _ = scan_directory_recursive(&path, recursive, paths);
-        }
-    }
+            if path.is_file() && is_supported_image(&path) {
+                // File case: return single-element iterator
+                vec![path].into_iter()
+            } else if path.is_dir() && recursive {
+                // Recursive case: scan subdirectory in parallel
+                match scan_directory_recursive_parallel(&path, recursive) {
+                    Ok(subdir_paths) => subdir_paths.into_iter(),
+                    Err(_) => vec![].into_iter(),  // Silently skip failed subdirs
+                }
+            } else {
+                vec![].into_iter()
+            }
+        })
+        .collect();
 
-    Ok(())
+    Ok(paths)
 }
 
 #[cfg(test)]
