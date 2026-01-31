@@ -82,20 +82,13 @@ pub struct TransitionState {
 }
 
 /// Active transition data
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct ActiveTransition {
     /// Start time
     pub start_time: f32,
     /// Duration in seconds
     pub duration: f32,
-    /// Transition mode
-    #[allow(dead_code)]
-    pub mode: i32,
-    /// Source image handle
-    #[allow(dead_code)]
-    pub from_image: Handle<Image>,
-    /// Target image handle
-    #[allow(dead_code)]
+    /// Target image handle (needed for updating displayed_image)
     pub to_image: Handle<Image>,
 }
 
@@ -123,8 +116,6 @@ fn handle_transition_events(
         state.active = Some(ActiveTransition {
             start_time: time.elapsed_secs(),
             duration: event.duration,
-            mode: event.mode,
-            from_image: event.from_image.clone(),
             to_image: event.to_image.clone(),
         });
 
