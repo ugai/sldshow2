@@ -30,3 +30,4 @@ nul
 .sldshow
 *.sldshow
 !example.sldshow
+draft/
