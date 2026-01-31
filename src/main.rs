@@ -247,7 +247,6 @@ fn poll_image_scan(
 #[derive(Resource, Default)]
 struct ImageChangeTracker {
     last_index: Option<usize>,
-    previous_handle: Option<Handle<Image>>,
 }
 
 /// Resource to track keyboard repeat timing
@@ -310,31 +309,34 @@ fn detect_image_change(
 
     // Detect change
     if tracker.last_index != Some(current_index) {
-        if let Some(prev_handle) = tracker.previous_handle.clone() {
-            // Image changed, trigger transition
-            let mode = if config.transition.random {
-                transition::random_transition_mode()
-            } else {
-                config.transition.mode
-            };
+        if let Some(prev_index) = tracker.last_index {
+            // Get previous handle from loader
+            if let Some(prev_handle) = loader.handles.get(&prev_index) {
+                // Image changed, trigger transition
+                let mode = if config.transition.random {
+                    transition::random_transition_mode()
+                } else {
+                    config.transition.mode
+                };
 
-            // If there's an active transition, skip processing to reduce GPU load
-            // This throttles updates during rapid switching
-            if transition_state.active.is_some() {
-                // Transition is active - skip this update
-                // The next detect_image_change call will sync when transition completes
-                return;
+                // If there's an active transition, skip processing to reduce GPU load
+                // This throttles updates during rapid switching
+                if transition_state.active.is_some() {
+                    // Transition is active - skip this update
+                    // The next detect_image_change call will sync when transition completes
+                    return;
+                }
+
+                // No active transition - start new transition
+                info!("Normal transition: image {} -> image {}",
+                      prev_index + 1, current_index + 1);
+                transition_events.send(TransitionEvent {
+                    from_image: prev_handle.clone(),
+                    to_image: current_handle.clone(),
+                    duration: config.transition.time,
+                    mode,
+                });
             }
-
-            // No active transition - start new transition
-            info!("Normal transition: image {} -> image {}",
-                  tracker.last_index.unwrap_or(0) + 1, current_index + 1);
-            transition_events.send(TransitionEvent {
-                from_image: prev_handle,
-                to_image: current_handle.clone(),
-                duration: config.transition.time,
-                mode,
-            });
         } else {
             // First image - show it instantly with zero-duration transition
             info!("First image loaded - showing instantly");
@@ -353,7 +355,6 @@ fn detect_image_change(
         }
 
         tracker.last_index = Some(current_index);
-        tracker.previous_handle = Some(current_handle.clone());
     }
 }
 
