@@ -47,6 +47,9 @@ thiserror = "2.0"
 # Validation
 validator = { version = "0.19", features = ["derive"] }
 
+# Parallel computation
+rayon = "1.10"
+
 [target.'cfg(windows)'.dependencies]
 windows = { version = "0.58", features = [
     "Win32_System_Power",
