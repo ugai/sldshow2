@@ -10,11 +10,10 @@ use bevy::prelude::*;
 use bevy::render::render_resource::{AsBindGroup, Shader, ShaderRef, ShaderType};
 use bevy::sprite::{Material2d, Material2dPlugin};
 
+use crate::consts::TRANSITION_SHADER_HANDLE;
+
 /// Transition material plugin
 pub struct TransitionPlugin;
-
-// Shader handle for the transition shader
-pub const TRANSITION_SHADER_HANDLE: Handle<Shader> = Handle::weak_from_u128(0x1234_5678_9abc_def0);
 
 impl Plugin for TransitionPlugin {
     fn build(&self, app: &mut App) {
@@ -30,8 +29,8 @@ impl Plugin for TransitionPlugin {
 
         app.add_plugins(Material2dPlugin::<TransitionMaterial>::default())
             .add_event::<TransitionEvent>()
-            .init_resource::<TransitionState>()
-            .add_systems(Update, (handle_transition_events, update_transitions));
+            .init_resource::<TransitionState>();
+            // Note: update_transitions is now scheduled in main.rs for explicit ordering
     }
 }
 
@@ -82,20 +81,17 @@ pub struct TransitionState {
 }
 
 /// Active transition data
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct ActiveTransition {
+    /// Warmup flag - first frame resets timer after GPU texture upload
+    pub warmup: bool,
     /// Start time
     pub start_time: f32,
     /// Duration in seconds
     pub duration: f32,
-    /// Transition mode
-    #[allow(dead_code)]
-    pub mode: i32,
-    /// Source image handle
-    #[allow(dead_code)]
-    pub from_image: Handle<Image>,
-    /// Target image handle
-    #[allow(dead_code)]
+    /// Current progress (0.0 to 1.0) - tracked to prevent frame time jumps
+    pub progress: f32,
+    /// Target image handle (needed for updating displayed_image)
     pub to_image: Handle<Image>,
 }
 
@@ -109,10 +105,11 @@ pub struct TransitionEvent {
 }
 
 /// Handle transition events
-fn handle_transition_events(
+pub fn handle_transition_events(
     mut events: EventReader<TransitionEvent>,
     mut state: ResMut<TransitionState>,
     time: Res<Time>,
+    mut metrics: ResMut<crate::diagnostics::TransitionMetrics>,
 ) {
     for event in events.read() {
         // Initialize displayed_image on first transition
@@ -121,26 +118,42 @@ fn handle_transition_events(
         }
 
         state.active = Some(ActiveTransition {
+            warmup: true, // Start in warmup mode to absorb heavy first frame
             start_time: time.elapsed_secs(),
             duration: event.duration,
-            mode: event.mode,
-            from_image: event.from_image.clone(),
+            progress: 0.0, // Initialize progress tracking
             to_image: event.to_image.clone(),
         });
 
+        crate::diagnostics::track_transition_start(&mut metrics);
         info!("Starting transition: mode {} duration {}s", event.mode, event.duration);
     }
 }
 
 /// Update active transitions
-fn update_transitions(
+pub fn update_transitions(
     mut state: ResMut<TransitionState>,
     time: Res<Time>,
     mut materials: ResMut<Assets<TransitionMaterial>>,
+    mut metrics: ResMut<crate::diagnostics::TransitionMetrics>,
 ) {
-    let Some(ref transition) = state.active else {
+    let Some(ref mut transition) = state.active else {
         return;
     };
+
+    // [WARMUP] Handle first frame after transition start
+    // The first frame often has heavy GPU work (texture upload)
+    // We absorb this delay by resetting the timer AFTER the heavy frame
+    if transition.warmup {
+        transition.warmup = false;
+        transition.start_time = time.elapsed_secs(); // Reset timer to NOW
+
+        // Ensure blend starts at 0.0
+        for (_id, material) in materials.iter_mut() {
+            material.uniforms.blend = 0.0;
+        }
+        return;
+    }
 
     // Handle instant transitions (duration = 0)
     if transition.duration == 0.0 {
@@ -149,33 +162,49 @@ fn update_transitions(
             material.uniforms.blend = 1.0;
         }
 
+        // Clone target before modifying state
+        let to_image = transition.to_image.clone();
+
         // Update displayed_image to target
-        info!("DEBUG: Instant transition - updating displayed_image from {:?} to {:?}",
-              state.displayed_image.as_ref().map(|h| h.id()),
-              transition.to_image.id());
-        state.displayed_image = Some(transition.to_image.clone());
+        state.displayed_image = Some(to_image);
         // Instant transition - mark as complete immediately
         state.active = None;
         info!("Transition complete (instant)");
         return;
     }
 
-    let elapsed = time.elapsed_secs() - transition.start_time;
-    let progress = (elapsed / transition.duration).clamp(0.0, 1.0);
+    // Use delta-based progression with frame time clamping to prevent stuttering
+    // Clamp delta to ~30fps minimum (0.033s) to prevent large jumps from frame spikes
+    let delta = time.delta_secs().min(0.033);
+    let progress_delta = delta / transition.duration;
 
-    // Update all transition materials
+    // Update progress incrementally instead of recalculating from elapsed time
+    // This prevents jumps when frame time spikes occur
+    let linear_progress = (transition.progress + progress_delta).clamp(0.0, 1.0);
+    transition.progress = linear_progress;
+
+    // Apply smoothstep easing for natural-looking animation
+    // Formula: 3x² - 2x³
+    // This makes the transition start slowly, speed up, then slow down at the end
+    // Also masks small stutters by reducing visual impact of frame time variations
+    let eased_progress = linear_progress * linear_progress * (3.0 - 2.0 * linear_progress);
+
+    // Update all transition materials with eased progress
     for (_id, material) in materials.iter_mut() {
-        material.uniforms.blend = progress;
+        material.uniforms.blend = eased_progress;
     }
 
     // Remove transition when complete
-    if progress >= 1.0 {
-        info!("DEBUG: Normal transition complete - updating displayed_image from {:?} to {:?}",
-              state.displayed_image.as_ref().map(|h| h.id()),
-              transition.to_image.id());
-        state.displayed_image = Some(transition.to_image.clone());
+    if transition.progress >= 1.0 {
+        // Clone target before modifying state
+        let to_image = transition.to_image.clone();
+        let actual_duration = time.elapsed_secs() - transition.start_time;
+
+        state.displayed_image = Some(to_image);
         state.active = None;
-        info!("Transition complete");
+
+        crate::diagnostics::track_transition_complete(&mut metrics, actual_duration);
+        info!("Transition complete (actual duration: {:.3}s)", actual_duration);
 
         // Note: pending_target will be processed by detect_image_change
         // when it detects that active is None

@@ -1,9 +1,12 @@
-use anyhow::Result;
+use crate::error::{Result, SldshowError};
+use crate::metadata::ImageMetadata;
 use bevy::prelude::*;
 use bevy::render::render_asset::RenderAssetUsages;
 use bevy::tasks::{AsyncComputeTaskPool, Task};
-use std::collections::HashMap;
-use std::path::{Path, PathBuf};
+use camino::{Utf8Path, Utf8PathBuf};
+use rayon::prelude::*;
+use std::collections::{HashMap, HashSet};
+use std::path::Path;
 
 /// Supported image file extensions
 const SUPPORTED_EXTENSIONS: &[&str] = &[
@@ -14,7 +17,7 @@ const SUPPORTED_EXTENSIONS: &[&str] = &[
 #[derive(Debug, Clone)]
 #[allow(dead_code)]
 pub struct ImageEntry {
-    pub path: PathBuf,
+    pub path: Utf8PathBuf,
     pub index: usize,
 }
 
@@ -22,7 +25,7 @@ pub struct ImageEntry {
 #[derive(Resource)]
 pub struct ImageLoader {
     /// List of all scanned image paths
-    pub paths: Vec<PathBuf>,
+    pub paths: Vec<Utf8PathBuf>,
     /// Current display index
     pub current_index: usize,
     /// Whether shuffle mode is enabled
@@ -31,8 +34,10 @@ pub struct ImageLoader {
     pub cache_extent: usize,
     /// Loaded image handles
     pub handles: HashMap<usize, Handle<Image>>,
-    /// Active loading tasks (index -> task)
-    pub loading_tasks: HashMap<usize, Task<Result<(usize, Image)>>>,
+    /// Active loading tasks (index -> task) - now includes metadata
+    pub loading_tasks: HashMap<usize, Task<Result<(usize, Image, ImageMetadata)>>>,
+    /// Cached metadata for images
+    pub metadata_cache: HashMap<usize, ImageMetadata>,
 }
 
 impl Default for ImageLoader {
@@ -44,6 +49,7 @@ impl Default for ImageLoader {
             cache_extent: 5,
             handles: HashMap::new(),
             loading_tasks: HashMap::new(),
+            metadata_cache: HashMap::new(),
         }
     }
 }
@@ -60,7 +66,7 @@ impl ImageLoader {
 
     /// Scan paths for images (files or directories)
     #[allow(dead_code)]
-    pub fn scan_paths(&mut self, input_paths: &[PathBuf], scan_subfolders: bool) -> Result<()> {
+    pub fn scan_paths(&mut self, input_paths: &[Utf8PathBuf], scan_subfolders: bool) -> Result<()> {
         let sorted_paths = scan_image_paths(input_paths, scan_subfolders)?;
         self.paths = sorted_paths;
         info!("Scanned {} images", self.paths.len());
@@ -78,7 +84,7 @@ impl ImageLoader {
 
     /// Get current image path
     #[allow(dead_code)]
-    pub fn current_path(&self) -> Option<&Path> {
+    pub fn current_path(&self) -> Option<&Utf8Path> {
         self.paths.get(self.current_index).map(|p| p.as_path())
     }
 
@@ -158,6 +164,20 @@ impl ImageLoader {
     pub fn is_empty(&self) -> bool {
         self.paths.is_empty()
     }
+
+    /// Get metadata for an image (cache-only, non-blocking)
+    /// Metadata is loaded asynchronously by load_images_system
+    #[allow(dead_code)]
+    pub fn get_metadata(&self, index: usize) -> Option<ImageMetadata> {
+        // IMPORTANT: Only read from cache - DO NOT load on main thread!
+        // Metadata is loaded in background by the async task
+        self.metadata_cache.get(&index).cloned()
+    }
+
+    /// Get cached metadata for the current image (read-only)
+    pub fn current_metadata(&self) -> Option<&ImageMetadata> {
+        self.metadata_cache.get(&self.current_index)
+    }
 }
 
 /// Check if a path is a supported image file
@@ -171,7 +191,11 @@ pub fn is_supported_image(path: &Path) -> bool {
 /// Load an image directly from a filesystem path (for absolute paths)
 fn load_image_from_path(path: &Path) -> Result<Image> {
     // Load image
-    let img = image::open(path)?;
+    let img = image::open(path).map_err(|e| SldshowError::ImageLoadError {
+        path: Utf8PathBuf::try_from(path.to_path_buf())
+            .unwrap_or_else(|_| Utf8PathBuf::from(path.to_string_lossy().to_string())),
+        source: e,
+    })?;
     let img_rgba = img.to_rgba8();
     let (width, height) = img_rgba.dimensions();
 
@@ -207,10 +231,12 @@ fn load_images_system(
         return;
     }
 
-    // Poll existing tasks and collect completed results
+    // Poll existing tasks and collect completed results (non-blocking check)
     let mut completed_results = Vec::new();
     loader.loading_tasks.retain(|idx, task| {
-        if let Some(result) = bevy::tasks::block_on(bevy::tasks::poll_once(task)) {
+        if task.is_finished() {
+            // Task is done, extract result (block_on is instant for finished tasks)
+            let result = bevy::tasks::block_on(task);
             completed_results.push((*idx, result));
             false // Remove completed task
         } else {
@@ -218,13 +244,14 @@ fn load_images_system(
         }
     });
 
-    // Add completed images to assets
+    // Add completed images and metadata to assets
     for (idx, result) in completed_results {
         match result {
-            Ok((task_idx, image)) => {
+            Ok((task_idx, image, metadata)) => {
                 debug!("Successfully loaded image: {}x{}", image.width(), image.height());
                 let handle = images.add(image);
                 loader.handles.insert(task_idx, handle);
+                loader.metadata_cache.insert(task_idx, metadata); // Cache metadata loaded in background
             }
             Err(e) => {
                 error!("Failed to load image at index {}: {}", idx, e);
@@ -240,11 +267,15 @@ fn load_images_system(
     for &idx in &preload_indices {
         if !loader.handles.contains_key(&idx) && !loader.loading_tasks.contains_key(&idx) {
             if let Some(path) = loader.paths.get(idx).cloned() {
-                debug!("Starting async load for image: {}", path.display());
+                debug!("Starting async load for image: {}", path);
 
-                // Spawn async task to load image
+                // Spawn async task to load image and metadata together
                 let task = task_pool.spawn(async move {
-                    load_image_from_path(&path).map(|img| (idx, img))
+                    // Load image from file
+                    let image = load_image_from_path(path.as_std_path())?;
+                    // Load metadata in background (non-blocking)
+                    let metadata = ImageMetadata::from_path(&path);
+                    Ok((idx, image, metadata))
                 });
 
                 loader.loading_tasks.insert(idx, task);
@@ -253,7 +284,7 @@ fn load_images_system(
     }
 
     // Remove handles and tasks that are too far from current index
-    let indices_to_keep: Vec<usize> = preload_indices;
+    let indices_to_keep: HashSet<usize> = preload_indices.into_iter().collect();
     loader.handles.retain(|idx, handle| {
         if indices_to_keep.contains(idx) {
             true
@@ -273,51 +304,90 @@ fn load_images_system(
 
 
 /// Standalone function to scan paths (can be run in background thread)
-pub fn scan_image_paths(input_paths: &[PathBuf], scan_subfolders: bool) -> Result<Vec<PathBuf>> {
-    let mut paths = Vec::new();
-
-    for path in input_paths {
-        if path.is_file() {
-            if is_supported_image(path) {
-                paths.push(path.clone());
+/// Uses parallel iteration for improved performance on large directories
+pub fn scan_image_paths(input_paths: &[Utf8PathBuf], scan_subfolders: bool) -> Result<Vec<Utf8PathBuf>> {
+    // Parallel iteration over input paths
+    let mut paths: Vec<Utf8PathBuf> = input_paths
+        .par_iter()
+        .flat_map_iter(|path| {
+            let std_path = path.as_std_path();
+            if std_path.is_file() {
+                // File case: return iterator with single element if supported
+                if is_supported_image(std_path) {
+                    vec![path.clone()].into_iter()
+                } else {
+                    vec![].into_iter()
+                }
+            } else if std_path.is_dir() {
+                // Directory case: scan recursively in parallel
+                match scan_directory_recursive_parallel(std_path, scan_subfolders) {
+                    Ok(dir_paths) => dir_paths.into_iter(),
+                    Err(e) => {
+                        warn!("Failed to scan directory {}: {}", path, e);
+                        vec![].into_iter()
+                    }
+                }
+            } else {
+                vec![].into_iter()
             }
-        } else if path.is_dir() {
-            scan_directory_recursive(path, scan_subfolders, &mut paths)?;
-        }
-    }
+        })
+        .collect();
 
-    // Sort paths alphanumerically
+    // Sort paths alphanumerically (must be sequential for consistent ordering)
     paths.sort_by(|a, b| {
         alphanumeric_sort::compare_str(
-            a.to_string_lossy().as_ref(),
-            b.to_string_lossy().as_ref(),
+            a.as_str(),
+            b.as_str(),
         )
     });
+
+    // Return error if no images found
+    if paths.is_empty() {
+        return Err(SldshowError::NoImagesFound {
+            paths: input_paths.to_vec(),
+        });
+    }
 
     Ok(paths)
 }
 
-/// Helper for recursive directory scanning
-fn scan_directory_recursive(dir: &Path, recursive: bool, paths: &mut Vec<PathBuf>) -> Result<()> {
+/// Parallel recursive directory scanning
+/// Uses rayon for work-stealing parallelism across directory tree
+fn scan_directory_recursive_parallel(dir: &Path, recursive: bool) -> Result<Vec<Utf8PathBuf>> {
     let entries = match std::fs::read_dir(dir) {
         Ok(e) => e,
         Err(e) => {
             warn!("Failed to read directory {}: {}", dir.display(), e);
-            return Ok(());
+            return Ok(Vec::new());  // Return empty vec, don't fail entire scan
         }
     };
 
-    for entry in entries.flatten() {
-        let path = entry.path();
+    // Parallel iteration over directory entries
+    let paths: Vec<Utf8PathBuf> = entries
+        .flatten()  // Filter out Err entries
+        .par_bridge()  // Convert iterator to parallel iterator
+        .flat_map_iter(|entry| {
+            let path = entry.path();
 
-        if path.is_file() && is_supported_image(&path) {
-            paths.push(path);
-        } else if path.is_dir() && recursive {
-            let _ = scan_directory_recursive(&path, recursive, paths);
-        }
-    }
+            if path.is_file() && is_supported_image(&path) {
+                // File case: convert to Utf8PathBuf, skip if not valid UTF-8
+                match Utf8PathBuf::try_from(path) {
+                    Ok(utf8_path) => vec![utf8_path].into_iter(),
+                    Err(_) => vec![].into_iter(),
+                }
+            } else if path.is_dir() && recursive {
+                // Recursive case: scan subdirectory in parallel
+                match scan_directory_recursive_parallel(&path, recursive) {
+                    Ok(subdir_paths) => subdir_paths.into_iter(),
+                    Err(_) => vec![].into_iter(),  // Silently skip failed subdirs
+                }
+            } else {
+                vec![].into_iter()
+            }
+        })
+        .collect();
 
-    Ok(())
+    Ok(paths)
 }
 
 #[cfg(test)]
@@ -338,11 +408,11 @@ mod tests {
     fn test_preload_indices() {
         let mut loader = ImageLoader::new(2);
         loader.paths = vec![
-            PathBuf::from("1.png"),
-            PathBuf::from("2.png"),
-            PathBuf::from("3.png"),
-            PathBuf::from("4.png"),
-            PathBuf::from("5.png"),
+            Utf8PathBuf::from("1.png"),
+            Utf8PathBuf::from("2.png"),
+            Utf8PathBuf::from("3.png"),
+            Utf8PathBuf::from("4.png"),
+            Utf8PathBuf::from("5.png"),
         ];
         loader.current_index = 2;
 
@@ -350,5 +420,78 @@ mod tests {
         assert!(indices.contains(&2)); // current
         assert!(indices.contains(&3)); // next
         assert!(indices.contains(&1)); // previous
+    }
+
+    #[test]
+    fn test_next_wraps_around() {
+        let mut loader = ImageLoader::new(1);
+        loader.paths = vec![
+            Utf8PathBuf::from("1.png"),
+            Utf8PathBuf::from("2.png"),
+            Utf8PathBuf::from("3.png"),
+        ];
+        loader.current_index = 2; // Last image
+
+        // Next should wrap to first
+        assert!(loader.next(false));
+        assert_eq!(loader.current_index, 0);
+    }
+
+    #[test]
+    fn test_next_pause_at_last() {
+        let mut loader = ImageLoader::new(1);
+        loader.paths = vec![
+            Utf8PathBuf::from("1.png"),
+            Utf8PathBuf::from("2.png"),
+        ];
+        loader.current_index = 1; // Last image
+
+        // Should not advance when pause_at_last is true
+        assert!(!loader.next(true));
+        assert_eq!(loader.current_index, 1);
+    }
+
+    #[test]
+    fn test_previous_wraps_around() {
+        let mut loader = ImageLoader::new(1);
+        loader.paths = vec![
+            Utf8PathBuf::from("1.png"),
+            Utf8PathBuf::from("2.png"),
+            Utf8PathBuf::from("3.png"),
+        ];
+        loader.current_index = 0; // First image
+
+        // Previous should wrap to last
+        assert!(loader.previous());
+        assert_eq!(loader.current_index, 2);
+    }
+
+    #[test]
+    fn test_empty_loader() {
+        let loader = ImageLoader::default();
+        assert!(loader.is_empty());
+        assert_eq!(loader.len(), 0);
+        assert!(loader.current_path().is_none());
+    }
+
+    #[test]
+    fn test_shuffle_changes_order() {
+        let mut loader = ImageLoader::new(1);
+        loader.paths = vec![
+            Utf8PathBuf::from("1.png"),
+            Utf8PathBuf::from("2.png"),
+            Utf8PathBuf::from("3.png"),
+            Utf8PathBuf::from("4.png"),
+            Utf8PathBuf::from("5.png"),
+        ];
+        let original = loader.paths.clone();
+
+        loader.shuffle_paths();
+
+        // Paths should exist but may be in different order
+        assert_eq!(loader.paths.len(), original.len());
+        for path in &original {
+            assert!(loader.paths.contains(path));
+        }
     }
 }
