@@ -320,6 +320,27 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     let progress = material.blend;
     let mode = material.mode;
 
+    // Early exit optimization for static images (no blending needed)
+    if progress <= 0.0 {
+        // Show only image A
+        let uv_a = adjust_uv(in.uv, material.image_a_size, material.window_size);
+        if is_uv_in_bounds(uv_a) {
+            return textureSample(texture_a, sampler_a, uv_a);
+        } else {
+            return material.bg_color;
+        }
+    }
+
+    if progress >= 1.0 {
+        // Show only image B
+        let uv_b = adjust_uv(in.uv, material.image_b_size, material.window_size);
+        if is_uv_in_bounds(uv_b) {
+            return textureSample(texture_b, sampler_b, uv_b);
+        } else {
+            return material.bg_color;
+        }
+    }
+
     // Route to appropriate transition effect
     if mode == 0 {
         return ts_crossfading(in.uv, progress);
