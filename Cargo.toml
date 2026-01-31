@@ -61,6 +61,9 @@ serde_yaml = "0.9"
 # Image metadata
 kamadak-exif = "0.5"
 
+# UTF-8 path handling
+camino = { version = "1.1", features = ["serde1"] }
+
 [target.'cfg(windows)'.dependencies]
 windows = { version = "0.58", features = [
     "Win32_System_Power",

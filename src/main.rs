@@ -19,11 +19,11 @@ use bevy::sprite::MeshMaterial2d;
 use bevy::tasks::{AsyncComputeTaskPool, Task};
 use bevy::window::{WindowMode, PresentMode, MonitorSelection};
 use bevy::winit::WinitSettings;
+use camino::Utf8PathBuf;
 use config::Config;
 use consts::EMBEDDED_FONT_HANDLE;
 use image_loader::{ImageLoader, ImageLoaderPlugin, scan_image_paths};
 use slideshow::{SlideshowAdvanceEvent, SlideshowPlugin, SlideshowTimer};
-use std::path::PathBuf;
 use transition::{TransitionEvent, TransitionMaterial, TransitionPlugin, TransitionState, TransitionUniform};
 use watcher::{FileWatcher, poll_file_watcher_system};
 
@@ -41,7 +41,7 @@ fn main() {
 
     // Load configuration
     let args: Vec<String> = std::env::args().collect();
-    let config_path = args.get(1).map(std::path::PathBuf::from);
+    let config_path = args.get(1).map(Utf8PathBuf::from);
 
     let config = Config::load_default(config_path).unwrap_or_else(|e| {
         error!("Failed to load config: {}", e);
@@ -114,7 +114,7 @@ struct InitialScanState {
 
 /// Component to track the scan task
 #[derive(Component)]
-struct ImageScanTask(Task<Result<Vec<PathBuf>, String>>);
+struct ImageScanTask(Task<Result<Vec<Utf8PathBuf>, String>>);
 
 /// Initialize the application
 fn setup(
@@ -732,7 +732,7 @@ fn update_image_path_text(
 
     for mut text in text_query.iter_mut() {
         if let Some(path) = loader.current_path() {
-            let path_string = path.display().to_string().replace('\\', "/");
+            let path_string = path.as_str().replace('\\', "/");
 
             // Try to get metadata and append if available
             let metadata = loader.current_metadata();
