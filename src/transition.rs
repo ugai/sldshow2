@@ -10,11 +10,10 @@ use bevy::prelude::*;
 use bevy::render::render_resource::{AsBindGroup, Shader, ShaderRef, ShaderType};
 use bevy::sprite::{Material2d, Material2dPlugin};
 
+use crate::consts::TRANSITION_SHADER_HANDLE;
+
 /// Transition material plugin
 pub struct TransitionPlugin;
-
-// Shader handle for the transition shader
-pub const TRANSITION_SHADER_HANDLE: Handle<Shader> = Handle::weak_from_u128(0x1234_5678_9abc_def0);
 
 impl Plugin for TransitionPlugin {
     fn build(&self, app: &mut App) {
