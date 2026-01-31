@@ -72,6 +72,8 @@ pub struct ViewerConfig {
     #[serde(default = "default_cache_extent")]
     #[validate(range(min = 1, max = 100))]  // Reasonable cache limits
     pub cache_extent: usize,
+    #[serde(default = "default_true")]
+    pub hot_reload: bool,
 }
 
 impl Default for ViewerConfig {
@@ -83,6 +85,7 @@ impl Default for ViewerConfig {
             shuffle: true,
             pause_at_last: false,
             cache_extent: default_cache_extent(),
+            hot_reload: true,
         }
     }
 }
@@ -161,13 +164,26 @@ fn default_true() -> bool {
 }
 
 impl Config {
-    /// Load configuration from file
+    /// Load configuration from file (supports TOML, JSON, YAML)
     pub fn load<P: AsRef<Path>>(path: P) -> Result<Self> {
-        let content = std::fs::read_to_string(path.as_ref())
-            .with_context(|| format!("Failed to read config file: {}", path.as_ref().display()))?;
+        let path_ref = path.as_ref();
+        let content = std::fs::read_to_string(path_ref)
+            .with_context(|| format!("Failed to read config file: {}", path_ref.display()))?;
 
-        let config: Config = toml::from_str(&content)
-            .with_context(|| format!("Failed to parse config file: {}", path.as_ref().display()))?;
+        // Detect format by file extension
+        let extension = path_ref
+            .extension()
+            .and_then(|e| e.to_str())
+            .map(|e| e.to_lowercase());
+
+        let config: Config = match extension.as_deref() {
+            Some("json") => serde_json::from_str(&content)
+                .with_context(|| format!("Failed to parse JSON config file: {}", path_ref.display()))?,
+            Some("yaml") | Some("yml") => serde_yaml::from_str(&content)
+                .with_context(|| format!("Failed to parse YAML config file: {}", path_ref.display()))?,
+            Some("toml") | Some("sldshow") | _ => toml::from_str(&content)
+                .with_context(|| format!("Failed to parse TOML config file: {}", path_ref.display()))?,
+        };
 
         // Validate configuration
         config.validate()

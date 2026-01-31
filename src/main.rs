@@ -6,8 +6,10 @@
 mod config;
 mod error;
 mod image_loader;
+mod metadata;
 mod slideshow;
 mod transition;
+mod watcher;
 
 use bevy::prelude::*;
 use bevy::input::mouse::{MouseButton, MouseWheel};
@@ -21,6 +23,7 @@ use image_loader::{ImageLoader, ImageLoaderPlugin, scan_image_paths};
 use slideshow::{SlideshowAdvanceEvent, SlideshowPlugin, SlideshowTimer};
 use std::path::PathBuf;
 use transition::{TransitionEvent, TransitionMaterial, TransitionPlugin, TransitionState, TransitionUniform};
+use watcher::{FileWatcher, poll_file_watcher_system};
 
 /// Main entry point for sldshow2 application
 fn main() {
@@ -93,6 +96,7 @@ fn main() {
             update_transition_on_resize,
         ).chain())
         .add_systems(Update, update_image_path_text)
+        .add_systems(Update, poll_file_watcher_system)
         .run();
 }
 
@@ -219,16 +223,32 @@ fn poll_image_scan(
                 Ok(paths) => {
                     info!("Image scan complete: {} images found", paths.len());
                     // Directly set paths instead of scanning again
-                    loader.paths = paths; 
+                    loader.paths = paths;
 
                     if config.viewer.shuffle {
                         loader.shuffle_paths();
                     }
-                    
+
                     if loader.is_empty() {
                         warn!("No images found in configured paths.");
                     } else {
                         info!("Loaded {} images", loader.len());
+                    }
+
+                    // Initialize hot-reload file watcher
+                    if config.viewer.hot_reload {
+                        match FileWatcher::new(
+                            config.viewer.image_paths.clone(),
+                            config.viewer.scan_subfolders,
+                        ) {
+                            Ok(watcher) => {
+                                info!("Hot-reload enabled for {} directories", watcher.watched_paths().len());
+                                commands.insert_resource(watcher);
+                            }
+                            Err(e) => {
+                                warn!("Failed to initialize hot-reload: {}", e);
+                            }
+                        }
                     }
 
                     scan_state.scanned = true;
@@ -667,7 +687,7 @@ fn handle_slideshow_advance(
 
 /// Update the image path text display
 fn update_image_path_text(
-    loader: Res<ImageLoader>,
+    mut loader: ResMut<ImageLoader>,
     config: Res<Config>,
     mut text_query: Query<&mut Text, With<ImagePathText>>,
 ) {
@@ -678,7 +698,21 @@ fn update_image_path_text(
     for mut text in text_query.iter_mut() {
         if let Some(path) = loader.current_path() {
             let path_string = path.display().to_string().replace('\\', "/");
-            *text = Text::new(path_string);
+
+            // Try to get metadata and append if available
+            let metadata = loader.current_metadata();
+            let summary = metadata.and_then(|m| {
+                let s = m.summary();
+                if s.is_empty() { None } else { Some(s) }
+            });
+
+            let display_text = if let Some(meta_summary) = summary {
+                format!("{}\n{}", path_string, meta_summary)
+            } else {
+                path_string
+            };
+
+            *text = Text::new(display_text);
         } else {
             *text = Text::new("Waiting for image...");
         }
