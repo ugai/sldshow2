@@ -7,8 +7,9 @@
 #![allow(dead_code)]
 
 use bevy::prelude::*;
-use bevy::render::render_resource::{AsBindGroup, Shader, ShaderRef, ShaderType};
-use bevy::sprite::{Material2d, Material2dPlugin};
+use bevy::render::render_resource::{AsBindGroup, ShaderType};
+use bevy::shader::ShaderRef;
+use bevy::sprite_render::{Material2d, Material2dPlugin};
 
 use crate::consts::TRANSITION_SHADER_HANDLE;
 
@@ -25,10 +26,10 @@ impl Plugin for TransitionPlugin {
                 include_str!("../assets/shaders/transition.wgsl"),
                 file!(),
             ),
-        );
+        ).expect("Failed to insert transition shader");
 
         app.add_plugins(Material2dPlugin::<TransitionMaterial>::default())
-            .add_event::<TransitionEvent>()
+            .add_message::<TransitionEvent>()
             .init_resource::<TransitionState>();
             // Note: update_transitions is now scheduled in main.rs for explicit ordering
     }
@@ -96,7 +97,7 @@ pub struct ActiveTransition {
 }
 
 /// Event to trigger a transition
-#[derive(Event)]
+#[derive(Message)]
 pub struct TransitionEvent {
     pub from_image: Handle<Image>,
     pub to_image: Handle<Image>,
@@ -106,7 +107,7 @@ pub struct TransitionEvent {
 
 /// Handle transition events
 pub fn handle_transition_events(
-    mut events: EventReader<TransitionEvent>,
+    mut events: MessageReader<TransitionEvent>,
     mut state: ResMut<TransitionState>,
     time: Res<Time>,
     mut metrics: ResMut<crate::diagnostics::TransitionMetrics>,

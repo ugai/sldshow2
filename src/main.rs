@@ -15,8 +15,7 @@ mod watcher;
 
 use bevy::prelude::*;
 use bevy::input::mouse::{MouseButton, MouseWheel};
-use bevy::render::mesh::Mesh2d;
-use bevy::sprite::MeshMaterial2d;
+use bevy::sprite_render::MeshMaterial2d;
 use bevy::tasks::{AsyncComputeTaskPool, Task};
 use bevy::window::{WindowMode, PresentMode, MonitorSelection};
 use bevy::winit::WinitSettings;
@@ -75,7 +74,7 @@ fn main() {
                 .set(WindowPlugin {
                     primary_window: Some(Window {
                         title: "sldshow2".to_string(),
-                        resolution: (config.window.width as f32, config.window.height as f32).into(),
+                        resolution: (config.window.width as u32, config.window.height as u32).into(),
                         present_mode: PresentMode::AutoVsync,
                         decorations: config.window.decorations,
                         resizable: config.window.resizable,
@@ -137,13 +136,13 @@ fn setup(
     fonts.insert(
         &EMBEDDED_FONT_HANDLE,
         Font::try_from_bytes(font_data.to_vec()).expect("Failed to load embedded font"),
-    );
+    ).expect("Failed to insert embedded font");
 
     // Spawn camera with default 2D setup
     commands.spawn((
         Camera2d,
         Camera {
-            clear_color: bevy::render::camera::ClearColorConfig::Default,
+            clear_color: ClearColorConfig::Default,
             ..default()
         },
     ));
@@ -319,7 +318,7 @@ struct ImagePathText;
 fn detect_image_change(
     loader: Res<ImageLoader>,
     mut tracker: ResMut<ImageChangeTracker>,
-    mut transition_events: EventWriter<TransitionEvent>,
+    mut transition_events: MessageWriter<TransitionEvent>,
     config: Res<Config>,
     images: Res<Assets<Image>>,
     mut transition_state: ResMut<TransitionState>,
@@ -395,7 +394,7 @@ fn detect_image_change(
     // Handle first image (instant display)
     let Some(prev_index) = tracker.last_index else {
         info!("First image loaded - showing instantly");
-        transition_events.send(TransitionEvent {
+        transition_events.write(TransitionEvent {
             from_image: current_handle.clone(),
             to_image: current_handle.clone(),
             duration: 0.0,
@@ -412,7 +411,7 @@ fn detect_image_change(
 
     info!("Normal transition: image {} -> image {}",
           prev_index + 1, current_index + 1);
-    transition_events.send(TransitionEvent {
+    transition_events.write(TransitionEvent {
         from_image: prev_handle.clone(),
         to_image: current_handle.clone(),
         duration: config.transition.time,
@@ -424,7 +423,7 @@ fn detect_image_change(
 
 /// Get window size from query or fallback to config
 fn get_window_size(windows: &Query<&Window>, config: &Config) -> Vec2 {
-    if let Ok(window) = windows.get_single() {
+    if let Ok(window) = windows.single() {
         Vec2::new(window.width(), window.height())
     } else {
         Vec2::new(config.window.width as f32, config.window.height as f32)
@@ -531,7 +530,7 @@ fn spawn_transition_entity(
 #[allow(clippy::too_many_arguments)]
 fn trigger_transition(
     mut commands: Commands,
-    mut transition_events: EventReader<TransitionEvent>,
+    mut transition_events: MessageReader<TransitionEvent>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<TransitionMaterial>>,
     config: Res<Config>,
@@ -559,7 +558,7 @@ fn trigger_transition(
             .unwrap_or_else(|| event.from_image.clone());
 
         // Try to reuse existing entity to avoid spawn/despawn overhead
-        if let Ok((entity, material_handle)) = existing_entity.get_single() {
+        if let Ok((entity, material_handle)) = existing_entity.single() {
             if let Some(material) = materials.get_mut(&material_handle.0) {
                 update_transition_material(
                     material,
@@ -598,8 +597,8 @@ fn trigger_transition(
 fn keyboard_input_system(
     keys: Res<ButtonInput<KeyCode>>,
     mouse_buttons: Res<ButtonInput<MouseButton>>,
-    mut mouse_wheel: EventReader<MouseWheel>,
-    mut exit: EventWriter<AppExit>,
+    mut mouse_wheel: MessageReader<MouseWheel>,
+    mut exit: MessageWriter<AppExit>,
     mut loader: ResMut<ImageLoader>,
     mut timer: ResMut<SlideshowTimer>,
     mut repeat_timer: ResMut<KeyRepeatTimer>,
@@ -610,7 +609,7 @@ fn keyboard_input_system(
     // ESC or Q to quit
     if keys.just_pressed(KeyCode::Escape) || keys.just_pressed(KeyCode::KeyQ) {
         info!("Exiting application");
-        exit.send(AppExit::Success);
+        exit.write(AppExit::Success);
     }
 
     // Check if any navigation keys are being held
@@ -635,7 +634,7 @@ fn keyboard_input_system(
         }
     } else {
         // No key held - reset timers
-        if repeat_timer.in_repeat_mode || !repeat_timer.delay_timer.finished() {
+        if repeat_timer.in_repeat_mode || !repeat_timer.delay_timer.is_finished() {
             repeat_timer.delay_timer.reset();
             repeat_timer.repeat_timer.reset();
             repeat_timer.in_repeat_mode = false;
@@ -694,7 +693,7 @@ fn keyboard_input_system(
 
     // F: toggle fullscreen
     if keys.just_pressed(KeyCode::KeyF) {
-        if let Ok(mut window) = windows.get_single_mut() {
+        if let Ok(mut window) = windows.single_mut() {
             match window.mode {
                 WindowMode::Windowed => {
                     window.mode = WindowMode::BorderlessFullscreen(MonitorSelection::Index(config.window.monitor_index));
@@ -742,7 +741,7 @@ fn keyboard_input_system(
 
 /// Handle automatic slideshow advancement based on timer events
 fn handle_slideshow_advance(
-    mut events: EventReader<SlideshowAdvanceEvent>,
+    mut events: MessageReader<SlideshowAdvanceEvent>,
     mut loader: ResMut<ImageLoader>,
     config: Res<Config>,
 ) {
@@ -810,11 +809,11 @@ fn update_transition_on_resize(
     images: Res<Assets<Image>>,
 ) {
     // Check if window size changed
-    if let Ok(window) = windows.get_single() {
+    if let Ok(window) = windows.single() {
         let new_size = Vec2::new(window.width(), window.height());
 
         // Update transition entity mesh and material
-        if let Ok((mut mesh_handle, material_handle)) = transition_query.get_single_mut() {
+        if let Ok((mut mesh_handle, material_handle)) = transition_query.single_mut() {
             // Update mesh to new window size
             let new_mesh = meshes.add(Rectangle::new(new_size.x, new_size.y));
             *mesh_handle = Mesh2d(new_mesh);
