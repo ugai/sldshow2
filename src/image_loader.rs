@@ -1,7 +1,7 @@
 use crate::error::{Result, SldshowError};
 use crate::metadata::ImageMetadata;
 use bevy::prelude::*;
-use bevy::render::render_asset::RenderAssetUsages;
+use bevy::asset::RenderAssetUsages;
 use bevy::tasks::{AsyncComputeTaskPool, Task};
 use camino::{Utf8Path, Utf8PathBuf};
 use rayon::prelude::*;

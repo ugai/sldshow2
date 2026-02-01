@@ -6,7 +6,7 @@ pub struct SlideshowPlugin;
 impl Plugin for SlideshowPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<SlideshowTimer>()
-            .add_event::<SlideshowAdvanceEvent>()
+            .add_message::<SlideshowAdvanceEvent>()
             .add_systems(Update, update_slideshow_timer);
     }
 }
@@ -82,21 +82,21 @@ impl SlideshowTimer {
 }
 
 /// Event emitted when slideshow should advance
-#[derive(Event)]
+#[derive(Message)]
 pub struct SlideshowAdvanceEvent;
 
 /// Update slideshow timer and emit advance events
 fn update_slideshow_timer(
     mut timer: ResMut<SlideshowTimer>,
     time: Res<Time>,
-    mut events: EventWriter<SlideshowAdvanceEvent>,
+    mut events: MessageWriter<SlideshowAdvanceEvent>,
 ) {
     if timer.paused {
         return;
     }
 
     if timer.timer.tick(time.delta()).just_finished() {
-        events.send(SlideshowAdvanceEvent);
+        events.write(SlideshowAdvanceEvent);
     }
 }
 
