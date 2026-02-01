@@ -1,7 +1,8 @@
 [package]
 name = "sldshow2"
 version = "0.1.0"
-edition = "2021"
+edition = "2024"
+rust-version = "1.85"
 authors = ["ugai"]
 description = "Simple slideshow image viewer with custom WGSL transitions"
 license = "MIT"
@@ -10,14 +11,17 @@ homepage = "https://github.com/ugai/sldshow2"
 
 [dependencies]
 # Bevy game engine
-bevy = { version = "0.15", default-features = false, features = [
+bevy = { version = "0.18", default-features = false, features = [
     "bevy_winit",        # Window management
     "bevy_render",       # Rendering
     "bevy_core_pipeline", # Core rendering pipeline
     "bevy_asset",        # Asset management
     "bevy_sprite",       # 2D sprite rendering
+    "bevy_sprite_render", # 2D sprite rendering (Material2d etc.)
     "bevy_ui",           # UI components
+    "bevy_ui_render",    # UI rendering (required for UI to be visible!)
     "bevy_text",         # Text rendering
+    "bevy_log",          # Logging macros
     "png",               # PNG image format support
     "jpeg",              # JPEG image format support
     "webp",              # WebP image format support
