@@ -24,10 +24,10 @@ pub struct Config {
 #[derive(Debug, Clone, Serialize, Deserialize, Validate)]
 pub struct WindowConfig {
     #[serde(default = "default_width")]
-    #[validate(range(min = 320, max = 7680))]  // Min VGA width, Max 8K width
+    #[validate(range(min = 320, max = 7680))] // Min VGA width, Max 8K width
     pub width: u32,
     #[serde(default = "default_height")]
-    #[validate(range(min = 240, max = 4320))]  // Min VGA height, Max 8K height
+    #[validate(range(min = 240, max = 4320))] // Min VGA height, Max 8K height
     pub height: u32,
     #[serde(default)]
     pub fullscreen: bool,
@@ -61,7 +61,7 @@ pub struct ViewerConfig {
     #[serde(default)]
     pub image_paths: Vec<Utf8PathBuf>,
     #[serde(default = "default_timer")]
-    #[validate(range(min = 0.1))]  // Minimum 100ms between images
+    #[validate(range(min = 0.1))] // Minimum 100ms between images
     pub timer: f32,
     #[serde(default = "default_true")]
     pub scan_subfolders: bool,
@@ -70,10 +70,16 @@ pub struct ViewerConfig {
     #[serde(default)]
     pub pause_at_last: bool,
     #[serde(default = "default_cache_extent")]
-    #[validate(range(min = 1, max = 100))]  // Reasonable cache limits
+    #[validate(range(min = 1, max = 100))] // Reasonable cache limits
     pub cache_extent: usize,
     #[serde(default = "default_true")]
     pub hot_reload: bool,
+    /// Maximum texture size [width, height] for GPU upload.
+    /// Images larger than this are downscaled before GPU upload to reduce frame spikes.
+    /// Lower values = faster uploads but lower quality. [1920, 1080] is a good balance.
+    /// Set to [0, 0] to use window dimensions (may cause frame spikes at 4K+).
+    #[serde(default = "default_max_texture_size")]
+    pub max_texture_size: [u32; 2],
 }
 
 impl Default for ViewerConfig {
@@ -86,6 +92,7 @@ impl Default for ViewerConfig {
             pause_at_last: false,
             cache_extent: default_cache_extent(),
             hot_reload: true,
+            max_texture_size: default_max_texture_size(),
         }
     }
 }
@@ -94,12 +101,12 @@ impl Default for ViewerConfig {
 #[derive(Debug, Clone, Serialize, Deserialize, Validate)]
 pub struct TransitionConfig {
     #[serde(default = "default_transition_time")]
-    #[validate(range(min = 0.0, max = 10.0))]  // 0 to 10 seconds
+    #[validate(range(min = 0.0, max = 10.0))] // 0 to 10 seconds
     pub time: f32,
     #[serde(default = "default_true")]
     pub random: bool,
     #[serde(default)]
-    #[validate(range(min = 0, max = 21))]  // 0-21 transition modes
+    #[validate(range(min = 0, max = 21))] // 0-21 transition modes
     pub mode: i32,
 }
 
@@ -159,6 +166,10 @@ fn default_bg_color() -> [u8; 4] {
     [0, 0, 0, 255]
 }
 
+fn default_max_texture_size() -> [u32; 2] {
+    [1920, 1080]
+}
+
 fn default_true() -> bool {
     true
 }
@@ -171,22 +182,22 @@ impl Config {
             .with_context(|| format!("Failed to read config file: {}", path_ref))?;
 
         // Detect format by file extension
-        let extension = path_ref
-            .extension()
-            .map(|e| e.to_lowercase());
+        let extension = path_ref.extension().map(|e| e.to_lowercase());
 
         let config: Config = match extension.as_deref() {
             Some("json") => serde_json::from_str(&content)
                 .with_context(|| format!("Failed to parse JSON config file: {}", path_ref))?,
             Some("yaml") | Some("yml") => serde_yaml::from_str(&content)
                 .with_context(|| format!("Failed to parse YAML config file: {}", path_ref))?,
-            Some("toml") | Some("sldshow") | _ => toml::from_str(&content)
+            Some("toml") | Some("sldshow") => toml::from_str(&content)
                 .with_context(|| format!("Failed to parse TOML config file: {}", path_ref))?,
+            _ => toml::from_str(&content).with_context(|| {
+                format!("Failed to parse config file (assuming TOML): {}", path_ref)
+            })?,
         };
 
         // Validate configuration
-        config.validate()
-            .with_context(|| "Invalid configuration")?;
+        config.validate().with_context(|| "Invalid configuration")?;
 
         Ok(config)
     }
@@ -222,8 +233,7 @@ impl Config {
     /// Save configuration to file
     #[allow(dead_code)]
     pub fn save<P: AsRef<Utf8Path>>(&self, path: P) -> Result<()> {
-        let content = toml::to_string_pretty(self)
-            .context("Failed to serialize config")?;
+        let content = toml::to_string_pretty(self).context("Failed to serialize config")?;
 
         std::fs::write(path.as_ref().as_std_path(), content)
             .with_context(|| format!("Failed to write config file: {}", path.as_ref()))?;

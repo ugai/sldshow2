@@ -5,8 +5,11 @@
 use bevy::prelude::*;
 use camino::Utf8PathBuf;
 use notify::{Event, EventKind, RecommendedWatcher, RecursiveMode};
-use notify_debouncer_full::{new_debouncer, DebounceEventResult, Debouncer, FileIdMap};
-use std::sync::{mpsc::{channel, Receiver, Sender}, Arc, Mutex};
+use notify_debouncer_full::{DebounceEventResult, Debouncer, RecommendedCache, new_debouncer};
+use std::sync::{
+    Arc, Mutex,
+    mpsc::{Receiver, Sender, channel},
+};
 use std::time::Duration;
 
 use crate::image_loader::ImageLoader;
@@ -15,7 +18,7 @@ use crate::image_loader::ImageLoader;
 #[derive(Resource)]
 pub struct FileWatcher {
     #[allow(dead_code)]
-    debouncer: Debouncer<RecommendedWatcher, FileIdMap>,
+    debouncer: Debouncer<RecommendedWatcher, RecommendedCache>,
     receiver: Arc<Mutex<Receiver<DebounceEventResult>>>,
     watched_paths: Vec<Utf8PathBuf>,
     scan_subfolders: bool,
@@ -126,8 +129,10 @@ pub fn poll_file_watcher_system(
             info!("File system changes detected, rescanning images...");
 
             // Rescan the watched paths
-            match crate::image_loader::scan_image_paths(watcher.watched_paths(), watcher.scan_subfolders)
-            {
+            match crate::image_loader::scan_image_paths(
+                watcher.watched_paths(),
+                watcher.scan_subfolders,
+            ) {
                 Ok(new_paths) => {
                     let old_count = loader.paths.len();
                     let new_count = new_paths.len();
@@ -136,17 +141,10 @@ pub fn poll_file_watcher_system(
 
                     // Clear current index if out of bounds
                     if loader.current_index >= loader.paths.len() {
-                        loader.current_index = if !loader.paths.is_empty() {
-                            0
-                        } else {
-                            0  // Will be handled by loader logic
-                        };
+                        loader.current_index = 0;
                     }
 
-                    info!(
-                        "Image list updated: {} → {} images",
-                        old_count, new_count
-                    );
+                    info!("Image list updated: {} → {} images", old_count, new_count);
                 }
                 Err(e) => {
                     error!("Failed to rescan images: {}", e);
