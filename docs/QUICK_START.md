@@ -5,13 +5,13 @@
 ## 5分で理解するsldshow2
 
 ### これは何？
-Bevy 0.15で作られた画像スライドショーアプリ。20種類のカスタムシェーダートランジション付き。
+Rust + **winit** + **wgpu** で作られた高性能画像スライドショーアプリ。20種類のカスタムシェーダートランジション付き。Bevyから移行し、フレームスパイクを解消しました。
 
 ### プロジェクト構造
 ```
-src/main.rs          - メインロジック（システム定義、UI、キーボード入力）
-src/transition.rs    - トランジションエフェクト、Material2d、TransitionPlugin
-src/image_loader.rs  - 画像のロード・キャッシュ管理
+src/main.rs          - メインロジック（イベントループ、レンダリングループ）
+src/transition.rs    - WGPUパイプライン、バインドグループ管理
+src/image_loader.rs  - 非同期画像ロード、テクスチャ管理（TextureManager）
 src/slideshow.rs     - 自動進行タイマー
 assets/shaders/      - WGSL シェーダー（20種類のエフェクト）
 ```
@@ -19,47 +19,37 @@ assets/shaders/      - WGSL シェーダー（20種類のエフェクト）
 ### 今すぐ動かす
 ```powershell
 cd D:\git\sldshow2
-cargo build
-.\target\debug\sldshow2.exe .\example.sldshow
+# パフォーマンス確認のため release ビルドを推奨
+cargo run --release -- .\example.sldshow
 ```
 
-### 主要なシステム（実行順）
-```rust
-.add_systems(Update, (
-    keyboard_input_system,        // キーボード/マウス入力
-    handle_slideshow_advance,     // 自動進行
-    detect_image_change,          // 画像変更を検出してTransitionEventを送る
-    trigger_transition,           // TransitionEntityを作成/更新
-    update_transition_on_resize,  // ウィンドウリサイズ対応
-).chain())
-```
+### アーキテクチャの要点
+1. **イベントループ**: `winit` の `EventLoop` が主導権を持つ。
+2. **状態管理**: `ApplicationState` 構造体に全てを集約（Window, Device, Queue, Subsystems）。
+3. **レンダリング**:
+   - `RedrawRequested` で `state.update()` と `state.render()` を呼び出す。
+   - `TransitionPipeline` がシェーダーとユニフォームを管理。
+4. **リソース管理**:
+   - `TextureManager` が別スレッド（`rayon`）で画像をデコード。
+   - メインスレッドでGPUへアップロード（`queue.write_texture`）。
+   - VRAM使用量を抑えるため、テクスチャはウィンドウサイズに合わせてリサイズされる。
 
-### キーシステムの流れ
-1. `ImageLoader` が画像をスキャン・ロード
-2. `detect_image_change` が画像変更を検出
-3. `TransitionEvent` を送信
-4. `trigger_transition` が `TransitionEntity` を作成
-5. `TransitionPlugin` がシェーダーでブレンドアニメーション
+### キー操作一覧
 
-### 最近解決済み（2026-01-26）
-1. ✅ **白い四角問題** → 非同期タスクで画像スキャン実装
-2. ✅ **テキスト表示問題** → `bevy_embedded_assets` + M PLUS 2フォント明示的ロード
+| キー | 動作 |
+| :--- | :--- |
+| **→** / **Space** | 次の画像へ |
+| **←** | 前の画像へ |
+| **P** | スライドショーの 一時停止 / 再開 |
+| **F** | フルスクリーン切り替え |
+| **Esc** / **Q** | アプリケーション終了 |
 
-### 重要なBevy 0.15の特性
-- UI Textは親子構造必須（親: Node、子: Text）
-- `commands.spawn()` は即座に実行されない（ステージ終了後）
-- GPUテクスチャアップロードに数フレームかかる
+### 解決済みの課題（2026-02-08）
+1. ✅ **フレームスパイク解消**: BevyのECS/アセットシステムによる200-400msの遅延を、wgpu直接制御により解消。
+2. ✅ **非同期ロード**: `image` クレート + `rayon` による並列ロード実装。
 
-### デバッグツール
-- **F12キー**: スクリーンショット撮影
-- 自動スクリーンショット: フレーム 1,10,30,60,120,180
-- ログレベル: `info!`, `debug!`, `warn!`, `error!`
-
-### 開発ルール
-- **debugビルドで開発**（イテレーション速度優先）
-- コメントは英語
-- システムの実行順序は`.chain()`で明示
+### 既知の制限
+- **テキスト表示未実装**: ファイル名やデバッグ情報の表示機能は現在ありません（`glyphon` 等の導入が必要）。
 
 ### 次に読むべきドキュメント
-- 詳細ルール → `docs/AI_DEVELOPMENT_GUIDE.md`
-- 白い四角問題 → `docs/white_square_issue_analysis.md`
+- 詳細ルール → `CLAUDE.md`

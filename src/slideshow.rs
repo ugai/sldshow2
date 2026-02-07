@@ -1,138 +1,44 @@
-use bevy::prelude::*;
+use std::time::{Duration, Instant};
 
-/// Slideshow timer plugin
-pub struct SlideshowPlugin;
-
-impl Plugin for SlideshowPlugin {
-    fn build(&self, app: &mut App) {
-        app.init_resource::<SlideshowTimer>()
-            .add_message::<SlideshowAdvanceEvent>()
-            .add_systems(Update, update_slideshow_timer);
-    }
-}
-
-/// Slideshow timer resource
-#[derive(Resource)]
 pub struct SlideshowTimer {
-    /// Timer for auto-advancing slides
-    pub timer: Timer,
-    /// Whether the slideshow is paused
+    pub interval: Duration,
     pub paused: bool,
-    /// Interval in seconds (0 = paused)
-    pub interval: f32,
-}
-
-impl Default for SlideshowTimer {
-    fn default() -> Self {
-        Self {
-            timer: Timer::from_seconds(10.0, TimerMode::Repeating),
-            paused: false,
-            interval: 10.0,
-        }
-    }
+    last_tick: Instant,
 }
 
 impl SlideshowTimer {
-    /// Create a new timer with the given interval
-    pub fn new(interval: f32) -> Self {
-        let paused = interval <= 0.0;
+    pub fn new(interval_secs: f32) -> Self {
         Self {
-            timer: Timer::from_seconds(interval.max(0.1), TimerMode::Repeating),
-            paused,
-            interval,
+            interval: Duration::from_secs_f32(interval_secs.max(0.1)),
+            paused: interval_secs <= 0.0,
+            last_tick: Instant::now(),
         }
     }
 
-    /// Set the interval
-    #[allow(dead_code)]
-    pub fn set_interval(&mut self, interval: f32) {
-        self.interval = interval;
-        self.paused = interval <= 0.0;
-
-        if !self.paused {
-            self.timer = Timer::from_seconds(interval, TimerMode::Repeating);
-        }
-    }
-
-    /// Pause the slideshow
-    pub fn pause(&mut self) {
-        self.paused = true;
-    }
-
-    /// Resume the slideshow
-    pub fn resume(&mut self) {
-        if self.interval > 0.0 {
-            self.paused = false;
-        }
-    }
-
-    /// Toggle pause state
-    pub fn toggle_pause(&mut self) {
+    pub fn update(&mut self) -> bool {
         if self.paused {
-            self.resume();
+            self.last_tick = Instant::now(); // Keep resetting last_tick while paused
+            return false;
+        }
+
+        let now = Instant::now();
+        if now.duration_since(self.last_tick) >= self.interval {
+            self.last_tick = now;
+            true
         } else {
-            self.pause();
+            false
         }
     }
 
-    /// Reset the timer
+    pub fn toggle_pause(&mut self) -> bool {
+        self.paused = !self.paused;
+        if !self.paused {
+            self.last_tick = Instant::now();
+        }
+        self.paused
+    }
+
     pub fn reset(&mut self) {
-        self.timer.reset();
-    }
-}
-
-/// Event emitted when slideshow should advance
-#[derive(Message)]
-pub struct SlideshowAdvanceEvent;
-
-/// Update slideshow timer and emit advance events
-///
-/// Uses clamped delta time to prevent frame spikes from causing rapid advancement.
-/// When a frame takes 2+ seconds (e.g., during GPU upload), we don't want the
-/// slideshow to suddenly advance multiple times.
-fn update_slideshow_timer(
-    mut timer: ResMut<SlideshowTimer>,
-    time: Res<Time>,
-    mut events: MessageWriter<SlideshowAdvanceEvent>,
-) {
-    if timer.paused {
-        return;
-    }
-
-    // Clamp delta to prevent frame spikes from causing rapid advancement
-    // Max 100ms per tick ensures smooth progression even during heavy frames
-    let clamped_delta = time.delta().min(std::time::Duration::from_millis(100));
-
-    if timer.timer.tick(clamped_delta).just_finished() {
-        events.write(SlideshowAdvanceEvent);
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_timer_creation() {
-        let timer = SlideshowTimer::new(5.0);
-        assert_eq!(timer.interval, 5.0);
-        assert!(!timer.paused);
-
-        let paused_timer = SlideshowTimer::new(0.0);
-        assert!(paused_timer.paused);
-    }
-
-    #[test]
-    fn test_pause_resume() {
-        let mut timer = SlideshowTimer::new(5.0);
-
-        timer.pause();
-        assert!(timer.paused);
-
-        timer.resume();
-        assert!(!timer.paused);
-
-        timer.toggle_pause();
-        assert!(timer.paused);
+        self.last_tick = Instant::now();
     }
 }
