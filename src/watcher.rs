@@ -5,7 +5,7 @@
 use bevy::prelude::*;
 use camino::Utf8PathBuf;
 use notify::{Event, EventKind, RecommendedWatcher, RecursiveMode};
-use notify_debouncer_full::{DebounceEventResult, Debouncer, FileIdMap, new_debouncer};
+use notify_debouncer_full::{DebounceEventResult, Debouncer, RecommendedCache, new_debouncer};
 use std::sync::{
     Arc, Mutex,
     mpsc::{Receiver, Sender, channel},
@@ -18,7 +18,7 @@ use crate::image_loader::ImageLoader;
 #[derive(Resource)]
 pub struct FileWatcher {
     #[allow(dead_code)]
-    debouncer: Debouncer<RecommendedWatcher, FileIdMap>,
+    debouncer: Debouncer<RecommendedWatcher, RecommendedCache>,
     receiver: Arc<Mutex<Receiver<DebounceEventResult>>>,
     watched_paths: Vec<Utf8PathBuf>,
     scan_subfolders: bool,
