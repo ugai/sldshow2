@@ -78,30 +78,32 @@ fn main() {
         .init_resource::<KeyRepeatTimer>()
         .init_resource::<InitialScanState>()
         .insert_resource(ClearColor(Color::BLACK))
-        .add_plugins(DefaultPlugins
-            .set(WindowPlugin {
-                primary_window: Some(Window {
-                    title: "sldshow2".to_string(),
-                    resolution: (config.window.width as u32, config.window.height as u32).into(),
-                    present_mode: PresentMode::AutoVsync,
-                    decorations: config.window.decorations,
-                    resizable: config.window.resizable,
-                    mode: window_mode,
+        .add_plugins(
+            DefaultPlugins
+                .set(WindowPlugin {
+                    primary_window: Some(Window {
+                        title: "sldshow2".to_string(),
+                        resolution: (config.window.width as u32, config.window.height as u32)
+                            .into(),
+                        present_mode: PresentMode::AutoVsync,
+                        decorations: config.window.decorations,
+                        resizable: config.window.resizable,
+                        mode: window_mode,
+                        ..default()
+                    }),
+                    ..default()
+                })
+                // Disable wgpu GPU validation in debug builds.
+                // Bevy enables validation by default in debug mode, which adds
+                // 20-30ms per frame and 200-400ms spikes on material/texture changes.
+                // Release builds already have validation disabled.
+                .set(RenderPlugin {
+                    render_creation: RenderCreation::Automatic(WgpuSettings {
+                        instance_flags: InstanceFlags::empty(),
+                        ..default()
+                    }),
                     ..default()
                 }),
-                ..default()
-            })
-            // Disable wgpu GPU validation in debug builds.
-            // Bevy enables validation by default in debug mode, which adds
-            // 20-30ms per frame and 200-400ms spikes on material/texture changes.
-            // Release builds already have validation disabled.
-            .set(RenderPlugin {
-                render_creation: RenderCreation::Automatic(WgpuSettings {
-                    instance_flags: InstanceFlags::empty(),
-                    ..default()
-                }),
-                ..default()
-            })
         )
         .add_plugins(ImageLoaderPlugin)
         .add_plugins(SlideshowPlugin)
@@ -229,7 +231,10 @@ fn setup(
     let (max_w, max_h) = if config.viewer.max_texture_size == [0, 0] {
         (config.window.width, config.window.height)
     } else {
-        (config.viewer.max_texture_size[0], config.viewer.max_texture_size[1])
+        (
+            config.viewer.max_texture_size[0],
+            config.viewer.max_texture_size[1],
+        )
     };
     loader.set_max_texture_size(max_w, max_h);
     info!("Max texture size set to {}x{}", max_w, max_h);
@@ -859,8 +864,7 @@ fn optimize_power_mode(
     let is_transitioning = transition_state.active.is_some();
     let is_playing = !slideshow_timer.paused && slideshow_timer.interval > 0.0;
     // Keep Continuous while preloading to avoid delaying GPU uploads and task polling
-    let has_pending_work =
-        !loader.pending_uploads.is_empty() || !loader.loading_tasks.is_empty();
+    let has_pending_work = !loader.pending_uploads.is_empty() || !loader.loading_tasks.is_empty();
 
     if is_transitioning || is_playing || has_pending_work {
         // Need smooth animation, accurate timer firing, or pending image work
@@ -906,8 +910,7 @@ fn load_images_system(
         .pending_uploads
         .iter()
         .any(|(idx, _)| *idx == current_index);
-    let current_needs_upload =
-        !loader.handles.contains_key(&current_index) && current_in_pending;
+    let current_needs_upload = !loader.handles.contains_key(&current_index) && current_in_pending;
 
     let will_upload = if loader.pending_uploads.is_empty() {
         false
