@@ -1,12 +1,28 @@
 use crate::error::{Result, SldshowError};
 use crate::metadata::ImageMetadata;
-use bevy::prelude::*;
 use bevy::asset::RenderAssetUsages;
+use bevy::prelude::*;
 use bevy::tasks::{AsyncComputeTaskPool, Task};
 use camino::{Utf8Path, Utf8PathBuf};
+use image::GenericImageView;
 use rayon::prelude::*;
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::Path;
+
+/// Maximum number of GPU texture uploads per frame to prevent blocking
+const MAX_UPLOADS_PER_FRAME: usize = 1;
+
+/// Maximum number of concurrent loading tasks to prevent CPU saturation
+/// This prevents all CPU cores from being used for image loading/resizing,
+/// leaving headroom for the main thread and GPU work.
+/// 2 tasks allows the current image to load in parallel with one preload.
+const MAX_CONCURRENT_TASKS: usize = 2;
+
+/// Type alias for image loading task result (image only, no metadata)
+type ImageLoadResult = Result<(usize, Image)>;
+
+/// Type alias for the image loading task
+type ImageLoadTask = Task<ImageLoadResult>;
 
 /// Supported image file extensions
 const SUPPORTED_EXTENSIONS: &[&str] = &[
@@ -35,9 +51,24 @@ pub struct ImageLoader {
     /// Loaded image handles
     pub handles: HashMap<usize, Handle<Image>>,
     /// Active loading tasks (index -> task) - now includes metadata
-    pub loading_tasks: HashMap<usize, Task<Result<(usize, Image, ImageMetadata)>>>,
+    pub loading_tasks: HashMap<usize, ImageLoadTask>,
     /// Cached metadata for images
     pub metadata_cache: HashMap<usize, ImageMetadata>,
+    /// Maximum texture size for GPU upload (width, height)
+    /// Images larger than this will be downscaled before GPU upload
+    pub max_texture_size: (u32, u32),
+    /// Queue of images pending GPU upload (throttled to prevent frame stutter)
+    /// Metadata is loaded separately/lazily to avoid blocking image display
+    pub pending_uploads: VecDeque<(usize, Image)>,
+    /// Whether the initial image has been loaded and displayed
+    /// When false, only the current image is loaded (not the full cache)
+    pub initial_load_complete: bool,
+    /// Last index where cache cleanup was performed (to avoid redundant retain calls)
+    last_cleanup_index: Option<usize>,
+    /// Deferred cleanup: set when index changes, cleanup runs on next frame with same index.
+    /// This separates GPU texture deallocation from material bind group recreation,
+    /// reducing per-frame render-phase work during navigation.
+    cleanup_deferred_index: Option<usize>,
 }
 
 impl Default for ImageLoader {
@@ -50,6 +81,11 @@ impl Default for ImageLoader {
             handles: HashMap::new(),
             loading_tasks: HashMap::new(),
             metadata_cache: HashMap::new(),
+            max_texture_size: (1920, 1080), // Default to 1080p
+            pending_uploads: VecDeque::new(),
+            initial_load_complete: false,
+            last_cleanup_index: None,
+            cleanup_deferred_index: None,
         }
     }
 }
@@ -62,6 +98,21 @@ impl ImageLoader {
             cache_extent,
             ..Default::default()
         }
+    }
+
+    /// Create a new image loader with maximum texture size
+    #[allow(dead_code)]
+    pub fn with_max_texture_size(cache_extent: usize, max_width: u32, max_height: u32) -> Self {
+        Self {
+            cache_extent,
+            max_texture_size: (max_width, max_height),
+            ..Default::default()
+        }
+    }
+
+    /// Set the maximum texture size for GPU upload
+    pub fn set_max_texture_size(&mut self, width: u32, height: u32) {
+        self.max_texture_size = (width, height);
     }
 
     /// Scan paths for images (files or directories)
@@ -79,8 +130,6 @@ impl ImageLoader {
         let mut rng = rand::thread_rng();
         self.paths.shuffle(&mut rng);
     }
-
-
 
     /// Get current image path
     #[allow(dead_code)]
@@ -120,10 +169,20 @@ impl ImageLoader {
     }
 
     /// Get indices to preload based on cache extent
+    ///
+    /// During initial load (before first image is displayed), only returns
+    /// the current image index to minimize startup time and prevent stuttering.
     pub fn get_preload_indices(&self) -> Vec<usize> {
         let mut indices = Vec::new();
 
         if self.paths.is_empty() {
+            return indices;
+        }
+
+        // During initial load, only load the current image
+        // This prevents 11+ simultaneous loads that cause startup freeze
+        if !self.initial_load_complete {
+            indices.push(self.current_index);
             return indices;
         }
 
@@ -132,13 +191,14 @@ impl ImageLoader {
         // Current image first
         indices.push(self.current_index);
 
-        // Then alternate: next, previous, next+1, previous-1, etc.
+        // Forward images first (user most likely navigates forward)
         for i in 1..=self.cache_extent {
-            // Next images
             let next_idx = (self.current_index + i) % len;
             indices.push(next_idx);
+        }
 
-            // Previous images
+        // Then backward images
+        for i in 1..=self.cache_extent {
             let prev_idx = if self.current_index >= i {
                 self.current_index - i
             } else {
@@ -166,17 +226,34 @@ impl ImageLoader {
     }
 
     /// Get metadata for an image (cache-only, non-blocking)
-    /// Metadata is loaded asynchronously by load_images_system
+    /// Returns cached metadata if available, None otherwise
     #[allow(dead_code)]
     pub fn get_metadata(&self, index: usize) -> Option<ImageMetadata> {
-        // IMPORTANT: Only read from cache - DO NOT load on main thread!
-        // Metadata is loaded in background by the async task
         self.metadata_cache.get(&index).cloned()
     }
 
     /// Get cached metadata for the current image (read-only)
     pub fn current_metadata(&self) -> Option<&ImageMetadata> {
         self.metadata_cache.get(&self.current_index)
+    }
+
+    /// Load metadata lazily for the current image (blocking, use sparingly)
+    /// This loads EXIF data synchronously - only call when metadata is actually needed
+    #[allow(dead_code)]
+    pub fn load_metadata_lazy(&mut self, index: usize) -> Option<&ImageMetadata> {
+        // Return cached if already loaded
+        if self.metadata_cache.contains_key(&index) {
+            return self.metadata_cache.get(&index);
+        }
+
+        // Load metadata synchronously (blocking but only when needed)
+        if let Some(path) = self.paths.get(index) {
+            let metadata = ImageMetadata::from_path(path);
+            self.metadata_cache.insert(index, metadata);
+            return self.metadata_cache.get(&index);
+        }
+
+        None
     }
 }
 
@@ -188,14 +265,56 @@ pub fn is_supported_image(path: &Path) -> bool {
         .unwrap_or(false)
 }
 
+/// Resize an image to fit within maximum bounds while preserving aspect ratio
+/// Only downscales; never upscales images smaller than the bounds.
+fn resize_for_gpu(
+    img: image::DynamicImage,
+    max_width: u32,
+    max_height: u32,
+) -> image::DynamicImage {
+    let (orig_w, orig_h) = img.dimensions();
+
+    // Only downscale, never upscale
+    if orig_w <= max_width && orig_h <= max_height {
+        return img;
+    }
+
+    // Calculate scale to fit within bounds while preserving aspect ratio
+    let scale_w = max_width as f32 / orig_w as f32;
+    let scale_h = max_height as f32 / orig_h as f32;
+    let scale = scale_w.min(scale_h);
+
+    let new_w = ((orig_w as f32 * scale).round() as u32).max(1);
+    let new_h = ((orig_h as f32 * scale).round() as u32).max(1);
+
+    debug!(
+        "Resizing image from {}x{} to {}x{} (scale: {:.3})",
+        orig_w, orig_h, new_w, new_h, scale
+    );
+
+    // Use Triangle filter (bilinear) for faster resize with acceptable quality
+    // Lanczos3 gives better quality but is significantly slower for large images
+    // Triangle is ~4-5x faster and quality difference is minimal at display sizes
+    img.resize(new_w, new_h, image::imageops::FilterType::Triangle)
+}
+
 /// Load an image directly from a filesystem path (for absolute paths)
-fn load_image_from_path(path: &Path) -> Result<Image> {
+/// Optionally resizes to fit within max_texture_size bounds.
+fn load_image_from_path(path: &Path, max_texture_size: Option<(u32, u32)>) -> Result<Image> {
     // Load image
     let img = image::open(path).map_err(|e| SldshowError::ImageLoadError {
         path: Utf8PathBuf::try_from(path.to_path_buf())
             .unwrap_or_else(|_| Utf8PathBuf::from(path.to_string_lossy().to_string())),
         source: e,
     })?;
+
+    // Resize if max_texture_size is specified
+    let img = if let Some((max_w, max_h)) = max_texture_size {
+        resize_for_gpu(img, max_w, max_h)
+    } else {
+        img
+    };
+
     let img_rgba = img.to_rgba8();
     let (width, height) = img_rgba.dimensions();
 
@@ -213,69 +332,205 @@ fn load_image_from_path(path: &Path) -> Result<Image> {
 }
 
 /// Image loading plugin
+///
+/// Note: `load_images_system` is registered in `main.rs` to access `TransitionState`.
+/// This plugin only initializes the `ImageLoader` resource.
 pub struct ImageLoaderPlugin;
 
 impl Plugin for ImageLoaderPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<ImageLoader>()
-            .add_systems(Update, load_images_system);
+        app.init_resource::<ImageLoader>();
+        // Note: load_images_system is registered in main.rs for TransitionState access
     }
 }
 
-/// System to handle image loading (async version)
-fn load_images_system(
-    mut loader: ResMut<ImageLoader>,
-    mut images: ResMut<Assets<Image>>,
-) {
-    if loader.paths.is_empty() {
-        return;
-    }
-
-    // Poll existing tasks and collect completed results (non-blocking check)
-    let mut completed_results = Vec::new();
+/// Poll completed loading tasks and move results to pending_uploads.
+///
+/// This only modifies the ImageLoader (not Assets<Image>), so it doesn't
+/// trigger Bevy's change detection on image assets. Call this before
+/// deciding whether to use load_images_system_inner (mutable) or
+/// load_images_system_readonly (read-only).
+pub fn poll_loading_tasks(loader: &mut ImageLoader) {
+    let mut completed_results: Vec<(usize, ImageLoadResult)> = Vec::new();
     loader.loading_tasks.retain(|idx, task| {
         if task.is_finished() {
-            // Task is done, extract result (block_on is instant for finished tasks)
             let result = bevy::tasks::block_on(task);
             completed_results.push((*idx, result));
-            false // Remove completed task
+            false
         } else {
-            true // Keep pending task
+            true
         }
     });
 
-    // Add completed images and metadata to assets
     for (idx, result) in completed_results {
         match result {
-            Ok((task_idx, image, metadata)) => {
-                debug!("Successfully loaded image: {}x{}", image.width(), image.height());
-                let handle = images.add(image);
-                loader.handles.insert(task_idx, handle);
-                loader.metadata_cache.insert(task_idx, metadata); // Cache metadata loaded in background
+            Ok((task_idx, image)) => {
+                debug!(
+                    "Image loaded (queued for upload): {}x{}",
+                    image.width(),
+                    image.height()
+                );
+                loader.pending_uploads.push_back((task_idx, image));
             }
             Err(e) => {
                 error!("Failed to load image at index {}: {}", idx, e);
             }
         }
     }
+}
+
+/// System to handle image loading (async version)
+///
+/// Uses a throttled upload queue to prevent GPU stalls from multiple
+/// simultaneous texture uploads. Only MAX_UPLOADS_PER_FRAME images
+/// are uploaded to the GPU per frame.
+///
+/// The `transition_active` parameter controls preload behavior:
+/// - When true: only the current image is uploaded (defers preloads)
+/// - When false: preload images are also uploaded
+///
+/// This prevents frame spikes during transitions by deferring heavy
+/// GPU uploads until the animation completes.
+///
+/// IMPORTANT: Call `poll_loading_tasks` before this function to move
+/// completed tasks to pending_uploads.
+pub fn load_images_system_inner(
+    loader: &mut ImageLoader,
+    images: &mut Assets<Image>,
+    transition_active: bool,
+) {
+    if loader.paths.is_empty() {
+        return;
+    }
+
+    // Note: Task polling is done by poll_loading_tasks() called from the wrapper.
+
+    // Priority loading: if current image needs loading but task slots are full
+    // with non-current tasks, cancel one to free a slot immediately
+    let current_index = loader.current_index;
+    if !loader.handles.contains_key(&current_index)
+        && !loader.loading_tasks.contains_key(&current_index)
+        && !loader
+            .pending_uploads
+            .iter()
+            .any(|(idx, _)| *idx == current_index)
+        && loader.loading_tasks.len() >= MAX_CONCURRENT_TASKS
+    {
+        if let Some(key) = loader
+            .loading_tasks
+            .keys()
+            .find(|k| **k != current_index)
+            .copied()
+        {
+            loader.loading_tasks.remove(&key);
+            debug!(
+                "Cancelled preload task {} to prioritize current image {}",
+                key, current_index
+            );
+        }
+    }
+
+    // Process pending uploads with throttling (MAX_UPLOADS_PER_FRAME per frame)
+    // This prevents GPU stalls from uploading many textures at once
+    //
+    // IMPORTANT: After initial load, we only upload when:
+    // 1. The current image needs uploading (priority)
+    // 2. There's no active transition (to avoid stuttering during animation)
+    let mut uploads_this_frame = 0;
+
+    // Always prioritize current image upload
+    let current_needs_upload = !loader.handles.contains_key(&current_index)
+        && loader
+            .pending_uploads
+            .iter()
+            .any(|(idx, _)| *idx == current_index);
+
+    while uploads_this_frame < MAX_UPLOADS_PER_FRAME {
+        // Prioritize current image upload for faster initial display
+        // Use swap_remove_front for O(1) removal (order of pending queue is not critical)
+        let upload = if let Some(pos) = loader
+            .pending_uploads
+            .iter()
+            .position(|(idx, _)| *idx == current_index)
+        {
+            loader.pending_uploads.swap_remove_front(pos)
+        } else if loader.initial_load_complete && !current_needs_upload && !transition_active {
+            // After initial load, only upload preload images if:
+            // - Current image is ready (not needs_upload)
+            // - No transition is active (prevents frame spikes during animation)
+            loader.pending_uploads.pop_front()
+        } else if !loader.initial_load_complete {
+            // During initial load, process any pending upload
+            loader.pending_uploads.pop_front()
+        } else {
+            // Current image needs upload but isn't in queue yet - wait
+            break;
+        };
+
+        let Some((task_idx, image)) = upload else {
+            break;
+        };
+
+        // GPU texture upload happens here (this is the blocking operation)
+        let handle = images.add(image);
+        loader.handles.insert(task_idx, handle);
+        // Note: Metadata is NOT loaded here - loaded lazily via get_metadata_lazy()
+        uploads_this_frame += 1;
+
+        // Mark initial load complete after first image is uploaded
+        if task_idx == current_index && !loader.initial_load_complete {
+            loader.initial_load_complete = true;
+            info!("Initial image loaded, enabling full preload cache");
+        }
+    }
+
+    // Log pending queue status if there are waiting uploads
+    if !loader.pending_uploads.is_empty() {
+        debug!(
+            "Pending GPU uploads: {} (throttled to {}/frame)",
+            loader.pending_uploads.len(),
+            MAX_UPLOADS_PER_FRAME
+        );
+    }
 
     // Get indices that should be loaded
     let preload_indices = loader.get_preload_indices();
 
-    // Start loading tasks for images that aren't already loaded or loading
+    // Only rebuild pending_indices HashSet and start new tasks when needed
+    // This avoids per-frame HashSet allocation when no new tasks are required
+    let pending_indices: HashSet<usize> = if loader.loading_tasks.len() < MAX_CONCURRENT_TASKS {
+        loader.pending_uploads.iter().map(|(idx, _)| *idx).collect()
+    } else {
+        HashSet::new()
+    };
+
+    // Start loading tasks for images that aren't already loaded, loading, or pending
+    // CRITICAL: Limit concurrent tasks to prevent CPU saturation from many simultaneous
+    // image loads. Without this limit, initial_load_complete triggers 10+ task spawns
+    // that can freeze the main thread for 10+ seconds while CPU processes all images.
     let task_pool = AsyncComputeTaskPool::get();
+    let max_texture_size = loader.max_texture_size;
+    let current_task_count = loader.loading_tasks.len();
+
     for &idx in &preload_indices {
-        if !loader.handles.contains_key(&idx) && !loader.loading_tasks.contains_key(&idx) {
+        // Don't start new tasks if we're at the limit
+        if loader.loading_tasks.len() >= MAX_CONCURRENT_TASKS {
+            break;
+        }
+
+        if !loader.handles.contains_key(&idx)
+            && !loader.loading_tasks.contains_key(&idx)
+            && !pending_indices.contains(&idx)
+        {
             if let Some(path) = loader.paths.get(idx).cloned() {
                 debug!("Starting async load for image: {}", path);
 
-                // Spawn async task to load image and metadata together
+                // Spawn async task to load image ONLY (no metadata - loaded lazily)
+                // This ensures fast image display without EXIF parsing delay
                 let task = task_pool.spawn(async move {
-                    // Load image from file
-                    let image = load_image_from_path(path.as_std_path())?;
-                    // Load metadata in background (non-blocking)
-                    let metadata = ImageMetadata::from_path(&path);
-                    Ok((idx, image, metadata))
+                    // Load image from file with optional resizing
+                    let image = load_image_from_path(path.as_std_path(), Some(max_texture_size))?;
+                    Ok((idx, image))
                 });
 
                 loader.loading_tasks.insert(idx, task);
@@ -283,29 +538,137 @@ fn load_images_system(
         }
     }
 
-    // Remove handles and tasks that are too far from current index
-    let indices_to_keep: HashSet<usize> = preload_indices.into_iter().collect();
-    loader.handles.retain(|idx, handle| {
-        if indices_to_keep.contains(idx) {
-            true
+    // Log when tasks are throttled
+    if loader.loading_tasks.len() > current_task_count {
+        debug!(
+            "Active loading tasks: {} (max: {})",
+            loader.loading_tasks.len(),
+            MAX_CONCURRENT_TASKS
+        );
+    }
+
+    // Cache cleanup: deferred by 1 frame AND skipped during active transitions.
+    // Dropping image handles triggers GPU texture deallocation in the render phase,
+    // which can cause 200-400ms spikes if it coincides with material bind group work.
+    if loader.last_cleanup_index != Some(current_index) && !transition_active {
+        if loader.cleanup_deferred_index == Some(current_index) {
+            // Index stable for 2 frames, no transition → safe to cleanup now
+            loader.last_cleanup_index = Some(current_index);
+            loader.cleanup_deferred_index = None;
+
+            // Remove handles and tasks that are too far from current index
+            let indices_to_keep: HashSet<usize> = preload_indices.into_iter().collect();
+            loader.handles.retain(|idx, handle| {
+                if indices_to_keep.contains(idx) {
+                    true
+                } else {
+                    // Only remove if the image is actually loaded (to avoid thrashing)
+                    if images.get(handle).is_some() {
+                        // Image is loaded, we can drop it
+                        false
+                    } else {
+                        // Still loading, keep it
+                        true
+                    }
+                }
+            });
+            loader
+                .loading_tasks
+                .retain(|idx, _| indices_to_keep.contains(idx));
+
+            // Also clean up pending uploads for images no longer needed
+            loader
+                .pending_uploads
+                .retain(|(idx, _)| indices_to_keep.contains(idx));
         } else {
-            // Only remove if the image is actually loaded (to avoid thrashing)
-            if images.get(handle).is_some() {
-                // Image is loaded, we can drop it
-                false
-            } else {
-                // Still loading, keep it
-                true
-            }
+            // First frame with new index → defer cleanup to next frame
+            loader.cleanup_deferred_index = Some(current_index);
         }
-    });
-    loader.loading_tasks.retain(|idx, _| indices_to_keep.contains(idx));
+    }
 }
 
+/// Read-only version of load_images_system_inner.
+///
+/// Handles task starting and cache cleanup WITHOUT triggering change detection
+/// on Assets<Image>. Called when there are no pending uploads or completed tasks.
+/// This prevents Bevy's render pipeline from re-extracting all images every frame.
+pub fn load_images_system_readonly(
+    loader: &mut ImageLoader,
+    images: &Assets<Image>,
+    transition_active: bool,
+) {
+    if loader.paths.is_empty() {
+        return;
+    }
+
+    let current_index = loader.current_index;
+
+    // Get indices that should be loaded
+    let preload_indices = loader.get_preload_indices();
+
+    // Only rebuild pending_indices HashSet and start new tasks when needed
+    let pending_indices: HashSet<usize> = if loader.loading_tasks.len() < MAX_CONCURRENT_TASKS {
+        loader.pending_uploads.iter().map(|(idx, _)| *idx).collect()
+    } else {
+        HashSet::new()
+    };
+
+    // Start loading tasks for images that aren't already loaded, loading, or pending
+    let task_pool = AsyncComputeTaskPool::get();
+    let max_texture_size = loader.max_texture_size;
+
+    for &idx in &preload_indices {
+        if loader.loading_tasks.len() >= MAX_CONCURRENT_TASKS {
+            break;
+        }
+
+        if !loader.handles.contains_key(&idx)
+            && !loader.loading_tasks.contains_key(&idx)
+            && !pending_indices.contains(&idx)
+        {
+            if let Some(path) = loader.paths.get(idx).cloned() {
+                debug!("Starting async load for image: {}", path);
+                let task = task_pool.spawn(async move {
+                    let image = load_image_from_path(path.as_std_path(), Some(max_texture_size))?;
+                    Ok((idx, image))
+                });
+                loader.loading_tasks.insert(idx, task);
+            }
+        }
+    }
+
+    // Cache cleanup: deferred + skipped during transitions (see load_images_system_inner)
+    if loader.last_cleanup_index != Some(current_index) && !transition_active {
+        if loader.cleanup_deferred_index == Some(current_index) {
+            loader.last_cleanup_index = Some(current_index);
+            loader.cleanup_deferred_index = None;
+
+            let indices_to_keep: HashSet<usize> = preload_indices.into_iter().collect();
+            loader.handles.retain(|idx, handle| {
+                if indices_to_keep.contains(idx) {
+                    true
+                } else {
+                    images.get(handle).is_none()
+                }
+            });
+            loader
+                .loading_tasks
+                .retain(|idx, _| indices_to_keep.contains(idx));
+            loader
+                .pending_uploads
+                .retain(|(idx, _)| indices_to_keep.contains(idx));
+        } else {
+            loader.cleanup_deferred_index = Some(current_index);
+        }
+    }
+}
 
 /// Standalone function to scan paths (can be run in background thread)
 /// Uses parallel iteration for improved performance on large directories
-pub fn scan_image_paths(input_paths: &[Utf8PathBuf], scan_subfolders: bool) -> Result<Vec<Utf8PathBuf>> {
+pub fn scan_image_paths(
+    input_paths: &[Utf8PathBuf],
+    scan_subfolders: bool,
+) -> Result<Vec<Utf8PathBuf>> {
     // Parallel iteration over input paths
     let mut paths: Vec<Utf8PathBuf> = input_paths
         .par_iter()
@@ -334,12 +697,7 @@ pub fn scan_image_paths(input_paths: &[Utf8PathBuf], scan_subfolders: bool) -> R
         .collect();
 
     // Sort paths alphanumerically (must be sequential for consistent ordering)
-    paths.sort_by(|a, b| {
-        alphanumeric_sort::compare_str(
-            a.as_str(),
-            b.as_str(),
-        )
-    });
+    paths.sort_by(|a, b| alphanumeric_sort::compare_str(a.as_str(), b.as_str()));
 
     // Return error if no images found
     if paths.is_empty() {
@@ -358,14 +716,14 @@ fn scan_directory_recursive_parallel(dir: &Path, recursive: bool) -> Result<Vec<
         Ok(e) => e,
         Err(e) => {
             warn!("Failed to read directory {}: {}", dir.display(), e);
-            return Ok(Vec::new());  // Return empty vec, don't fail entire scan
+            return Ok(Vec::new()); // Return empty vec, don't fail entire scan
         }
     };
 
     // Parallel iteration over directory entries
     let paths: Vec<Utf8PathBuf> = entries
-        .flatten()  // Filter out Err entries
-        .par_bridge()  // Convert iterator to parallel iterator
+        .flatten() // Filter out Err entries
+        .par_bridge() // Convert iterator to parallel iterator
         .flat_map_iter(|entry| {
             let path = entry.path();
 
@@ -379,7 +737,7 @@ fn scan_directory_recursive_parallel(dir: &Path, recursive: bool) -> Result<Vec<
                 // Recursive case: scan subdirectory in parallel
                 match scan_directory_recursive_parallel(&path, recursive) {
                     Ok(subdir_paths) => subdir_paths.into_iter(),
-                    Err(_) => vec![].into_iter(),  // Silently skip failed subdirs
+                    Err(_) => vec![].into_iter(), // Silently skip failed subdirs
                 }
             } else {
                 vec![].into_iter()
@@ -416,6 +774,12 @@ mod tests {
         ];
         loader.current_index = 2;
 
+        // Before initial load, only current image is returned
+        let indices = loader.get_preload_indices();
+        assert_eq!(indices, vec![2]); // only current
+
+        // After initial load complete, full preload is returned
+        loader.initial_load_complete = true;
         let indices = loader.get_preload_indices();
         assert!(indices.contains(&2)); // current
         assert!(indices.contains(&3)); // next
@@ -440,10 +804,7 @@ mod tests {
     #[test]
     fn test_next_pause_at_last() {
         let mut loader = ImageLoader::new(1);
-        loader.paths = vec![
-            Utf8PathBuf::from("1.png"),
-            Utf8PathBuf::from("2.png"),
-        ];
+        loader.paths = vec![Utf8PathBuf::from("1.png"), Utf8PathBuf::from("2.png")];
         loader.current_index = 1; // Last image
 
         // Should not advance when pause_at_last is true

@@ -9,8 +9,9 @@
 use bevy::prelude::*;
 use bevy::render::render_resource::{AsBindGroup, ShaderType};
 use bevy::shader::ShaderRef;
-use bevy::sprite_render::{Material2d, Material2dPlugin};
+use bevy::sprite_render::{Material2d, Material2dPlugin, MeshMaterial2d};
 
+use crate::config::Config;
 use crate::consts::TRANSITION_SHADER_HANDLE;
 
 /// Transition material plugin
@@ -20,18 +21,17 @@ impl Plugin for TransitionPlugin {
     fn build(&self, app: &mut App) {
         // Load and register the embedded shader
         let mut shaders = app.world_mut().resource_mut::<Assets<Shader>>();
-        shaders.insert(
-            &TRANSITION_SHADER_HANDLE,
-            Shader::from_wgsl(
-                include_str!("../assets/shaders/transition.wgsl"),
-                file!(),
-            ),
-        ).expect("Failed to insert transition shader");
+        shaders
+            .insert(
+                &TRANSITION_SHADER_HANDLE,
+                Shader::from_wgsl(include_str!("../assets/shaders/transition.wgsl"), file!()),
+            )
+            .expect("Failed to insert transition shader");
 
         app.add_plugins(Material2dPlugin::<TransitionMaterial>::default())
             .add_message::<TransitionEvent>()
             .init_resource::<TransitionState>();
-            // Note: update_transitions is now scheduled in main.rs for explicit ordering
+        // Note: update_transitions is now scheduled in main.rs for explicit ordering
     }
 }
 
@@ -79,6 +79,8 @@ pub struct TransitionState {
     pub displayed_image: Option<Handle<Image>>,
     /// Currently active transition
     pub active: Option<ActiveTransition>,
+    /// Handle to the active transition material (for direct access instead of iterating all materials)
+    pub material_handle: Option<Handle<TransitionMaterial>>,
 }
 
 /// Active transition data
@@ -127,7 +129,10 @@ pub fn handle_transition_events(
         });
 
         crate::diagnostics::track_transition_start(&mut metrics);
-        info!("Starting transition: mode {} duration {}s", event.mode, event.duration);
+        info!(
+            "Starting transition: mode {} duration {}s",
+            event.mode, event.duration
+        );
     }
 }
 
@@ -138,6 +143,10 @@ pub fn update_transitions(
     mut materials: ResMut<Assets<TransitionMaterial>>,
     mut metrics: ResMut<crate::diagnostics::TransitionMetrics>,
 ) {
+    // Get material handle for direct access (avoid iterating all materials)
+    // Clone before borrowing state.active mutably to satisfy borrow checker
+    let material_handle = state.material_handle.clone();
+
     let Some(ref mut transition) = state.active else {
         return;
     };
@@ -150,17 +159,21 @@ pub fn update_transitions(
         transition.start_time = time.elapsed_secs(); // Reset timer to NOW
 
         // Ensure blend starts at 0.0
-        for (_id, material) in materials.iter_mut() {
-            material.uniforms.blend = 0.0;
+        if let Some(ref handle) = material_handle {
+            if let Some(material) = materials.get_mut(handle) {
+                material.uniforms.blend = 0.0;
+            }
         }
         return;
     }
 
     // Handle instant transitions (duration = 0)
     if transition.duration == 0.0 {
-        // Update all materials to blend=1.0 to show texture_b immediately
-        for (_id, material) in materials.iter_mut() {
-            material.uniforms.blend = 1.0;
+        // Update material to blend=1.0 to show texture_b immediately
+        if let Some(ref handle) = material_handle {
+            if let Some(material) = materials.get_mut(handle) {
+                material.uniforms.blend = 1.0;
+            }
         }
 
         // Clone target before modifying state
@@ -190,9 +203,11 @@ pub fn update_transitions(
     // Also masks small stutters by reducing visual impact of frame time variations
     let eased_progress = linear_progress * linear_progress * (3.0 - 2.0 * linear_progress);
 
-    // Update all transition materials with eased progress
-    for (_id, material) in materials.iter_mut() {
-        material.uniforms.blend = eased_progress;
+    // Update transition material with eased progress (direct handle access)
+    if let Some(ref handle) = material_handle {
+        if let Some(material) = materials.get_mut(handle) {
+            material.uniforms.blend = eased_progress;
+        }
     }
 
     // Remove transition when complete
@@ -205,7 +220,10 @@ pub fn update_transitions(
         state.active = None;
 
         crate::diagnostics::track_transition_complete(&mut metrics, actual_duration);
-        info!("Transition complete (actual duration: {:.3}s)", actual_duration);
+        info!(
+            "Transition complete (actual duration: {:.3}s)",
+            actual_duration
+        );
 
         // Note: pending_target will be processed by detect_image_change
         // when it detects that active is None
@@ -217,6 +235,199 @@ pub fn random_transition_mode() -> i32 {
     use rand::Rng;
     let mut rng = rand::thread_rng();
     rng.gen_range(0..=19) // Modes 0-19 are available
+}
+
+/// Component to mark transition entities
+#[derive(Component)]
+pub struct TransitionEntity;
+
+/// Get window size from query or fallback to config
+fn get_window_size(windows: &Query<&Window>, config: &Config) -> Vec2 {
+    if let Ok(window) = windows.single() {
+        Vec2::new(window.width(), window.height())
+    } else {
+        Vec2::new(config.window.width as f32, config.window.height as f32)
+    }
+}
+
+/// Get image size from handle or fallback to window size
+fn get_image_size(handle: &Handle<Image>, images: &Assets<Image>, fallback: Vec2) -> Vec2 {
+    if let Some(img) = images.get(handle) {
+        Vec2::new(img.width() as f32, img.height() as f32)
+    } else {
+        fallback
+    }
+}
+
+/// Update existing transition material with new transition parameters
+#[allow(clippy::too_many_arguments)]
+fn update_transition_material(
+    material: &mut TransitionMaterial,
+    event: &TransitionEvent,
+    texture_a: Handle<Image>,
+    transition_state: &mut TransitionState,
+    window_size: Vec2,
+    image_a_size: Vec2,
+    image_b_size: Vec2,
+    bg: [f32; 4],
+) {
+    let to_image = event.to_image.clone();
+    if event.duration == 0.0 {
+        // For instant display, set both textures to the target image
+        material.texture_a = to_image.clone();
+        material.texture_b = to_image.clone();
+        material.uniforms.blend = 1.0;
+
+        transition_state.displayed_image = Some(to_image);
+    } else {
+        // For normal transition, use displayed_image → target
+        material.texture_a = texture_a;
+        material.texture_b = to_image;
+        material.uniforms.blend = 0.0;
+    }
+
+    material.uniforms.mode = event.mode;
+    material.uniforms.bg_color = Vec4::new(bg[0], bg[1], bg[2], bg[3]);
+    material.uniforms.window_size = window_size;
+    material.uniforms.image_a_size = image_a_size;
+    material.uniforms.image_b_size = image_b_size;
+}
+
+/// Spawn a new transition entity with the given parameters
+#[allow(clippy::too_many_arguments)]
+fn spawn_transition_entity(
+    commands: &mut Commands,
+    meshes: &mut Assets<Mesh>,
+    materials: &mut Assets<TransitionMaterial>,
+    event: &TransitionEvent,
+    texture_a: Handle<Image>,
+    transition_state: &mut TransitionState,
+    window_size: Vec2,
+    image_a_size: Vec2,
+    image_b_size: Vec2,
+    bg: [f32; 4],
+) -> (Entity, Handle<TransitionMaterial>) {
+    info!(
+        "Creating first transition entity - window_size: {:?}, image_a: {:?}, image_b: {:?}",
+        window_size, image_a_size, image_b_size
+    );
+
+    let mesh = meshes.add(Rectangle::new(window_size.x, window_size.y));
+
+    let to_image = event.to_image.clone();
+    let (final_texture_a, final_texture_b, initial_blend) = if event.duration == 0.0 {
+        transition_state.displayed_image = Some(to_image.clone());
+        (to_image.clone(), to_image, 1.0)
+    } else {
+        (texture_a, to_image, 0.0)
+    };
+
+    let material_handle = materials.add(TransitionMaterial {
+        uniforms: TransitionUniform {
+            blend: initial_blend,
+            mode: event.mode,
+            aspect_ratio: Vec2::new(1.0, 1.0),
+            bg_color: Vec4::new(bg[0], bg[1], bg[2], bg[3]),
+            window_size,
+            image_a_size,
+            image_b_size,
+        },
+        texture_a: final_texture_a,
+        texture_b: final_texture_b,
+    });
+
+    let entity = commands
+        .spawn((
+            Mesh2d(mesh),
+            MeshMaterial2d(material_handle.clone()),
+            Transform::from_xyz(0.0, 0.0, 0.0),
+            GlobalTransform::default(),
+            Visibility::Visible,
+            InheritedVisibility::default(),
+            ViewVisibility::default(),
+            TransitionEntity,
+        ))
+        .id();
+
+    (entity, material_handle)
+}
+
+/// Create and spawn transition entities in response to transition events
+///
+/// Removes old transition entities and creates new fullscreen quads with
+/// transition materials that blend between source and target images.
+#[allow(clippy::too_many_arguments)]
+pub fn trigger_transition(
+    mut commands: Commands,
+    mut transition_events: MessageReader<TransitionEvent>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<TransitionMaterial>>,
+    config: Res<Config>,
+    windows: Query<&Window>,
+    existing_entity: Query<(Entity, &MeshMaterial2d<TransitionMaterial>), With<TransitionEntity>>,
+    images: Res<Assets<Image>>,
+    mut transition_state: ResMut<TransitionState>,
+) {
+    for event in transition_events.read() {
+        // Note: No images.get() check here. detect_image_change already verified
+        // both images exist before sending the event. Checking here would cause
+        // events to be silently dropped if the check fails due to system ordering,
+        // resulting in state.active being set but no material update.
+
+        // Gather size and color information
+        let window_size = get_window_size(&windows, &config);
+        let image_a_size = get_image_size(&event.from_image, &images, window_size);
+        let image_b_size = get_image_size(&event.to_image, &images, window_size);
+        let bg = config.bg_color_f32();
+
+        // Use displayed_image for texture_a, or fallback to event.from_image
+        let texture_a = transition_state
+            .displayed_image
+            .clone()
+            .unwrap_or_else(|| event.from_image.clone());
+
+        // Try to reuse existing entity to avoid spawn/despawn overhead
+        if let Ok((entity, mat_handle)) = existing_entity.single() {
+            // Store material handle for direct access in update_transitions
+            transition_state.material_handle = Some(mat_handle.0.clone());
+
+            if let Some(material) = materials.get_mut(&mat_handle.0) {
+                update_transition_material(
+                    material,
+                    event,
+                    texture_a,
+                    &mut transition_state,
+                    window_size,
+                    image_a_size,
+                    image_b_size,
+                    bg,
+                );
+                info!(
+                    "Transition started (reused): mode {} duration {}s, entity: {:?}",
+                    event.mode, event.duration, entity
+                );
+            }
+        } else {
+            let (entity, mat_handle) = spawn_transition_entity(
+                &mut commands,
+                &mut meshes,
+                &mut materials,
+                event,
+                texture_a,
+                &mut transition_state,
+                window_size,
+                image_a_size,
+                image_b_size,
+                bg,
+            );
+            // Store material handle for direct access in update_transitions
+            transition_state.material_handle = Some(mat_handle);
+            info!(
+                "Transition started (new): mode {} duration {}s, entity: {:?}",
+                event.mode, event.duration, entity
+            );
+        }
+    }
 }
 
 #[cfg(test)]
