@@ -83,6 +83,13 @@ opt-level = 1
 lto = true
 codegen-units = 1
 
+# Development profile with release-level optimization but faster compilation.
+# Use for manual testing: cargo build --profile dev-release
+[profile.dev-release]
+inherits = "release"
+debug = true
+lto = false
+
 # Fast compile for dev with some optimizations for Bevy
 [profile.dev.package."*"]
 opt-level = 3

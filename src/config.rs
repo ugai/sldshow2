@@ -74,6 +74,12 @@ pub struct ViewerConfig {
     pub cache_extent: usize,
     #[serde(default = "default_true")]
     pub hot_reload: bool,
+    /// Maximum texture size [width, height] for GPU upload.
+    /// Images larger than this are downscaled before GPU upload to reduce frame spikes.
+    /// Lower values = faster uploads but lower quality. [1920, 1080] is a good balance.
+    /// Set to [0, 0] to use window dimensions (may cause frame spikes at 4K+).
+    #[serde(default = "default_max_texture_size")]
+    pub max_texture_size: [u32; 2],
 }
 
 impl Default for ViewerConfig {
@@ -86,6 +92,7 @@ impl Default for ViewerConfig {
             pause_at_last: false,
             cache_extent: default_cache_extent(),
             hot_reload: true,
+            max_texture_size: default_max_texture_size(),
         }
     }
 }
@@ -157,6 +164,10 @@ fn default_transition_time() -> f32 {
 
 fn default_bg_color() -> [u8; 4] {
     [0, 0, 0, 255]
+}
+
+fn default_max_texture_size() -> [u32; 2] {
+    [1920, 1080]
 }
 
 fn default_true() -> bool {

@@ -15,9 +15,8 @@ const MAX_UPLOADS_PER_FRAME: usize = 1;
 /// Maximum number of concurrent loading tasks to prevent CPU saturation
 /// This prevents all CPU cores from being used for image loading/resizing,
 /// leaving headroom for the main thread and GPU work.
-/// Note: Even with async tasks, the actual image loading and Lanczos3 resizing
-/// is CPU-bound work that can block if too many tasks run simultaneously.
-const MAX_CONCURRENT_TASKS: usize = 1;
+/// 2 tasks allows the current image to load in parallel with one preload.
+const MAX_CONCURRENT_TASKS: usize = 2;
 
 /// Type alias for image loading task result (image only, no metadata)
 type ImageLoadResult = Result<(usize, Image)>;
@@ -64,6 +63,12 @@ pub struct ImageLoader {
     /// Whether the initial image has been loaded and displayed
     /// When false, only the current image is loaded (not the full cache)
     pub initial_load_complete: bool,
+    /// Last index where cache cleanup was performed (to avoid redundant retain calls)
+    last_cleanup_index: Option<usize>,
+    /// Deferred cleanup: set when index changes, cleanup runs on next frame with same index.
+    /// This separates GPU texture deallocation from material bind group recreation,
+    /// reducing per-frame render-phase work during navigation.
+    cleanup_deferred_index: Option<usize>,
 }
 
 impl Default for ImageLoader {
@@ -79,6 +84,8 @@ impl Default for ImageLoader {
             max_texture_size: (1920, 1080), // Default to 1080p
             pending_uploads: VecDeque::new(),
             initial_load_complete: false,
+            last_cleanup_index: None,
+            cleanup_deferred_index: None,
         }
     }
 }
@@ -184,13 +191,14 @@ impl ImageLoader {
         // Current image first
         indices.push(self.current_index);
 
-        // Then alternate: next, previous, next+1, previous-1, etc.
+        // Forward images first (user most likely navigates forward)
         for i in 1..=self.cache_extent {
-            // Next images
             let next_idx = (self.current_index + i) % len;
             indices.push(next_idx);
+        }
 
-            // Previous images
+        // Then backward images
+        for i in 1..=self.cache_extent {
             let prev_idx = if self.current_index >= i {
                 self.current_index - i
             } else {
@@ -336,6 +344,41 @@ impl Plugin for ImageLoaderPlugin {
     }
 }
 
+/// Poll completed loading tasks and move results to pending_uploads.
+///
+/// This only modifies the ImageLoader (not Assets<Image>), so it doesn't
+/// trigger Bevy's change detection on image assets. Call this before
+/// deciding whether to use load_images_system_inner (mutable) or
+/// load_images_system_readonly (read-only).
+pub fn poll_loading_tasks(loader: &mut ImageLoader) {
+    let mut completed_results: Vec<(usize, ImageLoadResult)> = Vec::new();
+    loader.loading_tasks.retain(|idx, task| {
+        if task.is_finished() {
+            let result = bevy::tasks::block_on(task);
+            completed_results.push((*idx, result));
+            false
+        } else {
+            true
+        }
+    });
+
+    for (idx, result) in completed_results {
+        match result {
+            Ok((task_idx, image)) => {
+                debug!(
+                    "Image loaded (queued for upload): {}x{}",
+                    image.width(),
+                    image.height()
+                );
+                loader.pending_uploads.push_back((task_idx, image));
+            }
+            Err(e) => {
+                error!("Failed to load image at index {}: {}", idx, e);
+            }
+        }
+    }
+}
+
 /// System to handle image loading (async version)
 ///
 /// Uses a throttled upload queue to prevent GPU stalls from multiple
@@ -348,6 +391,9 @@ impl Plugin for ImageLoaderPlugin {
 ///
 /// This prevents frame spikes during transitions by deferring heavy
 /// GPU uploads until the animation completes.
+///
+/// IMPORTANT: Call `poll_loading_tasks` before this function to move
+/// completed tasks to pending_uploads.
 pub fn load_images_system_inner(
     loader: &mut ImageLoader,
     images: &mut Assets<Image>,
@@ -357,35 +403,30 @@ pub fn load_images_system_inner(
         return;
     }
 
-    // Poll existing tasks and collect completed results (non-blocking check)
-    let mut completed_results = Vec::new();
-    loader.loading_tasks.retain(|idx, task| {
-        if task.is_finished() {
-            // Task is done, extract result (block_on is instant for finished tasks)
-            let result = bevy::tasks::block_on(task);
-            completed_results.push((*idx, result));
-            false // Remove completed task
-        } else {
-            true // Keep pending task
-        }
-    });
+    // Note: Task polling is done by poll_loading_tasks() called from the wrapper.
 
-    // Queue completed images for GPU upload (instead of immediate upload)
-    // Note: Metadata is NOT loaded here - it's loaded lazily when needed
-    for (idx, result) in completed_results {
-        match result {
-            Ok((task_idx, image)) => {
-                debug!(
-                    "Image loaded (queued for upload): {}x{}",
-                    image.width(),
-                    image.height()
-                );
-                // Queue for GPU upload instead of immediate upload
-                loader.pending_uploads.push_back((task_idx, image));
-            }
-            Err(e) => {
-                error!("Failed to load image at index {}: {}", idx, e);
-            }
+    // Priority loading: if current image needs loading but task slots are full
+    // with non-current tasks, cancel one to free a slot immediately
+    let current_index = loader.current_index;
+    if !loader.handles.contains_key(&current_index)
+        && !loader.loading_tasks.contains_key(&current_index)
+        && !loader
+            .pending_uploads
+            .iter()
+            .any(|(idx, _)| *idx == current_index)
+        && loader.loading_tasks.len() >= MAX_CONCURRENT_TASKS
+    {
+        if let Some(key) = loader
+            .loading_tasks
+            .keys()
+            .find(|k| **k != current_index)
+            .copied()
+        {
+            loader.loading_tasks.remove(&key);
+            debug!(
+                "Cancelled preload task {} to prioritize current image {}",
+                key, current_index
+            );
         }
     }
 
@@ -395,7 +436,6 @@ pub fn load_images_system_inner(
     // IMPORTANT: After initial load, we only upload when:
     // 1. The current image needs uploading (priority)
     // 2. There's no active transition (to avoid stuttering during animation)
-    let current_index = loader.current_index;
     let mut uploads_this_frame = 0;
 
     // Always prioritize current image upload
@@ -407,12 +447,13 @@ pub fn load_images_system_inner(
 
     while uploads_this_frame < MAX_UPLOADS_PER_FRAME {
         // Prioritize current image upload for faster initial display
+        // Use swap_remove_front for O(1) removal (order of pending queue is not critical)
         let upload = if let Some(pos) = loader
             .pending_uploads
             .iter()
             .position(|(idx, _)| *idx == current_index)
         {
-            loader.pending_uploads.remove(pos)
+            loader.pending_uploads.swap_remove_front(pos)
         } else if loader.initial_load_complete && !current_needs_upload && !transition_active {
             // After initial load, only upload preload images if:
             // - Current image is ready (not needs_upload)
@@ -455,13 +496,18 @@ pub fn load_images_system_inner(
     // Get indices that should be loaded
     let preload_indices = loader.get_preload_indices();
 
+    // Only rebuild pending_indices HashSet and start new tasks when needed
+    // This avoids per-frame HashSet allocation when no new tasks are required
+    let pending_indices: HashSet<usize> = if loader.loading_tasks.len() < MAX_CONCURRENT_TASKS {
+        loader.pending_uploads.iter().map(|(idx, _)| *idx).collect()
+    } else {
+        HashSet::new()
+    };
+
     // Start loading tasks for images that aren't already loaded, loading, or pending
     // CRITICAL: Limit concurrent tasks to prevent CPU saturation from many simultaneous
     // image loads. Without this limit, initial_load_complete triggers 10+ task spawns
     // that can freeze the main thread for 10+ seconds while CPU processes all images.
-    let pending_indices: HashSet<usize> =
-        loader.pending_uploads.iter().map(|(idx, _)| *idx).collect();
-
     let task_pool = AsyncComputeTaskPool::get();
     let max_texture_size = loader.max_texture_size;
     let current_task_count = loader.loading_tasks.len();
@@ -501,30 +547,120 @@ pub fn load_images_system_inner(
         );
     }
 
-    // Remove handles and tasks that are too far from current index
-    let indices_to_keep: HashSet<usize> = preload_indices.into_iter().collect();
-    loader.handles.retain(|idx, handle| {
-        if indices_to_keep.contains(idx) {
-            true
+    // Cache cleanup: deferred by 1 frame AND skipped during active transitions.
+    // Dropping image handles triggers GPU texture deallocation in the render phase,
+    // which can cause 200-400ms spikes if it coincides with material bind group work.
+    if loader.last_cleanup_index != Some(current_index) && !transition_active {
+        if loader.cleanup_deferred_index == Some(current_index) {
+            // Index stable for 2 frames, no transition → safe to cleanup now
+            loader.last_cleanup_index = Some(current_index);
+            loader.cleanup_deferred_index = None;
+
+            // Remove handles and tasks that are too far from current index
+            let indices_to_keep: HashSet<usize> = preload_indices.into_iter().collect();
+            loader.handles.retain(|idx, handle| {
+                if indices_to_keep.contains(idx) {
+                    true
+                } else {
+                    // Only remove if the image is actually loaded (to avoid thrashing)
+                    if images.get(handle).is_some() {
+                        // Image is loaded, we can drop it
+                        false
+                    } else {
+                        // Still loading, keep it
+                        true
+                    }
+                }
+            });
+            loader
+                .loading_tasks
+                .retain(|idx, _| indices_to_keep.contains(idx));
+
+            // Also clean up pending uploads for images no longer needed
+            loader
+                .pending_uploads
+                .retain(|(idx, _)| indices_to_keep.contains(idx));
         } else {
-            // Only remove if the image is actually loaded (to avoid thrashing)
-            if images.get(handle).is_some() {
-                // Image is loaded, we can drop it
-                false
-            } else {
-                // Still loading, keep it
-                true
+            // First frame with new index → defer cleanup to next frame
+            loader.cleanup_deferred_index = Some(current_index);
+        }
+    }
+}
+
+/// Read-only version of load_images_system_inner.
+///
+/// Handles task starting and cache cleanup WITHOUT triggering change detection
+/// on Assets<Image>. Called when there are no pending uploads or completed tasks.
+/// This prevents Bevy's render pipeline from re-extracting all images every frame.
+pub fn load_images_system_readonly(
+    loader: &mut ImageLoader,
+    images: &Assets<Image>,
+    transition_active: bool,
+) {
+    if loader.paths.is_empty() {
+        return;
+    }
+
+    let current_index = loader.current_index;
+
+    // Get indices that should be loaded
+    let preload_indices = loader.get_preload_indices();
+
+    // Only rebuild pending_indices HashSet and start new tasks when needed
+    let pending_indices: HashSet<usize> = if loader.loading_tasks.len() < MAX_CONCURRENT_TASKS {
+        loader.pending_uploads.iter().map(|(idx, _)| *idx).collect()
+    } else {
+        HashSet::new()
+    };
+
+    // Start loading tasks for images that aren't already loaded, loading, or pending
+    let task_pool = AsyncComputeTaskPool::get();
+    let max_texture_size = loader.max_texture_size;
+
+    for &idx in &preload_indices {
+        if loader.loading_tasks.len() >= MAX_CONCURRENT_TASKS {
+            break;
+        }
+
+        if !loader.handles.contains_key(&idx)
+            && !loader.loading_tasks.contains_key(&idx)
+            && !pending_indices.contains(&idx)
+        {
+            if let Some(path) = loader.paths.get(idx).cloned() {
+                debug!("Starting async load for image: {}", path);
+                let task = task_pool.spawn(async move {
+                    let image = load_image_from_path(path.as_std_path(), Some(max_texture_size))?;
+                    Ok((idx, image))
+                });
+                loader.loading_tasks.insert(idx, task);
             }
         }
-    });
-    loader
-        .loading_tasks
-        .retain(|idx, _| indices_to_keep.contains(idx));
+    }
 
-    // Also clean up pending uploads for images no longer needed
-    loader
-        .pending_uploads
-        .retain(|(idx, _)| indices_to_keep.contains(idx));
+    // Cache cleanup: deferred + skipped during transitions (see load_images_system_inner)
+    if loader.last_cleanup_index != Some(current_index) && !transition_active {
+        if loader.cleanup_deferred_index == Some(current_index) {
+            loader.last_cleanup_index = Some(current_index);
+            loader.cleanup_deferred_index = None;
+
+            let indices_to_keep: HashSet<usize> = preload_indices.into_iter().collect();
+            loader.handles.retain(|idx, handle| {
+                if indices_to_keep.contains(idx) {
+                    true
+                } else {
+                    images.get(handle).is_none()
+                }
+            });
+            loader
+                .loading_tasks
+                .retain(|idx, _| indices_to_keep.contains(idx));
+            loader
+                .pending_uploads
+                .retain(|(idx, _)| indices_to_keep.contains(idx));
+        } else {
+            loader.cleanup_deferred_index = Some(current_index);
+        }
+    }
 }
 
 /// Standalone function to scan paths (can be run in background thread)

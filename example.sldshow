@@ -23,6 +23,9 @@ scan_subfolders = true  # Recursively scan directories
 shuffle = true          # Random order
 pause_at_last = false   # Stop at last image instead of looping
 cache_extent = 5        # Number of images to preload (before/after current)
+max_texture_size = [1920, 1080]  # Max texture resolution for GPU upload
+                                 # Lower = faster uploads, less memory
+                                 # [0, 0] = use window size (may stutter at 4K+)
 
 [transition]
 time = 0.5              # Transition duration in seconds

@@ -1,6 +1,7 @@
 //! Performance diagnostics for identifying bottlenecks
 
 use bevy::prelude::*;
+use std::collections::VecDeque;
 use std::time::Instant;
 
 /// Performance diagnostics plugin
@@ -24,7 +25,7 @@ impl Plugin for DiagnosticsPlugin {
 #[derive(Resource)]
 pub struct FrameTimings {
     pub last_frame_start: Instant,
-    pub frame_times: Vec<f32>,
+    pub frame_times: VecDeque<f32>,
     pub max_samples: usize,
     pub last_log_time: f32,
 }
@@ -33,7 +34,7 @@ impl Default for FrameTimings {
     fn default() -> Self {
         Self {
             last_frame_start: Instant::now(),
-            frame_times: Vec::with_capacity(300), // 5 seconds at 60fps
+            frame_times: VecDeque::with_capacity(300), // 5 seconds at 60fps
             max_samples: 300,
             last_log_time: 0.0,
         }
@@ -57,19 +58,26 @@ fn track_frame_time(mut timings: ResMut<FrameTimings>) {
 
     // Store frame time (in milliseconds for easier reading)
     let frame_time_ms = frame_time * 1000.0;
-    timings.frame_times.push(frame_time_ms);
 
-    // Log extreme spikes immediately for debugging
+    // Skip frames >500ms - these are reactive-mode idle sleep, not real rendering work.
+    // Including them would inflate avg/max statistics and trigger false spike warnings.
+    if frame_time_ms > 500.0 {
+        return;
+    }
+
+    timings.frame_times.push_back(frame_time_ms);
+
+    // Log extreme spikes immediately for debugging (real rendering spikes only)
     if frame_time_ms > 200.0 {
         error!(
-            "🔥 EXTREME FRAME SPIKE: {:.2}ms (should be ~16.67ms)",
+            "EXTREME FRAME SPIKE: {:.2}ms (should be ~16.67ms)",
             frame_time_ms
         );
     }
 
-    // Keep only recent samples
+    // Keep only recent samples (O(1) with VecDeque vs O(n) with Vec)
     if timings.frame_times.len() > timings.max_samples {
-        timings.frame_times.remove(0);
+        timings.frame_times.pop_front();
     }
 }
 

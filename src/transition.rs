@@ -79,6 +79,8 @@ pub struct TransitionState {
     pub displayed_image: Option<Handle<Image>>,
     /// Currently active transition
     pub active: Option<ActiveTransition>,
+    /// Handle to the active transition material (for direct access instead of iterating all materials)
+    pub material_handle: Option<Handle<TransitionMaterial>>,
 }
 
 /// Active transition data
@@ -141,6 +143,10 @@ pub fn update_transitions(
     mut materials: ResMut<Assets<TransitionMaterial>>,
     mut metrics: ResMut<crate::diagnostics::TransitionMetrics>,
 ) {
+    // Get material handle for direct access (avoid iterating all materials)
+    // Clone before borrowing state.active mutably to satisfy borrow checker
+    let material_handle = state.material_handle.clone();
+
     let Some(ref mut transition) = state.active else {
         return;
     };
@@ -153,17 +159,21 @@ pub fn update_transitions(
         transition.start_time = time.elapsed_secs(); // Reset timer to NOW
 
         // Ensure blend starts at 0.0
-        for (_id, material) in materials.iter_mut() {
-            material.uniforms.blend = 0.0;
+        if let Some(ref handle) = material_handle {
+            if let Some(material) = materials.get_mut(handle) {
+                material.uniforms.blend = 0.0;
+            }
         }
         return;
     }
 
     // Handle instant transitions (duration = 0)
     if transition.duration == 0.0 {
-        // Update all materials to blend=1.0 to show texture_b immediately
-        for (_id, material) in materials.iter_mut() {
-            material.uniforms.blend = 1.0;
+        // Update material to blend=1.0 to show texture_b immediately
+        if let Some(ref handle) = material_handle {
+            if let Some(material) = materials.get_mut(handle) {
+                material.uniforms.blend = 1.0;
+            }
         }
 
         // Clone target before modifying state
@@ -193,9 +203,11 @@ pub fn update_transitions(
     // Also masks small stutters by reducing visual impact of frame time variations
     let eased_progress = linear_progress * linear_progress * (3.0 - 2.0 * linear_progress);
 
-    // Update all transition materials with eased progress
-    for (_id, material) in materials.iter_mut() {
-        material.uniforms.blend = eased_progress;
+    // Update transition material with eased progress (direct handle access)
+    if let Some(ref handle) = material_handle {
+        if let Some(material) = materials.get_mut(handle) {
+            material.uniforms.blend = eased_progress;
+        }
     }
 
     // Remove transition when complete
@@ -259,17 +271,18 @@ fn update_transition_material(
     image_b_size: Vec2,
     bg: [f32; 4],
 ) {
+    let to_image = event.to_image.clone();
     if event.duration == 0.0 {
         // For instant display, set both textures to the target image
-        material.texture_a = event.to_image.clone();
-        material.texture_b = event.to_image.clone();
+        material.texture_a = to_image.clone();
+        material.texture_b = to_image.clone();
         material.uniforms.blend = 1.0;
 
-        transition_state.displayed_image = Some(event.to_image.clone());
+        transition_state.displayed_image = Some(to_image);
     } else {
         // For normal transition, use displayed_image → target
         material.texture_a = texture_a;
-        material.texture_b = event.to_image.clone();
+        material.texture_b = to_image;
         material.uniforms.blend = 0.0;
     }
 
@@ -293,7 +306,7 @@ fn spawn_transition_entity(
     image_a_size: Vec2,
     image_b_size: Vec2,
     bg: [f32; 4],
-) -> Entity {
+) -> (Entity, Handle<TransitionMaterial>) {
     info!(
         "Creating first transition entity - window_size: {:?}, image_a: {:?}, image_b: {:?}",
         window_size, image_a_size, image_b_size
@@ -301,14 +314,15 @@ fn spawn_transition_entity(
 
     let mesh = meshes.add(Rectangle::new(window_size.x, window_size.y));
 
+    let to_image = event.to_image.clone();
     let (final_texture_a, final_texture_b, initial_blend) = if event.duration == 0.0 {
-        transition_state.displayed_image = Some(event.to_image.clone());
-        (event.to_image.clone(), event.to_image.clone(), 1.0)
+        transition_state.displayed_image = Some(to_image.clone());
+        (to_image.clone(), to_image, 1.0)
     } else {
-        (texture_a, event.to_image.clone(), 0.0)
+        (texture_a, to_image, 0.0)
     };
 
-    let material = materials.add(TransitionMaterial {
+    let material_handle = materials.add(TransitionMaterial {
         uniforms: TransitionUniform {
             blend: initial_blend,
             mode: event.mode,
@@ -322,10 +336,10 @@ fn spawn_transition_entity(
         texture_b: final_texture_b,
     });
 
-    commands
+    let entity = commands
         .spawn((
             Mesh2d(mesh),
-            MeshMaterial2d(material),
+            MeshMaterial2d(material_handle.clone()),
             Transform::from_xyz(0.0, 0.0, 0.0),
             GlobalTransform::default(),
             Visibility::Visible,
@@ -333,7 +347,9 @@ fn spawn_transition_entity(
             ViewVisibility::default(),
             TransitionEntity,
         ))
-        .id()
+        .id();
+
+    (entity, material_handle)
 }
 
 /// Create and spawn transition entities in response to transition events
@@ -353,11 +369,10 @@ pub fn trigger_transition(
     mut transition_state: ResMut<TransitionState>,
 ) {
     for event in transition_events.read() {
-        // Check if both images are loaded before creating/updating entity
-        if images.get(&event.from_image).is_none() || images.get(&event.to_image).is_none() {
-            debug!("Skipping transition - images not loaded yet");
-            continue;
-        }
+        // Note: No images.get() check here. detect_image_change already verified
+        // both images exist before sending the event. Checking here would cause
+        // events to be silently dropped if the check fails due to system ordering,
+        // resulting in state.active being set but no material update.
 
         // Gather size and color information
         let window_size = get_window_size(&windows, &config);
@@ -372,8 +387,11 @@ pub fn trigger_transition(
             .unwrap_or_else(|| event.from_image.clone());
 
         // Try to reuse existing entity to avoid spawn/despawn overhead
-        if let Ok((entity, material_handle)) = existing_entity.single() {
-            if let Some(material) = materials.get_mut(&material_handle.0) {
+        if let Ok((entity, mat_handle)) = existing_entity.single() {
+            // Store material handle for direct access in update_transitions
+            transition_state.material_handle = Some(mat_handle.0.clone());
+
+            if let Some(material) = materials.get_mut(&mat_handle.0) {
                 update_transition_material(
                     material,
                     event,
@@ -390,7 +408,7 @@ pub fn trigger_transition(
                 );
             }
         } else {
-            let entity = spawn_transition_entity(
+            let (entity, mat_handle) = spawn_transition_entity(
                 &mut commands,
                 &mut meshes,
                 &mut materials,
@@ -402,6 +420,8 @@ pub fn trigger_transition(
                 image_b_size,
                 bg,
             );
+            // Store material handle for direct access in update_transitions
+            transition_state.material_handle = Some(mat_handle);
             info!(
                 "Transition started (new): mode {} duration {}s, entity: {:?}",
                 event.mode, event.duration, entity
