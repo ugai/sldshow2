@@ -7,6 +7,7 @@ use thiserror::Error;
 
 /// Main error type for sldshow2 operations
 #[derive(Error, Debug)]
+#[allow(dead_code)]
 pub enum SldshowError {
     /// Failed to load an image file
     #[error("Failed to load image from {path}: {source}")]
