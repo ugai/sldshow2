@@ -13,8 +13,11 @@ mod slideshow;
 mod transition;
 mod watcher;
 
+use bevy::asset::RenderAssetUsages;
 use bevy::input::mouse::{MouseButton, MouseWheel};
 use bevy::prelude::*;
+use bevy::render::RenderPlugin;
+use bevy::render::settings::{InstanceFlags, RenderCreation, WgpuSettings};
 use bevy::sprite_render::MeshMaterial2d;
 use bevy::tasks::{AsyncComputeTaskPool, Task};
 use bevy::window::{MonitorSelection, PresentMode, WindowMode};
@@ -22,10 +25,14 @@ use bevy::winit::WinitSettings;
 use camino::Utf8PathBuf;
 use config::Config;
 use consts::EMBEDDED_FONT_HANDLE;
-use image_loader::{ImageLoader, ImageLoaderPlugin, load_images_system_inner, scan_image_paths};
+use image_loader::{
+    ImageLoader, ImageLoaderPlugin, load_images_system_inner, load_images_system_readonly,
+    poll_loading_tasks, scan_image_paths,
+};
 use slideshow::{SlideshowAdvanceEvent, SlideshowPlugin, SlideshowTimer};
 use transition::{
     TransitionEntity, TransitionEvent, TransitionMaterial, TransitionPlugin, TransitionState,
+    TransitionUniform,
 };
 use watcher::{FileWatcher, poll_file_watcher_system};
 
@@ -59,7 +66,8 @@ fn main() {
 
     let mut app = App::new();
     app
-        // Continuous mode for smooth transitions (will be toggled to reactive when idle)
+        // Start in Continuous mode for smooth startup loading pipeline
+        // optimize_power_mode will switch to Reactive when idle
         .insert_resource(WinitSettings {
             focused_mode: bevy::winit::UpdateMode::Continuous,
             unfocused_mode: bevy::winit::UpdateMode::Continuous,
@@ -70,25 +78,47 @@ fn main() {
         .init_resource::<KeyRepeatTimer>()
         .init_resource::<InitialScanState>()
         .insert_resource(ClearColor(Color::BLACK))
-        .add_plugins(DefaultPlugins.set(WindowPlugin {
-            primary_window: Some(Window {
-                title: "sldshow2".to_string(),
-                resolution: (config.window.width as u32, config.window.height as u32).into(),
-                present_mode: PresentMode::AutoVsync,
-                decorations: config.window.decorations,
-                resizable: config.window.resizable,
-                mode: window_mode,
+        .add_plugins(DefaultPlugins
+            .set(WindowPlugin {
+                primary_window: Some(Window {
+                    title: "sldshow2".to_string(),
+                    resolution: (config.window.width as u32, config.window.height as u32).into(),
+                    present_mode: PresentMode::AutoVsync,
+                    decorations: config.window.decorations,
+                    resizable: config.window.resizable,
+                    mode: window_mode,
+                    ..default()
+                }),
                 ..default()
-            }),
-            ..default()
-        }))
+            })
+            // Disable wgpu GPU validation in debug builds.
+            // Bevy enables validation by default in debug mode, which adds
+            // 20-30ms per frame and 200-400ms spikes on material/texture changes.
+            // Release builds already have validation disabled.
+            .set(RenderPlugin {
+                render_creation: RenderCreation::Automatic(WgpuSettings {
+                    instance_flags: InstanceFlags::empty(),
+                    ..default()
+                }),
+                ..default()
+            })
+        )
         .add_plugins(ImageLoaderPlugin)
         .add_plugins(SlideshowPlugin)
         .add_plugins(TransitionPlugin)
         .add_plugins(diagnostics::DiagnosticsPlugin)
-        .add_systems(Startup, setup)
-        // Image loading system - registered here to access TransitionState
-        .add_systems(Update, load_images_system)
+        .add_systems(Startup, (setup, prewarm_transition_shader.after(setup)))
+        // Transition pipeline - strict ordering to prevent inter-frame delays:
+        // detect_image_change writes TransitionEvent →
+        // handle_transition_events sets state.active →
+        // trigger_transition creates/updates material (MUST be same frame!) →
+        // update_transitions animates blend value
+        //
+        // CRITICAL: All transition systems MUST be in a single ordered chain.
+        // Previously, handle_transition_events and trigger_transition were in
+        // separate groups with no ordering, allowing load_images_system to run
+        // between them. This caused 200-900ms delays because the render phase
+        // (GPU texture upload + shader work) would complete between groups.
         .add_systems(
             Update,
             (
@@ -96,22 +126,24 @@ fn main() {
                 poll_image_scan.after(start_image_scan),
                 keyboard_input_system,
                 handle_slideshow_advance,
-                detect_image_change,
-                transition::trigger_transition.after(detect_image_change),
+                detect_image_change.after(keyboard_input_system),
+                transition::handle_transition_events.after(detect_image_change),
+                transition::trigger_transition.after(transition::handle_transition_events),
+                transition::update_transitions.after(transition::trigger_transition),
                 update_transition_on_resize,
             ),
+        )
+        // Image loading system - runs AFTER entire transition chain to avoid
+        // inserting GPU uploads between transition event handling and rendering
+        .add_systems(
+            Update,
+            load_images_system
+                .run_if(|loader: Res<ImageLoader>| !loader.is_empty())
+                .after(transition::update_transitions),
         )
         .add_systems(Update, update_image_path_text)
         .add_systems(Update, poll_file_watcher_system)
         .add_systems(Update, optimize_power_mode)
-        // Transition systems - explicit ordering for smooth animation
-        .add_systems(
-            Update,
-            (
-                transition::handle_transition_events,
-                transition::update_transitions.after(transition::handle_transition_events),
-            ),
-        )
         .run();
 }
 
@@ -192,13 +224,77 @@ fn setup(
     loader.cache_extent = config.viewer.cache_extent;
     loader.shuffle = config.viewer.shuffle;
 
-    // Set max texture size based on window configuration
-    // This prevents uploading oversized images to the GPU
-    loader.set_max_texture_size(config.window.width, config.window.height);
-    info!(
-        "Max texture size set to {}x{}",
-        config.window.width, config.window.height
+    // Set max texture size from config
+    // [0, 0] means use window dimensions (may cause frame spikes at 4K+)
+    let (max_w, max_h) = if config.viewer.max_texture_size == [0, 0] {
+        (config.window.width, config.window.height)
+    } else {
+        (config.viewer.max_texture_size[0], config.viewer.max_texture_size[1])
+    };
+    loader.set_max_texture_size(max_w, max_h);
+    info!("Max texture size set to {}x{}", max_w, max_h);
+}
+
+/// Pre-warm the transition shader pipeline during startup.
+///
+/// Creates a TransitionEntity with a 1x1 placeholder texture so that the GPU
+/// shader pipeline is compiled during the loading screen (where the user expects
+/// a brief delay) instead of on the first image transition (where it causes a
+/// 1-2 second visible freeze).
+fn prewarm_transition_shader(
+    mut commands: Commands,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<TransitionMaterial>>,
+    mut images: ResMut<Assets<Image>>,
+    mut transition_state: ResMut<TransitionState>,
+    config: Res<Config>,
+) {
+    // Create a 1x1 black placeholder image
+    let placeholder = Image::new(
+        bevy::render::render_resource::Extent3d {
+            width: 1,
+            height: 1,
+            depth_or_array_layers: 1,
+        },
+        bevy::render::render_resource::TextureDimension::D2,
+        vec![0, 0, 0, 255],
+        bevy::render::render_resource::TextureFormat::Rgba8UnormSrgb,
+        RenderAssetUsages::all(),
     );
+    let placeholder_handle = images.add(placeholder);
+
+    let window_size = Vec2::new(config.window.width as f32, config.window.height as f32);
+    let mesh = meshes.add(Rectangle::new(window_size.x, window_size.y));
+    let bg = config.bg_color_f32();
+
+    let material_handle = materials.add(TransitionMaterial {
+        uniforms: TransitionUniform {
+            blend: 1.0, // Show texture_b (all black = invisible on black bg)
+            mode: 0,
+            aspect_ratio: Vec2::ONE,
+            bg_color: Vec4::new(bg[0], bg[1], bg[2], bg[3]),
+            window_size,
+            image_a_size: Vec2::ONE,
+            image_b_size: Vec2::ONE,
+        },
+        texture_a: placeholder_handle.clone(),
+        texture_b: placeholder_handle,
+    });
+
+    commands.spawn((
+        Mesh2d(mesh),
+        MeshMaterial2d(material_handle.clone()),
+        Transform::from_xyz(0.0, 0.0, 0.0),
+        GlobalTransform::default(),
+        Visibility::Visible,
+        InheritedVisibility::default(),
+        ViewVisibility::default(),
+        TransitionEntity,
+    ));
+
+    // Store material handle so trigger_transition can find and reuse the entity
+    transition_state.material_handle = Some(material_handle);
+    info!("Transition shader pre-warmed (entity created at startup)");
 }
 
 /// Start the async image scan task on a background thread
@@ -297,6 +393,8 @@ fn poll_image_scan(
 #[derive(Resource, Default)]
 struct ImageChangeTracker {
     last_index: Option<usize>,
+    /// Time of the last image change (for detecting rapid navigation)
+    last_change_time: Option<f32>,
 }
 
 /// Resource to track keyboard repeat timing
@@ -357,27 +455,6 @@ fn detect_image_change(
         return;
     }
 
-    // Also check if we're preloading the next image - don't start transition until it's ready
-    // This prevents stuttering caused by loading during animation
-    // EXCEPTION: For the FIRST image display (tracker.last_index is None), skip this check
-    // to allow immediate display of the initial image
-    let next_index =
-        if config.viewer.pause_at_last && current_index >= loader.len().saturating_sub(1) {
-            current_index
-        } else {
-            (current_index + 1) % loader.len()
-        };
-
-    // Only wait for next image if we've already displayed at least one image
-    if tracker.last_index.is_some() && next_index != current_index {
-        if let Some(next_handle) = loader.handles.get(&next_index) {
-            if images.get(next_handle).is_none() {
-                // Next image is still loading - wait for it to prevent stutter
-                return;
-            }
-        }
-    }
-
     // No change detected
     if tracker.last_index == Some(current_index) {
         return;
@@ -415,12 +492,14 @@ fn detect_image_change(
         config.transition.mode
     };
 
+    let current_handle = current_handle.clone();
+
     // Handle first image (instant display)
     let Some(prev_index) = tracker.last_index else {
         info!("First image loaded - showing instantly");
         transition_events.write(TransitionEvent {
             from_image: current_handle.clone(),
-            to_image: current_handle.clone(),
+            to_image: current_handle,
             duration: 0.0,
             mode,
         });
@@ -433,19 +512,40 @@ fn detect_image_change(
         return;
     };
 
-    info!(
-        "Normal transition: image {} -> image {}",
-        prev_index + 1,
-        current_index + 1
-    );
+    // Detect rapid navigation: if navigating faster than transition duration,
+    // skip animation and show image instantly for responsive browsing
+    let now = time.elapsed_secs();
+    let rapid_navigation = tracker
+        .last_change_time
+        .is_some_and(|t| now - t < config.transition.time);
+    let duration = if rapid_navigation {
+        0.0
+    } else {
+        config.transition.time
+    };
+
+    if rapid_navigation {
+        debug!(
+            "Rapid navigation: instant display image {} -> image {}",
+            prev_index + 1,
+            current_index + 1
+        );
+    } else {
+        info!(
+            "Normal transition: image {} -> image {}",
+            prev_index + 1,
+            current_index + 1
+        );
+    }
     transition_events.write(TransitionEvent {
         from_image: prev_handle.clone(),
-        to_image: current_handle.clone(),
-        duration: config.transition.time,
+        to_image: current_handle,
+        duration,
         mode,
     });
 
     tracker.last_index = Some(current_index);
+    tracker.last_change_time = Some(now);
 }
 
 /// Handle keyboard and mouse input for navigation and control
@@ -716,22 +816,12 @@ fn update_transition_on_resize(
         With<TransitionEntity>,
     >,
     images: Res<Assets<Image>>,
-    mut loader: ResMut<ImageLoader>,
 ) {
     // Check if window size changed
     if let Ok(window) = windows.single() {
         let new_size = Vec2::new(window.width(), window.height());
-
-        // Update max texture size for future image loads
-        let new_width = window.width() as u32;
-        let new_height = window.height() as u32;
-        if loader.max_texture_size != (new_width, new_height) {
-            loader.set_max_texture_size(new_width, new_height);
-            debug!(
-                "Max texture size updated to {}x{} after window resize",
-                new_width, new_height
-            );
-        }
+        // Note: max_texture_size is NOT updated on resize - it's controlled by config
+        // to prevent 4K+ windows from causing large GPU uploads
 
         // Update transition entity mesh and material
         if let Ok((mut mesh_handle, material_handle)) = transition_query.single_mut() {
@@ -764,17 +854,20 @@ fn optimize_power_mode(
     mut winit_settings: ResMut<WinitSettings>,
     transition_state: Res<TransitionState>,
     slideshow_timer: Res<SlideshowTimer>,
+    loader: Res<ImageLoader>,
 ) {
     let is_transitioning = transition_state.active.is_some();
     let is_playing = !slideshow_timer.paused && slideshow_timer.interval > 0.0;
+    // Keep Continuous while preloading to avoid delaying GPU uploads and task polling
+    let has_pending_work =
+        !loader.pending_uploads.is_empty() || !loader.loading_tasks.is_empty();
 
-    if is_transitioning || is_playing {
-        // Need smooth animation or accurate timer firing
+    if is_transitioning || is_playing || has_pending_work {
+        // Need smooth animation, accurate timer firing, or pending image work
         winit_settings.focused_mode = bevy::winit::UpdateMode::Continuous;
     } else {
-        // Totally static (paused and not transitioning)
-        // Wait for input (mouse, key, resize) instead of continuous rendering
-        // Wait indefinitely for events - maximum power saving
+        // Fully idle: no transitions, not playing, no pending loads
+        // Wait for input events instead of continuous rendering
         winit_settings.focused_mode = bevy::winit::UpdateMode::reactive(std::time::Duration::MAX);
     }
 
@@ -787,11 +880,49 @@ fn optimize_power_mode(
 /// During active transitions, only the current image is uploaded to the GPU.
 /// Preload images are deferred until the transition completes to prevent
 /// frame spikes during animations.
+///
+/// Three-phase approach to minimize Bevy change detection:
+/// 1. Poll completed tasks → pending_uploads (no Assets<Image> mutation)
+/// 2. Determine if GPU uploads will actually happen
+/// 3. Only trigger DerefMut on Assets<Image> when uploading
 fn load_images_system(
     mut loader: ResMut<ImageLoader>,
     mut images: ResMut<Assets<Image>>,
     transition_state: Res<TransitionState>,
 ) {
+    if loader.paths.is_empty() {
+        return;
+    }
+
     let transition_active = transition_state.active.is_some();
-    load_images_system_inner(&mut loader, &mut images, transition_active);
+
+    // Phase 1: Poll completed tasks (only modifies loader, not images)
+    poll_loading_tasks(&mut loader);
+
+    // Phase 2: Determine if we'll actually call images.add() this frame.
+    // Only trigger Assets<Image> change detection when we will upload.
+    let current_index = loader.current_index;
+    let current_in_pending = loader
+        .pending_uploads
+        .iter()
+        .any(|(idx, _)| *idx == current_index);
+    let current_needs_upload =
+        !loader.handles.contains_key(&current_index) && current_in_pending;
+
+    let will_upload = if loader.pending_uploads.is_empty() {
+        false
+    } else if current_needs_upload || !loader.initial_load_complete {
+        true
+    } else {
+        // Preload uploads only when idle (no transition active)
+        !transition_active
+    };
+
+    if will_upload {
+        // DerefMut: triggers change detection (upload path)
+        load_images_system_inner(&mut loader, &mut images, transition_active);
+    } else {
+        // Deref only: no change detection triggered (read-only path)
+        load_images_system_readonly(&mut loader, &images, transition_active);
+    }
 }
