@@ -83,8 +83,7 @@ fn main() {
                 .set(WindowPlugin {
                     primary_window: Some(Window {
                         title: "sldshow2".to_string(),
-                        resolution: (config.window.width as u32, config.window.height as u32)
-                            .into(),
+                        resolution: (config.window.width, config.window.height).into(),
                         present_mode: PresentMode::AutoVsync,
                         decorations: config.window.decorations,
                         resizable: config.window.resizable,
