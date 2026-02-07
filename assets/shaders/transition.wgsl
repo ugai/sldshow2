@@ -2,7 +2,24 @@
 // Ported from original sldshow with updated WGSL syntax
 // 22 different transition effects
 
-#import bevy_sprite::mesh2d_vertex_output::VertexOutput
+// Vertex output structure
+struct VertexOutput {
+    @builtin(position) position: vec4<f32>,
+    @location(0) uv: vec2<f32>,
+}
+
+// Vertex shader
+@vertex
+fn vs_main(@builtin(vertex_index) in_vertex_index: u32) -> VertexOutput {
+    var out: VertexOutput;
+    // Fullscreen quad from vertex index
+    // 0: (-1, -1), 1: (3, -1), 2: (-1, 3) -> covers screen
+    let x = f32(i32(in_vertex_index) & 1);
+    let y = f32(i32(in_vertex_index) >> 1);
+    out.uv = vec2<f32>(x * 2.0, y * 2.0);
+    out.position = vec4<f32>(x * 4.0 - 1.0, 1.0 - y * 4.0, 0.0, 1.0);
+    return out;
+}
 
 struct TransitionUniform {
     blend: f32,
@@ -14,19 +31,19 @@ struct TransitionUniform {
     image_b_size: vec2<f32>,
 }
 
-@group(2) @binding(0)
+@group(0) @binding(0)
 var<uniform> material: TransitionUniform;
 
-@group(2) @binding(1)
+@group(0) @binding(1)
 var texture_a: texture_2d<f32>;
 
-@group(2) @binding(2)
+@group(0) @binding(2)
 var sampler_a: sampler;
 
-@group(2) @binding(3)
+@group(0) @binding(3)
 var texture_b: texture_2d<f32>;
 
-@group(2) @binding(4)
+@group(0) @binding(4)
 var sampler_b: sampler;
 
 // Transition effect functions
