@@ -13,29 +13,30 @@ mod slideshow;
 mod transition;
 mod watcher;
 
-use bevy::prelude::*;
 use bevy::input::mouse::{MouseButton, MouseWheel};
+use bevy::prelude::*;
 use bevy::sprite_render::MeshMaterial2d;
 use bevy::tasks::{AsyncComputeTaskPool, Task};
-use bevy::window::{WindowMode, PresentMode, MonitorSelection};
+use bevy::window::{MonitorSelection, PresentMode, WindowMode};
 use bevy::winit::WinitSettings;
 use camino::Utf8PathBuf;
 use config::Config;
 use consts::EMBEDDED_FONT_HANDLE;
-use image_loader::{ImageLoader, ImageLoaderPlugin, scan_image_paths};
+use image_loader::{ImageLoader, ImageLoaderPlugin, load_images_system_inner, scan_image_paths};
 use slideshow::{SlideshowAdvanceEvent, SlideshowPlugin, SlideshowTimer};
-use transition::{TransitionEvent, TransitionMaterial, TransitionPlugin, TransitionState, TransitionUniform};
+use transition::{
+    TransitionEntity, TransitionEvent, TransitionMaterial, TransitionPlugin, TransitionState,
+};
 use watcher::{FileWatcher, poll_file_watcher_system};
 
 /// Main entry point for sldshow2 application
 fn main() {
     // Initialize structured logging with environment filter
     // Use RUST_LOG environment variable to control log level (e.g., RUST_LOG=sldshow2=debug)
-    use tracing_subscriber::{fmt, EnvFilter};
+    use tracing_subscriber::{EnvFilter, fmt};
     fmt()
         .with_env_filter(
-            EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| EnvFilter::new("sldshow2=info"))
+            EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("sldshow2=info")),
         )
         .init();
 
@@ -69,43 +70,48 @@ fn main() {
         .init_resource::<KeyRepeatTimer>()
         .init_resource::<InitialScanState>()
         .insert_resource(ClearColor(Color::BLACK))
-        .add_plugins(
-            DefaultPlugins
-                .set(WindowPlugin {
-                    primary_window: Some(Window {
-                        title: "sldshow2".to_string(),
-                        resolution: (config.window.width as u32, config.window.height as u32).into(),
-                        present_mode: PresentMode::AutoVsync,
-                        decorations: config.window.decorations,
-                        resizable: config.window.resizable,
-                        mode: window_mode,
-                        ..default()
-                    }),
-                    ..default()
-                })
-        )
+        .add_plugins(DefaultPlugins.set(WindowPlugin {
+            primary_window: Some(Window {
+                title: "sldshow2".to_string(),
+                resolution: (config.window.width as u32, config.window.height as u32).into(),
+                present_mode: PresentMode::AutoVsync,
+                decorations: config.window.decorations,
+                resizable: config.window.resizable,
+                mode: window_mode,
+                ..default()
+            }),
+            ..default()
+        }))
         .add_plugins(ImageLoaderPlugin)
         .add_plugins(SlideshowPlugin)
         .add_plugins(TransitionPlugin)
         .add_plugins(diagnostics::DiagnosticsPlugin)
         .add_systems(Startup, setup)
-        .add_systems(Update, (
-            start_image_scan,
-            poll_image_scan.after(start_image_scan),
-            keyboard_input_system,
-            handle_slideshow_advance,
-            detect_image_change,
-            trigger_transition.after(detect_image_change),
-            update_transition_on_resize,
-        ))
+        // Image loading system - registered here to access TransitionState
+        .add_systems(Update, load_images_system)
+        .add_systems(
+            Update,
+            (
+                start_image_scan,
+                poll_image_scan.after(start_image_scan),
+                keyboard_input_system,
+                handle_slideshow_advance,
+                detect_image_change,
+                transition::trigger_transition.after(detect_image_change),
+                update_transition_on_resize,
+            ),
+        )
         .add_systems(Update, update_image_path_text)
         .add_systems(Update, poll_file_watcher_system)
         .add_systems(Update, optimize_power_mode)
         // Transition systems - explicit ordering for smooth animation
-        .add_systems(Update, (
-            transition::handle_transition_events,
-            transition::update_transitions.after(transition::handle_transition_events),
-        ))
+        .add_systems(
+            Update,
+            (
+                transition::handle_transition_events,
+                transition::update_transitions.after(transition::handle_transition_events),
+            ),
+        )
         .run();
 }
 
@@ -117,7 +123,6 @@ struct InitialScanState {
     scanned: bool,
     frame_count: u32,
 }
-
 
 /// Component to track the scan task
 #[derive(Component)]
@@ -133,10 +138,12 @@ fn setup(
 ) {
     // Embed font at startup
     let font_data = include_bytes!("../assets/fonts/MPLUS2-VariableFont_wght.ttf");
-    fonts.insert(
-        &EMBEDDED_FONT_HANDLE,
-        Font::try_from_bytes(font_data.to_vec()).expect("Failed to load embedded font"),
-    ).expect("Failed to insert embedded font");
+    fonts
+        .insert(
+            &EMBEDDED_FONT_HANDLE,
+            Font::try_from_bytes(font_data.to_vec()).expect("Failed to load embedded font"),
+        )
+        .expect("Failed to insert embedded font");
 
     // Spawn camera with default 2D setup
     commands.spawn((
@@ -155,33 +162,43 @@ fn setup(
     if config.style.show_image_path {
         info!("Spawning image path text UI");
 
-        commands.spawn((
-            Node {
-                position_type: PositionType::Absolute,
-                top: Val::Px(10.0),
-                left: Val::Px(10.0),
-                padding: UiRect::all(Val::Px(10.0)),
-                ..default()
-            },
-            BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.5)),
-            ZIndex(1000),
-        )).with_children(|parent| {
-            parent.spawn((
-                Text::new("Waiting for image..."),
-                TextFont {
-                    font: EMBEDDED_FONT_HANDLE,
-                    font_size: 20.0,
+        commands
+            .spawn((
+                Node {
+                    position_type: PositionType::Absolute,
+                    top: Val::Px(10.0),
+                    left: Val::Px(10.0),
+                    padding: UiRect::all(Val::Px(10.0)),
                     ..default()
                 },
-                TextColor(Color::WHITE),
-                ImagePathText,
-            ));
-        });
+                BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.5)),
+                ZIndex(1000),
+            ))
+            .with_children(|parent| {
+                parent.spawn((
+                    Text::new("Waiting for image..."),
+                    TextFont {
+                        font: EMBEDDED_FONT_HANDLE,
+                        font_size: 20.0,
+                        ..default()
+                    },
+                    TextColor(Color::WHITE),
+                    ImagePathText,
+                ));
+            });
     }
 
     // Configure image loader
     loader.cache_extent = config.viewer.cache_extent;
     loader.shuffle = config.viewer.shuffle;
+
+    // Set max texture size based on window configuration
+    // This prevents uploading oversized images to the GPU
+    loader.set_max_texture_size(config.window.width, config.window.height);
+    info!(
+        "Max texture size set to {}x{}",
+        config.window.width, config.window.height
+    );
 }
 
 /// Start the async image scan task on a background thread
@@ -252,7 +269,10 @@ fn poll_image_scan(
                             config.viewer.scan_subfolders,
                         ) {
                             Ok(watcher) => {
-                                info!("Hot-reload enabled for {} directories", watcher.watched_paths().len());
+                                info!(
+                                    "Hot-reload enabled for {} directories",
+                                    watcher.watched_paths().len()
+                                );
                                 commands.insert_resource(watcher);
                             }
                             Err(e) => {
@@ -302,10 +322,6 @@ impl Default for KeyRepeatTimer {
     }
 }
 
-/// Component to mark transition entities
-#[derive(Component)]
-struct TransitionEntity;
-
 /// Component to mark the image path text
 #[derive(Component)]
 struct ImagePathText;
@@ -315,6 +331,7 @@ struct ImagePathText;
 /// Monitors the image loader's current index and fires transition events when
 /// the active image changes. The first image displays instantly without transition,
 /// subsequent images use configured transition effects.
+#[allow(clippy::too_many_arguments)]
 fn detect_image_change(
     loader: Res<ImageLoader>,
     mut tracker: ResMut<ImageChangeTracker>,
@@ -342,13 +359,17 @@ fn detect_image_change(
 
     // Also check if we're preloading the next image - don't start transition until it's ready
     // This prevents stuttering caused by loading during animation
-    let next_index = if config.viewer.pause_at_last && current_index >= loader.len().saturating_sub(1) {
-        current_index
-    } else {
-        (current_index + 1) % loader.len()
-    };
+    // EXCEPTION: For the FIRST image display (tracker.last_index is None), skip this check
+    // to allow immediate display of the initial image
+    let next_index =
+        if config.viewer.pause_at_last && current_index >= loader.len().saturating_sub(1) {
+            current_index
+        } else {
+            (current_index + 1) % loader.len()
+        };
 
-    if next_index != current_index {
+    // Only wait for next image if we've already displayed at least one image
+    if tracker.last_index.is_some() && next_index != current_index {
         if let Some(next_handle) = loader.handles.get(&next_index) {
             if images.get(next_handle).is_none() {
                 // Next image is still loading - wait for it to prevent stutter
@@ -372,7 +393,10 @@ fn detect_image_change(
         if elapsed >= min_transition_time {
             // Rapid switching detected - cancel current transition
             diagnostics::track_transition_cancel(&mut metrics);
-            info!("Transition cancelled after {:.3}s due to rapid switching", elapsed);
+            info!(
+                "Transition cancelled after {:.3}s due to rapid switching",
+                elapsed
+            );
 
             // Update displayed_image to current transition target immediately
             transition_state.displayed_image = Some(transition.to_image.clone());
@@ -409,8 +433,11 @@ fn detect_image_change(
         return;
     };
 
-    info!("Normal transition: image {} -> image {}",
-          prev_index + 1, current_index + 1);
+    info!(
+        "Normal transition: image {} -> image {}",
+        prev_index + 1,
+        current_index + 1
+    );
     transition_events.write(TransitionEvent {
         from_image: prev_handle.clone(),
         to_image: current_handle.clone(),
@@ -419,177 +446,6 @@ fn detect_image_change(
     });
 
     tracker.last_index = Some(current_index);
-}
-
-/// Get window size from query or fallback to config
-fn get_window_size(windows: &Query<&Window>, config: &Config) -> Vec2 {
-    if let Ok(window) = windows.single() {
-        Vec2::new(window.width(), window.height())
-    } else {
-        Vec2::new(config.window.width as f32, config.window.height as f32)
-    }
-}
-
-/// Get image size from handle or fallback to window size
-fn get_image_size(handle: &Handle<Image>, images: &Assets<Image>, fallback: Vec2) -> Vec2 {
-    if let Some(img) = images.get(handle) {
-        Vec2::new(img.width() as f32, img.height() as f32)
-    } else {
-        fallback
-    }
-}
-
-/// Update existing transition material with new transition parameters
-fn update_transition_material(
-    material: &mut TransitionMaterial,
-    event: &TransitionEvent,
-    texture_a: Handle<Image>,
-    transition_state: &mut TransitionState,
-    window_size: Vec2,
-    image_a_size: Vec2,
-    image_b_size: Vec2,
-    bg: [f32; 4],
-) {
-    if event.duration == 0.0 {
-        // For instant display, set both textures to the target image
-        material.texture_a = event.to_image.clone();
-        material.texture_b = event.to_image.clone();
-        material.uniforms.blend = 1.0;
-
-        transition_state.displayed_image = Some(event.to_image.clone());
-    } else {
-        // For normal transition, use displayed_image → target
-        material.texture_a = texture_a;
-        material.texture_b = event.to_image.clone();
-        material.uniforms.blend = 0.0;
-    }
-
-    material.uniforms.mode = event.mode;
-    material.uniforms.bg_color = Vec4::new(bg[0], bg[1], bg[2], bg[3]);
-    material.uniforms.window_size = window_size;
-    material.uniforms.image_a_size = image_a_size;
-    material.uniforms.image_b_size = image_b_size;
-}
-
-/// Spawn a new transition entity with the given parameters
-#[allow(clippy::too_many_arguments)]
-fn spawn_transition_entity(
-    commands: &mut Commands,
-    meshes: &mut Assets<Mesh>,
-    materials: &mut Assets<TransitionMaterial>,
-    event: &TransitionEvent,
-    texture_a: Handle<Image>,
-    transition_state: &mut TransitionState,
-    window_size: Vec2,
-    image_a_size: Vec2,
-    image_b_size: Vec2,
-    bg: [f32; 4],
-) -> Entity {
-    info!("Creating first transition entity - window_size: {:?}, image_a: {:?}, image_b: {:?}",
-          window_size, image_a_size, image_b_size);
-
-    let mesh = meshes.add(Rectangle::new(window_size.x, window_size.y));
-
-    let (final_texture_a, final_texture_b, initial_blend) = if event.duration == 0.0 {
-        transition_state.displayed_image = Some(event.to_image.clone());
-        (event.to_image.clone(), event.to_image.clone(), 1.0)
-    } else {
-        (texture_a, event.to_image.clone(), 0.0)
-    };
-
-    let material = materials.add(TransitionMaterial {
-        uniforms: TransitionUniform {
-            blend: initial_blend,
-            mode: event.mode,
-            aspect_ratio: Vec2::new(1.0, 1.0),
-            bg_color: Vec4::new(bg[0], bg[1], bg[2], bg[3]),
-            window_size,
-            image_a_size,
-            image_b_size,
-        },
-        texture_a: final_texture_a,
-        texture_b: final_texture_b,
-    });
-
-    commands.spawn((
-        Mesh2d(mesh),
-        MeshMaterial2d(material),
-        Transform::from_xyz(0.0, 0.0, 0.0),
-        GlobalTransform::default(),
-        Visibility::Visible,
-        InheritedVisibility::default(),
-        ViewVisibility::default(),
-        TransitionEntity,
-    )).id()
-}
-
-/// Create and spawn transition entities in response to transition events
-///
-/// Removes old transition entities and creates new fullscreen quads with
-/// transition materials that blend between source and target images.
-#[allow(clippy::too_many_arguments)]
-fn trigger_transition(
-    mut commands: Commands,
-    mut transition_events: MessageReader<TransitionEvent>,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<TransitionMaterial>>,
-    config: Res<Config>,
-    windows: Query<&Window>,
-    existing_entity: Query<(Entity, &MeshMaterial2d<TransitionMaterial>), With<TransitionEntity>>,
-    images: Res<Assets<Image>>,
-    mut transition_state: ResMut<TransitionState>,
-) {
-    for event in transition_events.read() {
-        // Check if both images are loaded before creating/updating entity
-        if images.get(&event.from_image).is_none() || images.get(&event.to_image).is_none() {
-            debug!("Skipping transition - images not loaded yet");
-            continue;
-        }
-
-        // Gather size and color information
-        let window_size = get_window_size(&windows, &config);
-        let image_a_size = get_image_size(&event.from_image, &images, window_size);
-        let image_b_size = get_image_size(&event.to_image, &images, window_size);
-        let bg = config.bg_color_f32();
-
-        // Use displayed_image for texture_a, or fallback to event.from_image
-        let texture_a = transition_state.displayed_image
-            .clone()
-            .unwrap_or_else(|| event.from_image.clone());
-
-        // Try to reuse existing entity to avoid spawn/despawn overhead
-        if let Ok((entity, material_handle)) = existing_entity.single() {
-            if let Some(material) = materials.get_mut(&material_handle.0) {
-                update_transition_material(
-                    material,
-                    event,
-                    texture_a,
-                    &mut transition_state,
-                    window_size,
-                    image_a_size,
-                    image_b_size,
-                    bg,
-                );
-                info!("Transition started (reused): mode {} duration {}s, entity: {:?}",
-                      event.mode, event.duration, entity);
-            }
-        } else {
-            let entity = spawn_transition_entity(
-                &mut commands,
-                &mut meshes,
-                &mut materials,
-                event,
-                texture_a,
-                &mut transition_state,
-                window_size,
-                image_a_size,
-                image_b_size,
-                bg,
-            );
-            info!("Transition started (new): mode {} duration {}s, entity: {:?}",
-                  event.mode, event.duration, entity);
-        }
-    }
 }
 
 /// Handle keyboard and mouse input for navigation and control
@@ -648,11 +504,10 @@ fn keyboard_input_system(
             && (keys.pressed(KeyCode::ArrowRight) || keys.pressed(KeyCode::Space))
             && repeat_timer.repeat_timer.just_finished());
 
-    if should_advance_next
-        && loader.next(config.viewer.pause_at_last) {
-            info!("Next image ({}/{})", loader.current_index + 1, loader.len());
-            timer.reset(); // Reset timer when manually advancing
-        }
+    if should_advance_next && loader.next(config.viewer.pause_at_last) {
+        info!("Next image ({}/{})", loader.current_index + 1, loader.len());
+        timer.reset(); // Reset timer when manually advancing
+    }
 
     // Left arrow: previous image (supports key hold with delay)
     let should_advance_prev = keys.just_pressed(KeyCode::ArrowLeft)
@@ -660,11 +515,14 @@ fn keyboard_input_system(
             && keys.pressed(KeyCode::ArrowLeft)
             && repeat_timer.repeat_timer.just_finished());
 
-    if should_advance_prev
-        && loader.previous() {
-            info!("Previous image ({}/{})", loader.current_index + 1, loader.len());
-            timer.reset(); // Reset timer when manually advancing
-        }
+    if should_advance_prev && loader.previous() {
+        info!(
+            "Previous image ({}/{})",
+            loader.current_index + 1,
+            loader.len()
+        );
+        timer.reset(); // Reset timer when manually advancing
+    }
 
     // Home: first image
     if keys.just_pressed(KeyCode::Home) {
@@ -674,12 +532,11 @@ fn keyboard_input_system(
     }
 
     // End: last image
-    if keys.just_pressed(KeyCode::End)
-        && !loader.is_empty() {
-            loader.current_index = loader.len() - 1;
-            info!("Last image");
-            timer.reset();
-        }
+    if keys.just_pressed(KeyCode::End) && !loader.is_empty() {
+        loader.current_index = loader.len() - 1;
+        info!("Last image");
+        timer.reset();
+    }
 
     // P: toggle pause
     if keys.just_pressed(KeyCode::KeyP) {
@@ -696,7 +553,9 @@ fn keyboard_input_system(
         if let Ok(mut window) = windows.single_mut() {
             match window.mode {
                 WindowMode::Windowed => {
-                    window.mode = WindowMode::BorderlessFullscreen(MonitorSelection::Index(config.window.monitor_index));
+                    window.mode = WindowMode::BorderlessFullscreen(MonitorSelection::Index(
+                        config.window.monitor_index,
+                    ));
                     info!("Fullscreen enabled");
                 }
                 _ => {
@@ -708,25 +567,31 @@ fn keyboard_input_system(
     }
 
     // Mouse left click: next image
-    if mouse_buttons.just_pressed(MouseButton::Left)
-        && loader.next(config.viewer.pause_at_last) {
-            info!("Next image ({}/{})", loader.current_index + 1, loader.len());
-            timer.reset();
-        }
+    if mouse_buttons.just_pressed(MouseButton::Left) && loader.next(config.viewer.pause_at_last) {
+        info!("Next image ({}/{})", loader.current_index + 1, loader.len());
+        timer.reset();
+    }
 
     // Mouse right click: previous image
-    if mouse_buttons.just_pressed(MouseButton::Right)
-        && loader.previous() {
-            info!("Previous image ({}/{})", loader.current_index + 1, loader.len());
-            timer.reset();
-        }
+    if mouse_buttons.just_pressed(MouseButton::Right) && loader.previous() {
+        info!(
+            "Previous image ({}/{})",
+            loader.current_index + 1,
+            loader.len()
+        );
+        timer.reset();
+    }
 
     // Mouse wheel: scroll through images
     for event in mouse_wheel.read() {
         if event.y > 0.0 {
             // Scroll up: previous image
             if loader.previous() {
-                info!("Previous image ({}/{})", loader.current_index + 1, loader.len());
+                info!(
+                    "Previous image ({}/{})",
+                    loader.current_index + 1,
+                    loader.len()
+                );
                 timer.reset();
             }
         } else if event.y < 0.0 {
@@ -740,14 +605,48 @@ fn keyboard_input_system(
 }
 
 /// Handle automatic slideshow advancement based on timer events
+///
+/// Only advances if the next image is already loaded to prevent stuttering.
+/// If next image isn't ready, the advance is skipped and will retry on next timer tick.
 fn handle_slideshow_advance(
     mut events: MessageReader<SlideshowAdvanceEvent>,
     mut loader: ResMut<ImageLoader>,
     config: Res<Config>,
+    images: Res<Assets<Image>>,
 ) {
     for _ in events.read() {
+        // Check if next image is ready before advancing
+        let next_index = if config.viewer.pause_at_last
+            && loader.current_index >= loader.len().saturating_sub(1)
+        {
+            loader.current_index // Would stay at last
+        } else {
+            (loader.current_index + 1) % loader.len()
+        };
+
+        // Only advance if next image is fully loaded (prevents stutter)
+        if let Some(next_handle) = loader.handles.get(&next_index) {
+            if images.get(next_handle).is_none() {
+                debug!(
+                    "Auto-advance skipped: image {} not ready yet",
+                    next_index + 1
+                );
+                continue;
+            }
+        } else {
+            debug!(
+                "Auto-advance skipped: image {} not loaded yet",
+                next_index + 1
+            );
+            continue;
+        }
+
         if loader.next(config.viewer.pause_at_last) {
-            info!("Auto-advance: Next image ({}/{})", loader.current_index + 1, loader.len());
+            info!(
+                "Auto-advance: Next image ({}/{})",
+                loader.current_index + 1,
+                loader.len()
+            );
         }
     }
 }
@@ -757,30 +656,37 @@ fn update_image_path_text(
     loader: Res<ImageLoader>,
     config: Res<Config>,
     mut text_query: Query<&mut Text, With<ImagePathText>>,
-    mut last_index: Local<Option<usize>>,
-    transition_state: Res<TransitionState>,
+    mut last_displayed_index: Local<Option<usize>>,
 ) {
     if !config.style.show_image_path {
         return;
     }
 
-    // Don't update during transitions to prevent flickering
-    if transition_state.active.is_some() {
+    // Determine which image to display the path for:
+    // - During transition: show the target image (to_image) path
+    // - Otherwise: show the currently displayed image
+    let display_index = loader.current_index;
+
+    // Check if we need to update:
+    // 1. Index changed, OR
+    // 2. First time the current image handle becomes available
+    let current_handle_ready = loader.handles.contains_key(&display_index);
+    let should_update = match *last_displayed_index {
+        None => current_handle_ready, // First update when image is ready
+        Some(last) => last != display_index && current_handle_ready,
+    };
+
+    if !should_update {
         return;
     }
 
-    // Only update if the current index has changed
-    let current_index = Some(loader.current_index);
-    if *last_index == current_index {
-        return;
-    }
-    *last_index = current_index;
+    *last_displayed_index = Some(display_index);
 
     for mut text in text_query.iter_mut() {
-        if let Some(path) = loader.current_path() {
+        if let Some(path) = loader.paths.get(display_index) {
             let path_string = path.as_str().replace('\\', "/");
 
-            // Try to get metadata and append if available
+            // Try to get metadata and append if available (may be empty if not loaded yet)
             let metadata = loader.current_metadata();
             let summary = metadata.and_then(|m| {
                 let s = m.summary();
@@ -805,12 +711,27 @@ fn update_transition_on_resize(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<TransitionMaterial>>,
     windows: Query<&Window, Changed<Window>>,
-    mut transition_query: Query<(&mut Mesh2d, &MeshMaterial2d<TransitionMaterial>), With<TransitionEntity>>,
+    mut transition_query: Query<
+        (&mut Mesh2d, &MeshMaterial2d<TransitionMaterial>),
+        With<TransitionEntity>,
+    >,
     images: Res<Assets<Image>>,
+    mut loader: ResMut<ImageLoader>,
 ) {
     // Check if window size changed
     if let Ok(window) = windows.single() {
         let new_size = Vec2::new(window.width(), window.height());
+
+        // Update max texture size for future image loads
+        let new_width = window.width() as u32;
+        let new_height = window.height() as u32;
+        if loader.max_texture_size != (new_width, new_height) {
+            loader.set_max_texture_size(new_width, new_height);
+            debug!(
+                "Max texture size updated to {}x{} after window resize",
+                new_width, new_height
+            );
+        }
 
         // Update transition entity mesh and material
         if let Ok((mut mesh_handle, material_handle)) = transition_query.single_mut() {
@@ -824,10 +745,12 @@ fn update_transition_on_resize(
 
                 // Recalculate image sizes for letterboxing
                 if let Some(img_a) = images.get(&material.texture_a) {
-                    material.uniforms.image_a_size = Vec2::new(img_a.width() as f32, img_a.height() as f32);
+                    material.uniforms.image_a_size =
+                        Vec2::new(img_a.width() as f32, img_a.height() as f32);
                 }
                 if let Some(img_b) = images.get(&material.texture_b) {
-                    material.uniforms.image_b_size = Vec2::new(img_b.width() as f32, img_b.height() as f32);
+                    material.uniforms.image_b_size =
+                        Vec2::new(img_b.width() as f32, img_b.height() as f32);
                 }
             }
         }
@@ -857,4 +780,18 @@ fn optimize_power_mode(
 
     // Always save power when unfocused
     winit_settings.unfocused_mode = bevy::winit::UpdateMode::reactive(std::time::Duration::MAX);
+}
+
+/// Wrapper system for image loading that checks transition state
+///
+/// During active transitions, only the current image is uploaded to the GPU.
+/// Preload images are deferred until the transition completes to prevent
+/// frame spikes during animations.
+fn load_images_system(
+    mut loader: ResMut<ImageLoader>,
+    mut images: ResMut<Assets<Image>>,
+    transition_state: Res<TransitionState>,
+) {
+    let transition_active = transition_state.active.is_some();
+    load_images_system_inner(&mut loader, &mut images, transition_active);
 }

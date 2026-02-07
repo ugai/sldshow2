@@ -5,7 +5,7 @@
 use camino::Utf8Path;
 
 /// Image metadata extracted from EXIF and file info
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct ImageMetadata {
     /// Image width in pixels (from EXIF or actual)
     pub width: Option<u32>,
@@ -26,6 +26,8 @@ pub struct ImageMetadata {
 
 impl ImageMetadata {
     /// Extract metadata from an image file
+    /// Note: This performs blocking I/O and EXIF parsing - use lazily when needed
+    #[allow(dead_code)]
     pub fn from_path(path: &Utf8Path) -> Self {
         match std::fs::File::open(path.as_std_path()) {
             Ok(mut file) => {
@@ -40,6 +42,7 @@ impl ImageMetadata {
     }
 
     /// Extract metadata from EXIF data
+    #[allow(dead_code)]
     fn from_exif(exif: exif::Exif) -> Self {
         let width = exif
             .get_field(exif::Tag::PixelXDimension, exif::In::PRIMARY)
@@ -55,11 +58,11 @@ impl ImageMetadata {
 
         let camera_model = exif
             .get_field(exif::Tag::Model, exif::In::PRIMARY)
-            .and_then(|f| Some(f.display_value().to_string()));
+            .map(|f| f.display_value().to_string());
 
         let datetime = exif
             .get_field(exif::Tag::DateTime, exif::In::PRIMARY)
-            .and_then(|f| Some(f.display_value().to_string()));
+            .map(|f| f.display_value().to_string());
 
         let orientation = exif
             .get_field(exif::Tag::Orientation, exif::In::PRIMARY)
@@ -102,19 +105,6 @@ impl ImageMetadata {
             String::new()
         } else {
             parts.join(" • ")
-        }
-    }
-}
-
-impl Default for ImageMetadata {
-    fn default() -> Self {
-        Self {
-            width: None,
-            height: None,
-            camera_make: None,
-            camera_model: None,
-            datetime: None,
-            orientation: None,
         }
     }
 }

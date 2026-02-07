@@ -86,6 +86,10 @@ impl SlideshowTimer {
 pub struct SlideshowAdvanceEvent;
 
 /// Update slideshow timer and emit advance events
+///
+/// Uses clamped delta time to prevent frame spikes from causing rapid advancement.
+/// When a frame takes 2+ seconds (e.g., during GPU upload), we don't want the
+/// slideshow to suddenly advance multiple times.
 fn update_slideshow_timer(
     mut timer: ResMut<SlideshowTimer>,
     time: Res<Time>,
@@ -95,7 +99,11 @@ fn update_slideshow_timer(
         return;
     }
 
-    if timer.timer.tick(time.delta()).just_finished() {
+    // Clamp delta to prevent frame spikes from causing rapid advancement
+    // Max 100ms per tick ensures smooth progression even during heavy frames
+    let clamped_delta = time.delta().min(std::time::Duration::from_millis(100));
+
+    if timer.timer.tick(clamped_delta).just_finished() {
         events.write(SlideshowAdvanceEvent);
     }
 }
