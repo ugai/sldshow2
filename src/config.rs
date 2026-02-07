@@ -1,11 +1,10 @@
 use anyhow::{Context, Result};
-use bevy::prelude::Resource;
 use camino::{Utf8Path, Utf8PathBuf};
 use serde::{Deserialize, Serialize};
 use validator::Validate;
 
 /// Application configuration
-#[derive(Debug, Clone, Serialize, Deserialize, Resource, Default, Validate)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default, Validate)]
 pub struct Config {
     #[serde(default)]
     #[validate(nested)]

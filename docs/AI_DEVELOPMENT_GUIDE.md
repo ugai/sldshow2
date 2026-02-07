@@ -4,165 +4,102 @@
 
 ## プロジェクト概要
 
-**sldshow2** - Bevy 0.15ベースの画像スライドショーアプリケーション
+**sldshow2** - Rust + winit + wgpu ベースの画像スライドショーアプリケーション
 
 ### 主要機能
 - 20種類のカスタムWGSLトランジションエフェクト
 - TOML設定ファイルによる柔軟なカスタマイズ
 - キーボード/マウスによる操作
-- フルスクリーン対応
-- EXIF情報読み取り（回転補正）
+- ハイパフォーマンス（フレームスパイクの排除）
 
 ### 技術スタック
 - **言語**: Rust
-- **ゲームエンジン**: Bevy 0.15
-- **シェーダー**: WGSL (WebGPU Shading Language)
+- **ウィンドウ管理**: winit
+- **グラフィックス**: wgpu (WebGPU API)
+- **画像処理**: image, rayon (並列処理)
 - **設定形式**: TOML
 
 ## ビルドとテスト
 
 ### ビルドルール
 
-- **普段の動作検証はdebugビルドで行う**
-  - イテレーションを速く回すため
-  - コマンド: `cargo build`
-  - 実行ファイル: `target/debug/sldshow2.exe`
-
-- **リリース前の最終確認のみreleaseビルドを使用**
-  - コマンド: `cargo build --release`
+- **動作検証は基本的に `release` ビルドで行う**
+  - `debug` ビルドでは `image` クレートのデコード処理や `wgpu` 最適化不足により、パフォーマンスが極端に低下し、フレームスパイクの原因を誤認する可能性があります。
+  - コマンド: `cargo run --release`
   - 実行ファイル: `target/release/sldshow2.exe`
+
+- **コンパイルチェックのみ `debug` ビルドを使用**
+  - コマンド: `cargo check`
 
 ### テストコマンド例
 
 ```powershell
-# Debug build and run
-cd D:\git\sldshow2 && cargo build && .\target\debug\sldshow2.exe .\example.sldshow
+# Development run (check logic only, likely slow)
+cargo run -- .\example.sldshow
 
-# Release build and run
-cd D:\git\sldshow2 && cargo build --release && .\target\release\sldshow2.exe .\example.sldshow
+# Release run (check performance/visuals)
+cargo run --release -- .\example.sldshow
 ```
 
 ## コーディング規約
 
 ### コメントとドキュメント
-
-- 関数のドキュメントコメント（`///`）は英語で記述
-- コード内の説明コメント（`//`）も英語で記述
+- 関数のドキュメント（`///`）およびコード内コメント（`//`）は**英語**で記述
 - 日本語コメントは避ける（このガイドを除く）
 
 ### ログメッセージ
-
-- ログレベルの使い分け:
-  - `info!`: 通常の動作ログ（画像ロード、遷移開始など）
-  - `debug!`: デバッグ情報（スキップされた処理など）
-  - `warn!`: 警告（画像が見つからないなど）
-  - `error!`: エラー（致命的な問題）
+- `log` クレートを使用 (`info!`, `warn!`, `error!`, `debug!`)
+- `println!` の使用は避ける
 
 ## アーキテクチャ原則
 
-### Bevy ECS設計
-
-- システムの実行順序は`.chain()`で明示的に制御
-- 複雑な状態管理はResourceを使用
-- エンティティとコンポーネントの責務を明確に分離
+### Winit + Wgpu 設計
+1. **状態の集約**: `ApplicationState` 構造体に `Device`, `Queue`, `TextureManager`, `TransitionPipeline` などを保持。
+2. **イベント駆動**: `winit` の `RedrawRequested` イベントで `update()` と `render()` を呼び出す。
+3. **リソース管理**:
+   - `TextureManager` は `rayon` スレッドプールで画像をデコード。
+   - メインスレッドで `Queue::write_texture` を使用してGPUにアップロード。
+   - VRAM管理のため、画像はウィンドウサイズに合わせてリサイズする。
 
 ### パフォーマンス
+- **非同期ロード**: メインスレッドをブロックしないよう、画像処理はバックグラウンドで行う。
+- **スロットリング**: GPUへのテクスチャアップロードはフレームごとに制限し、スタッターを防ぐ（1フレームあたり1枚など）。
 
-- 不要なクローンを避ける
-- システムのクエリは必要最小限に
-- リソースの変更検知（`Changed<T>`）を活用
+## 現在の課題（2026-02-08）
 
-## 現在の課題
+### 未実装機能
+- **テキスト表示**: ファイル名やデバッグ情報のレンダリング機能がありません。`glyphon` 等のライブラリ導入が必要です。
 
 ### 解決済み
-- ✅ キーボードホールドによる高速画像送り（1秒遅延 + 60ms間隔）
-- ✅ フルスクリーントグル（Fキー）
-- ✅ ランダムトランジションモードの範囲修正（0-19）
-
-### 最近解決済み（2026-01-26）
-
-1. **白い四角問題（HIGH）** ✅
-   - 原因: `setup`関数内の画像スキャンがメインスレッドをブロック
-   - 解決策: 非同期タスク（`AsyncComputeTaskPool`）を使用した画像スキャン
-   - 実装: `start_image_scan` + `poll_image_scan` システム
-   - 結果: 2フレーム遅延後にバックグラウンドスレッドでスキャン実行、メインスレッドは一切ブロックされない
-
-2. **テキスト表示が機能しない（HIGH）** ✅
-   - 原因: フォントロード方法の問題
-   - 解決策: `bevy_embedded_assets`プラグイン + M PLUS 2フォント明示的ロード
-   - 実装: `server.load("fonts/MPLUS2-VariableFont_wght.ttf")`
-   - スタイル: 黒背景（0.5透明度）+ 白テキスト（20px）
-
-
+- ✅ **フレームスパイク**: Bevy ECSのオーバーヘッドを排除し、wgpu直接制御によりスムーズなトランジションを実現。
+- ✅ **非同期ロード**: `TextureManager` 実装により、4K画像のロード時でもアニメーションがカクつかない。
 
 ## ファイル構成
 
 ```
 D:\git\sldshow2\
 ├── src/
-│   ├── main.rs              # メインアプリケーションロジック
-│   ├── config.rs            # TOML設定ファイル処理
-│   ├── image_loader.rs      # 画像ロード・キャッシュ管理
-│   ├── slideshow.rs         # スライドショータイマー
-│   ├── transition.rs        # トランジションエフェクト
-│   └── exif.rs              # EXIF情報読み取り
+│   ├── main.rs              # アプリケーションエントリ、イベントループ
+│   ├── config.rs            # 設定ファイル読み込み
+│   ├── image_loader.rs      # TextureManager（画像ロード・キャッシュ）
+│   ├── slideshow.rs         # スライドショータイマー・ロジック
+│   ├── transition.rs        # WGPUパイプライン、シェーダー管理
+│   └── error.rs             # エラー型定義
 ├── assets/
 │   └── shaders/
 │       └── transition.wgsl  # トランジションシェーダー
 ├── docs/
 │   ├── AI_DEVELOPMENT_GUIDE.md          # このファイル
-│   └── white_square_issue_analysis.md   # 白い四角問題の分析
+│   └── QUICK_START.md                   # 簡易ガイド
 └── example.sldshow          # サンプル設定ファイル
 ```
 
-## デバッグ機能
-
-### スクリーンショット
-
-- **F12キー**: 手動スクリーンショット撮影
-- 自動スクリーンショット: フレーム 1, 10, 30, 60, 120, 180で自動撮影
-- 保存先: `debug_screenshots/` フォルダ
-
-### スクリーンショットの無効化
-
-デバッグが完了したら、自動スクリーンショットを無効化:
-
-```rust
-// src/main.rs の DebugScreenshotState::default()
-Self {
-    capture_frames: vec![],  // 空にする
-    frame_count: 0,
-    enabled: false,  // falseにする
-}
-```
-
-## 開発ワークフロー
+## デバッグワークフロー
 
 1. **問題の特定**
-   - ログを確認
-   - 必要に応じてスクリーンショットを撮影（F12キー）
-
-2. **分析**
-   - システムの実行順序を確認
-   - Resourceの状態変化を追跡
-
-3. **修正**
-   - Debug buildで動作確認
-   - ログで挙動を検証
-
-4. **ドキュメント更新**
-   - 重要な問題は`docs/`に記録
-   - このガイドも必要に応じて更新
-
-## 注意事項
-
-### Bevy 0.15の特性
-
-- UI Textは親子構造が必須（親: Node、子: Text）
-- Spriteも Material2dもGPUアップロード待ちが発生する
-- `commands.spawn()`は即座に実行されず、ステージ終了後に適用される
-
-### Windows固有の問題
-
-- ファイルパスは絶対パスを使用（相対パスは動作不安定）
-- ファイルウォッチャーは無効化済み（Windowsのパス問題回避）
+   - `RUST_LOG=debug` 環境変数を設定して実行し、詳細ログを確認。
+2. **修正**
+   - `cargo check` でコンパイルエラーを確認。
+   - `cargo clippy` で静的解析を実行。
+3. **確認**
+   - `cargo run --release` で動作確認。

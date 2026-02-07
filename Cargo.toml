@@ -10,24 +10,15 @@ repository = "https://github.com/ugai/sldshow2"
 homepage = "https://github.com/ugai/sldshow2"
 
 [dependencies]
-# Bevy game engine
-bevy = { version = "0.18", default-features = false, features = [
-    "bevy_winit",        # Window management
-    "bevy_render",       # Rendering
-    "bevy_core_pipeline", # Core rendering pipeline
-    "bevy_asset",        # Asset management
-    "bevy_sprite",       # 2D sprite rendering
-    "bevy_sprite_render", # 2D sprite rendering (Material2d etc.)
-    "bevy_ui",           # UI components
-    "bevy_ui_render",    # UI rendering (required for UI to be visible!)
-    "bevy_text",         # Text rendering
-    "bevy_log",          # Logging macros
-    "png",               # PNG image format support
-    "jpeg",              # JPEG image format support
-    "webp",              # WebP image format support
-    "x11",               # Linux support
-    "wayland",           # Linux Wayland support
-] }
+# Graphics & Windowing
+winit = { version = "0.29", features = ["rwh_05"] }
+wgpu = { version = "0.19", features = ["spirv"] }
+pollster = "0.3"
+bytemuck = { version = "1.16", features = ["derive"] }
+env_logger = "0.11"
+log = "0.4"
+glyphon = "0.5" # Text rendering
+
 
 # Configuration
 serde = { version = "1.0", features = ["derive"] }
