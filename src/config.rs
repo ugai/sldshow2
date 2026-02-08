@@ -128,6 +128,8 @@ pub struct StyleConfig {
     pub show_image_path: bool,
     #[serde(default = "default_true")]
     pub show_controls: bool,
+    #[serde(default)]
+    pub font_family: Option<String>,
 }
 
 impl Default for StyleConfig {
@@ -136,6 +138,7 @@ impl Default for StyleConfig {
             bg_color: default_bg_color(),
             show_image_path: false,
             show_controls: true,
+            font_family: None,
         }
     }
 }
