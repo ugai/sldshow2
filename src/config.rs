@@ -275,14 +275,7 @@ impl Config {
     }
 
     /// Get text color as normalized f32 array (wgpu Color)
-    pub fn text_color_wgpu(&self) -> wgpu::Color {
-        wgpu::Color {
-            r: self.style.text_color[0] as f64 / 255.0,
-            g: self.style.text_color[1] as f64 / 255.0,
-            b: self.style.text_color[2] as f64 / 255.0,
-            a: self.style.text_color[3] as f64 / 255.0,
-        }
-    }
+
 }
 
 #[cfg(test)]
