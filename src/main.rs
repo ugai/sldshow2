@@ -234,10 +234,7 @@ impl ApplicationState {
 
                 // Drag Logic
                 // We calculate screen position to be robust against window moving/resizing (e.g. fullscreen toggle)
-                let client_origin = self
-                    .window
-                    .inner_position()
-                    .unwrap_or_default();
+                let client_origin = self.window.inner_position().unwrap_or_default();
                 let screen_pos_x = client_origin.x as f64 + position.x;
                 let screen_pos_y = client_origin.y as f64 + position.y;
                 let screen_pos = winit::dpi::PhysicalPosition::new(screen_pos_x, screen_pos_y);
@@ -247,11 +244,10 @@ impl ApplicationState {
                     let dy = screen_pos.y - start_pos.y;
                     let dist_sq = dx * dx + dy * dy;
 
-                    if !self.is_dragging
-                        && dist_sq > 25.0 {
-                            // 5px threshold
-                            self.is_dragging = true;
-                        }
+                    if !self.is_dragging && dist_sq > 25.0 {
+                        // 5px threshold
+                        self.is_dragging = true;
+                    }
 
                     if self.is_dragging {
                         // Check if fullscreen
