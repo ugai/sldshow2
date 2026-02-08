@@ -140,8 +140,7 @@ impl ApplicationState {
             texture_manager.shuffle_paths();
         }
 
-        let pipeline =
-            TransitionPipeline::new(&device, config_format, &config.viewer.filter_mode);
+        let pipeline = TransitionPipeline::new(&device, config_format, &config.viewer.filter_mode);
         let mut text_renderer = TextRenderer::new(
             &device,
             &queue,
@@ -282,7 +281,7 @@ impl ApplicationState {
                         true
                     }
                     PhysicalKey::Code(KeyCode::Home) => {
-                         self.jump_to(0);
+                        self.jump_to(0);
                         true
                     }
                     PhysicalKey::Code(KeyCode::End) => {
@@ -305,21 +304,23 @@ impl ApplicationState {
                         true
                     }
                     PhysicalKey::Code(KeyCode::KeyD) => {
-                         let decorated = self.window.is_decorated();
-                         self.window.set_decorations(!decorated);
-                         true
+                        let decorated = self.window.is_decorated();
+                        self.window.set_decorations(!decorated);
+                        true
                     }
-                    PhysicalKey::Code(KeyCode::BracketLeft) => { // [
-                         self.adjust_timer(-1.0);
-                         true
+                    PhysicalKey::Code(KeyCode::BracketLeft) => {
+                        // [
+                        self.adjust_timer(-1.0);
+                        true
                     }
-                    PhysicalKey::Code(KeyCode::BracketRight) => { // ]
-                         self.adjust_timer(1.0);
-                         true
+                    PhysicalKey::Code(KeyCode::BracketRight) => {
+                        // ]
+                        self.adjust_timer(1.0);
+                        true
                     }
                     _ => false,
                 }
-            },
+            }
             _ => false,
         }
     }
@@ -341,12 +342,12 @@ impl ApplicationState {
     }
 
     fn jump_to(&mut self, index: usize) {
-         let old_index = self.texture_manager.current_index;
-         if index < self.texture_manager.len() && index != old_index {
-             self.texture_manager.jump_to(index);
-             self.start_transition(old_index, self.texture_manager.current_index);
-             self.slideshow.reset();
-         }
+        let old_index = self.texture_manager.current_index;
+        if index < self.texture_manager.len() && index != old_index {
+            self.texture_manager.jump_to(index);
+            self.start_transition(old_index, self.texture_manager.current_index);
+            self.slideshow.reset();
+        }
     }
 
     fn adjust_timer(&mut self, delta: f32) {
@@ -574,12 +575,12 @@ fn main() -> Result<()> {
     #[cfg(windows)]
     unsafe {
         use windows::Win32::System::Power::{
-            SetThreadExecutionState, ES_CONTINUOUS, ES_DISPLAY_REQUIRED, ES_SYSTEM_REQUIRED,
+            ES_CONTINUOUS, ES_DISPLAY_REQUIRED, ES_SYSTEM_REQUIRED, SetThreadExecutionState,
         };
         // Prevents sleep and screen saver
         SetThreadExecutionState(ES_CONTINUOUS | ES_DISPLAY_REQUIRED | ES_SYSTEM_REQUIRED);
     }
-    
+
     let args: Vec<String> = std::env::args().collect();
     let config_path = args.get(1).map(Utf8PathBuf::from);
     let config = Config::load_default(config_path).unwrap_or_else(|e| {
@@ -604,7 +605,7 @@ fn main() -> Result<()> {
 
     // Initialize WGPU state
     let mut state = pollster::block_on(ApplicationState::new(window.clone(), config.clone()))?;
-    
+
     let mut modifiers = winit::keyboard::ModifiersState::default();
 
     event_loop
@@ -645,17 +646,19 @@ fn main() -> Result<()> {
                             }
                         }
                         // Handle modifiers for our mocked helper
-                         WindowEvent::KeyboardInput {
+                        WindowEvent::KeyboardInput {
                             event:
                                 KeyEvent {
                                     state: ElementState::Pressed,
                                     physical_key: PhysicalKey::Code(KeyCode::Digit1),
                                     ..
                                 },
-                                ..
+                            ..
                         } => {
                             if modifiers.alt_key() {
-                                 let _ = state.window.request_inner_size(winit::dpi::LogicalSize::new(1280, 720));
+                                let _ = state
+                                    .window
+                                    .request_inner_size(winit::dpi::LogicalSize::new(1280, 720));
                             }
                         }
                         WindowEvent::KeyboardInput {
@@ -665,10 +668,12 @@ fn main() -> Result<()> {
                                     physical_key: PhysicalKey::Code(KeyCode::Digit2),
                                     ..
                                 },
-                                ..
+                            ..
                         } => {
                             if modifiers.alt_key() {
-                                 let _ = state.window.request_inner_size(winit::dpi::LogicalSize::new(1920, 1080));
+                                let _ = state
+                                    .window
+                                    .request_inner_size(winit::dpi::LogicalSize::new(1920, 1080));
                             }
                         }
                         WindowEvent::KeyboardInput {
@@ -678,23 +683,26 @@ fn main() -> Result<()> {
                                     physical_key: PhysicalKey::Code(KeyCode::Digit0),
                                     ..
                                 },
-                                ..
+                            ..
                         } => {
                             if modifiers.alt_key() {
-                                 let _ = state.window.request_inner_size(winit::dpi::LogicalSize::new(
-                                     state.config.window.width,
-                                     state.config.window.height
-                                 ));
+                                let _ =
+                                    state
+                                        .window
+                                        .request_inner_size(winit::dpi::LogicalSize::new(
+                                            state.config.window.width,
+                                            state.config.window.height,
+                                        ));
                             }
                         }
-                         WindowEvent::KeyboardInput {
+                        WindowEvent::KeyboardInput {
                             event:
                                 KeyEvent {
                                     state: ElementState::Pressed,
                                     physical_key: PhysicalKey::Code(KeyCode::KeyC),
                                     ..
                                 },
-                                ..
+                            ..
                         } => {
                             if modifiers.control_key() {
                                 if let Some(path) = state.texture_manager.current_path() {
