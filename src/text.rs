@@ -1,4 +1,5 @@
 use anyhow::Result;
+use glyphon::cosmic_text::Align;
 use glyphon::{
     Attrs, Buffer, Color, Family, FontSystem, Metrics, Resolution, Shaping, SwashCache, TextArea,
     TextAtlas, TextBounds, TextRenderer as GlyphonTextRenderer,
@@ -12,6 +13,7 @@ pub struct TextRenderer {
     atlas: TextAtlas,
     text_renderer: GlyphonTextRenderer,
     pub buffer: Buffer,
+    pub osd_buffer: Buffer,
     preferred_font_family: Option<String>,
     current_color: Color,
     current_font_size: f32,
@@ -89,8 +91,14 @@ impl TextRenderer {
         let text_renderer =
             GlyphonTextRenderer::new(&mut atlas, device, MultisampleState::default(), None);
         let mut buffer = Buffer::new(&mut font_system, Metrics::new(20.0, 25.0));
+        let mut osd_buffer = Buffer::new(&mut font_system, Metrics::new(20.0, 25.0));
 
         buffer.set_size(&mut font_system, config.width as f32, config.height as f32);
+        osd_buffer.set_size(
+            &mut font_system,
+            config.width as f32 - 20.0,
+            config.height as f32,
+        );
 
         // Note: glyphon::Attributes::family() takes a Family enum.
         // If we provide Family::Name("FoundName"), it tries to use it.
@@ -117,10 +125,38 @@ impl TextRenderer {
             atlas,
             text_renderer,
             buffer,
+            osd_buffer,
             preferred_font_family: font_family.map(|s| s.to_string()),
             current_color: Color::rgb(255, 255, 255),
             current_font_size: 20.0,
         })
+    }
+
+    fn resolve_attributes(
+        db: &glyphon::fontdb::Database,
+        family_name: Option<&str>,
+    ) -> (glyphon::Weight, glyphon::Stretch, glyphon::Style) {
+        let mut weight = glyphon::Weight::NORMAL;
+        let mut stretch = glyphon::Stretch::Normal;
+        let mut style = glyphon::Style::Normal;
+
+        if let Some(name) = family_name {
+            let query = glyphon::fontdb::Query {
+                families: &[Family::Name(name)],
+                weight: glyphon::Weight::NORMAL,
+                stretch: glyphon::Stretch::Normal,
+                style: glyphon::Style::Normal,
+            };
+
+            if let Some(id) = db.query(&query) {
+                if let Some(face) = db.face(id) {
+                    weight = face.weight;
+                    style = face.style;
+                    stretch = face.stretch;
+                }
+            }
+        }
+        (weight, stretch, style)
     }
 
     pub fn set_style(&mut self, font_size: f32, color_rgba: [u8; 4]) {
@@ -130,6 +166,15 @@ impl TextRenderer {
         // Force buffer functionality update
         let metrics = Metrics::new(font_size, font_size * 1.25);
         self.buffer.set_metrics(&mut self.font_system, metrics);
+        self.osd_buffer.set_metrics(&mut self.font_system, metrics);
+
+        // Re-apply size to OSD buffer to update margin based on new font size
+        self.osd_buffer.set_size(
+            &mut self.font_system,
+            self.viewport.width as f32 - self.current_font_size,
+            self.viewport.height as f32,
+        );
+        self.osd_buffer.shape_until_scroll(&mut self.font_system);
     }
 
     pub fn resize(&mut self, width: u32, height: u32) {
@@ -138,35 +183,22 @@ impl TextRenderer {
         self.buffer
             .set_size(&mut self.font_system, width as f32, height as f32);
         self.buffer.shape_until_scroll(&mut self.font_system);
+        self.osd_buffer.set_size(
+            &mut self.font_system,
+            width as f32 - self.current_font_size,
+            height as f32,
+        );
+        self.osd_buffer.shape_until_scroll(&mut self.font_system);
     }
 
     pub fn set_text(&mut self, text: &str) {
-        // Determine attributes from the preferred font if it exists
-        let mut family = Family::SansSerif;
-        let mut weight = glyphon::Weight::NORMAL;
-        let mut stretch = glyphon::Stretch::Normal;
-        let mut style = glyphon::Style::Normal;
-
-        if let Some(ref name) = self.preferred_font_family {
-            family = Family::Name(name);
-
-            // Query to find the actual attributes of this font in the DB
-            let query = glyphon::fontdb::Query {
-                families: &[Family::Name(name)],
-                weight: glyphon::Weight::NORMAL, // We query for normal, but we will accept whatever we find
-                stretch: glyphon::Stretch::Normal,
-                style: glyphon::Style::Normal,
-            };
-
-            // If we find it, use ITS attributes to ensure the best match
-            if let Some(id) = self.font_system.db().query(&query) {
-                if let Some(face) = self.font_system.db().face(id) {
-                    weight = face.weight;
-                    style = face.style;
-                    stretch = face.stretch;
-                }
-            }
-        }
+        let (weight, stretch, style) =
+            Self::resolve_attributes(self.font_system.db(), self.preferred_font_family.as_deref());
+        let family = self
+            .preferred_font_family
+            .as_deref()
+            .map(Family::Name)
+            .unwrap_or(Family::SansSerif);
 
         self.buffer.set_text(
             &mut self.font_system,
@@ -176,13 +208,36 @@ impl TextRenderer {
                 .weight(weight)
                 .style(style)
                 .stretch(stretch)
+                .color(self.current_color),
+            Shaping::Advanced,
+        );
+        self.buffer.shape_until_scroll(&mut self.font_system);
+    }
+
+    pub fn set_osd_text(&mut self, text: &str) {
+        let (weight, stretch, style) =
+            Self::resolve_attributes(self.font_system.db(), self.preferred_font_family.as_deref());
+        let family = self
+            .preferred_font_family
+            .as_deref()
+            .map(Family::Name)
+            .unwrap_or(Family::SansSerif);
+
+        self.osd_buffer.set_text(
+            &mut self.font_system,
+            text,
+            Attrs::new()
+                .family(family)
                 .weight(weight)
                 .style(style)
                 .stretch(stretch)
                 .color(self.current_color),
             Shaping::Advanced,
         );
-        self.buffer.shape_until_scroll(&mut self.font_system);
+        for line in self.osd_buffer.lines.iter_mut() {
+            line.set_align(Some(Align::Right));
+        }
+        self.osd_buffer.shape_until_scroll(&mut self.font_system);
     }
 
     pub fn render<'a>(
@@ -200,19 +255,34 @@ impl TextRenderer {
                 width: self.viewport.width,
                 height: self.viewport.height,
             },
-            [TextArea {
-                buffer: &self.buffer,
-                left: 10.0,
-                top: 10.0,
-                scale: 1.0,
-                bounds: TextBounds {
-                    left: 0,
-                    top: 0,
-                    right: self.viewport.width as i32,
-                    bottom: self.viewport.height as i32,
+            [
+                TextArea {
+                    buffer: &self.buffer,
+                    left: self.current_font_size,
+                    top: self.current_font_size * 0.5,
+                    scale: 1.0,
+                    bounds: TextBounds {
+                        left: 0,
+                        top: 0,
+                        right: self.viewport.width as i32,
+                        bottom: self.viewport.height as i32,
+                    },
+                    default_color: Color::rgb(255, 255, 255),
                 },
-                default_color: Color::rgb(255, 255, 255),
-            }],
+                TextArea {
+                    buffer: &self.osd_buffer,
+                    left: 0.0,
+                    top: self.current_font_size * 0.5,
+                    scale: 1.0,
+                    bounds: TextBounds {
+                        left: 0,
+                        top: 0,
+                        right: self.viewport.width as i32,
+                        bottom: self.viewport.height as i32,
+                    },
+                    default_color: Color::rgb(255, 255, 255),
+                },
+            ],
             &mut self.swash_cache,
         )?;
 
