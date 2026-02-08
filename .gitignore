@@ -31,3 +31,4 @@ nul
 *.sldshow
 !example.sldshow
 draft/
+issue_*.json

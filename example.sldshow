@@ -43,3 +43,4 @@ mode = 0                # Specific mode if random = false (0-21)
 bg_color = [0, 0, 0, 255]           # Background color RGBA [0-255]
 show_image_path = true               # Display current file path
 show_controls = true                 # Show control hints
+font_family = "M PLUS 2"             # Font family name (e.g. from assets/fonts)
