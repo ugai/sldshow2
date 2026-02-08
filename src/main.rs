@@ -237,7 +237,7 @@ impl ApplicationState {
                 let client_origin = self
                     .window
                     .inner_position()
-                    .unwrap_or(winit::dpi::PhysicalPosition::default());
+                    .unwrap_or_default();
                 let screen_pos_x = client_origin.x as f64 + position.x;
                 let screen_pos_y = client_origin.y as f64 + position.y;
                 let screen_pos = winit::dpi::PhysicalPosition::new(screen_pos_x, screen_pos_y);
@@ -247,12 +247,11 @@ impl ApplicationState {
                     let dy = screen_pos.y - start_pos.y;
                     let dist_sq = dx * dx + dy * dy;
 
-                    if !self.is_dragging {
-                        if dist_sq > 25.0 {
+                    if !self.is_dragging
+                        && dist_sq > 25.0 {
                             // 5px threshold
                             self.is_dragging = true;
                         }
-                    }
 
                     if self.is_dragging {
                         // Check if fullscreen
@@ -360,10 +359,8 @@ impl ApplicationState {
                 self.drag_start_cursor = None;
                 if self.is_dragging {
                     self.is_dragging = false;
-                } else {
-                    if !self.ignore_next_release {
-                        self.next_image();
-                    }
+                } else if !self.ignore_next_release {
+                    self.next_image();
                 }
                 true
             }
