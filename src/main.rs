@@ -5,7 +5,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use wgpu::util::DeviceExt;
 use winit::{
-    event::{ElementState, Event, KeyEvent, WindowEvent},
+    event::{ElementState, Event, KeyEvent, MouseButton, WindowEvent},
     event_loop::EventLoop,
     keyboard::{KeyCode, PhysicalKey},
     window::WindowBuilder,
@@ -49,6 +49,10 @@ struct ApplicationState {
     transition: Option<ActiveTransition>,
     // The texture currently being displayed (when no transition active)
     current_texture_index: Option<usize>,
+
+    // Input state
+    last_cursor_move: Instant,
+    cursor_visible: bool,
 }
 
 struct ActiveTransition {
@@ -136,13 +140,16 @@ impl ApplicationState {
             texture_manager.shuffle_paths();
         }
 
-        let pipeline = TransitionPipeline::new(&device, config_format);
-        let text_renderer = TextRenderer::new(
+        let pipeline =
+            TransitionPipeline::new(&device, config_format, &config.viewer.filter_mode);
+        let mut text_renderer = TextRenderer::new(
             &device,
             &queue,
             &surface_config,
             config.style.font_family.as_deref(),
         )?;
+        // Apply style config
+        text_renderer.set_style(config.style.font_size, config.style.text_color);
 
         let slideshow = SlideshowTimer::new(config.viewer.timer);
 
@@ -187,6 +194,8 @@ impl ApplicationState {
             bind_group: None,
             transition: None,
             current_texture_index,
+            last_cursor_move: Instant::now(),
+            cursor_visible: true,
         })
     }
 
@@ -202,38 +211,114 @@ impl ApplicationState {
 
     fn input(&mut self, event: &WindowEvent) -> bool {
         match event {
+            WindowEvent::CursorMoved { .. } => {
+                self.last_cursor_move = Instant::now();
+                if !self.cursor_visible {
+                    self.window.set_cursor_visible(true);
+                    self.cursor_visible = true;
+                }
+                false
+            }
+            WindowEvent::MouseInput {
+                state: ElementState::Pressed,
+                button,
+                ..
+            } => {
+                self.last_cursor_move = Instant::now(); // Clicking also wakes cursor
+                match button {
+                    MouseButton::Left => {
+                        self.next_image();
+                        true
+                    }
+                    MouseButton::Right => {
+                        self.prev_image();
+                        true
+                    }
+                    _ => false,
+                }
+            }
+            WindowEvent::MouseWheel { delta, .. } => {
+                self.last_cursor_move = Instant::now();
+                // Simple wheel handling: any movement up/down triggers next/prev
+                match delta {
+                    winit::event::MouseScrollDelta::LineDelta(_, y) => {
+                        if *y > 0.0 {
+                            self.prev_image();
+                        } else if *y < 0.0 {
+                            self.next_image();
+                        }
+                        true
+                    }
+                    winit::event::MouseScrollDelta::PixelDelta(pos) => {
+                        if pos.y > 0.0 {
+                            self.prev_image();
+                        } else if pos.y < 0.0 {
+                            self.next_image();
+                        }
+                        true
+                    }
+                }
+            }
             WindowEvent::KeyboardInput {
                 event:
                     KeyEvent {
                         state: ElementState::Pressed,
                         physical_key,
+                        logical_key: _,
                         ..
                     },
                 ..
-            } => match physical_key {
-                PhysicalKey::Code(KeyCode::ArrowRight) | PhysicalKey::Code(KeyCode::Space) => {
-                    self.next_image();
-                    true
+            } => {
+                self.last_cursor_move = Instant::now(); // Typing wakes cursor
+
+                // Check for keys that work with any modifiers or specific combinations
+                match physical_key {
+                    PhysicalKey::Code(KeyCode::ArrowRight) | PhysicalKey::Code(KeyCode::Space) => {
+                        self.next_image();
+                        true
+                    }
+                    PhysicalKey::Code(KeyCode::ArrowLeft) => {
+                        self.prev_image();
+                        true
+                    }
+                    PhysicalKey::Code(KeyCode::Home) => {
+                         self.jump_to(0);
+                        true
+                    }
+                    PhysicalKey::Code(KeyCode::End) => {
+                        let last = self.texture_manager.len().saturating_sub(1);
+                        self.jump_to(last);
+                        true
+                    }
+                    PhysicalKey::Code(KeyCode::KeyP) => {
+                        self.slideshow.toggle_pause();
+                        info!("Slideshow paused: {}", self.slideshow.paused);
+                        true
+                    }
+                    PhysicalKey::Code(KeyCode::KeyF) => {
+                        let fullscreen = self.window.fullscreen().is_some();
+                        self.window.set_fullscreen(if fullscreen {
+                            None
+                        } else {
+                            Some(winit::window::Fullscreen::Borderless(None))
+                        });
+                        true
+                    }
+                    PhysicalKey::Code(KeyCode::KeyD) => {
+                         let decorated = self.window.is_decorated();
+                         self.window.set_decorations(!decorated);
+                         true
+                    }
+                    PhysicalKey::Code(KeyCode::BracketLeft) => { // [
+                         self.adjust_timer(-1.0);
+                         true
+                    }
+                    PhysicalKey::Code(KeyCode::BracketRight) => { // ]
+                         self.adjust_timer(1.0);
+                         true
+                    }
+                    _ => false,
                 }
-                PhysicalKey::Code(KeyCode::ArrowLeft) => {
-                    self.prev_image();
-                    true
-                }
-                PhysicalKey::Code(KeyCode::KeyP) => {
-                    self.slideshow.toggle_pause();
-                    info!("Slideshow paused: {}", self.slideshow.paused);
-                    true
-                }
-                PhysicalKey::Code(KeyCode::KeyF) => {
-                    let fullscreen = self.window.fullscreen().is_some();
-                    self.window.set_fullscreen(if fullscreen {
-                        None
-                    } else {
-                        Some(winit::window::Fullscreen::Borderless(None))
-                    });
-                    true
-                }
-                _ => false,
             },
             _ => false,
         }
@@ -253,6 +338,22 @@ impl ApplicationState {
             self.start_transition(old_index, self.texture_manager.current_index);
             self.slideshow.reset();
         }
+    }
+
+    fn jump_to(&mut self, index: usize) {
+         let old_index = self.texture_manager.current_index;
+         if index < self.texture_manager.len() && index != old_index {
+             self.texture_manager.jump_to(index);
+             self.start_transition(old_index, self.texture_manager.current_index);
+             self.slideshow.reset();
+         }
+    }
+
+    fn adjust_timer(&mut self, delta: f32) {
+        let new_timer = (self.slideshow.duration() + delta).max(1.0);
+        self.slideshow.set_duration(new_timer);
+        info!("Slideshow timer set to: {:.1}s", new_timer);
+        // We could show a toast/OSD here if we had one.
     }
 
     fn start_transition(&mut self, from_index: usize, to_index: usize) {
@@ -280,6 +381,12 @@ impl ApplicationState {
     }
 
     fn update(&mut self) {
+        // Auto-hide cursor
+        if self.cursor_visible && self.last_cursor_move.elapsed().as_secs_f32() > 3.0 {
+            self.window.set_cursor_visible(false);
+            self.cursor_visible = false;
+        }
+
         self.texture_manager.update(&self.device, &self.queue);
 
         if self.transition.is_none()
@@ -463,6 +570,16 @@ impl ApplicationState {
 fn main() -> Result<()> {
     env_logger::init();
 
+    // Prevent screen saver
+    #[cfg(windows)]
+    unsafe {
+        use windows::Win32::System::Power::{
+            SetThreadExecutionState, ES_CONTINUOUS, ES_DISPLAY_REQUIRED, ES_SYSTEM_REQUIRED,
+        };
+        // Prevents sleep and screen saver
+        SetThreadExecutionState(ES_CONTINUOUS | ES_DISPLAY_REQUIRED | ES_SYSTEM_REQUIRED);
+    }
+    
     let args: Vec<String> = std::env::args().collect();
     let config_path = args.get(1).map(Utf8PathBuf::from);
     let config = Config::load_default(config_path).unwrap_or_else(|e| {
@@ -487,6 +604,8 @@ fn main() -> Result<()> {
 
     // Initialize WGPU state
     let mut state = pollster::block_on(ApplicationState::new(window.clone(), config.clone()))?;
+    
+    let mut modifiers = winit::keyboard::ModifiersState::default();
 
     event_loop
         .run(move |event, target| match event {
@@ -494,6 +613,11 @@ fn main() -> Result<()> {
                 ref event,
                 window_id,
             } if window_id == window.id() => {
+                // Update modifiers state
+                if let WindowEvent::ModifiersChanged(state) = event {
+                    modifiers = state.state();
+                }
+
                 if !state.input(event) {
                     match event {
                         WindowEvent::CloseRequested
@@ -518,6 +642,70 @@ fn main() -> Result<()> {
                                 Err(wgpu::SurfaceError::Lost) => state.resize(state.size),
                                 Err(wgpu::SurfaceError::OutOfMemory) => target.exit(),
                                 Err(e) => error!("Render error: {:?}", e),
+                            }
+                        }
+                        // Handle modifiers for our mocked helper
+                         WindowEvent::KeyboardInput {
+                            event:
+                                KeyEvent {
+                                    state: ElementState::Pressed,
+                                    physical_key: PhysicalKey::Code(KeyCode::Digit1),
+                                    ..
+                                },
+                                ..
+                        } => {
+                            if modifiers.alt_key() {
+                                 let _ = state.window.request_inner_size(winit::dpi::LogicalSize::new(1280, 720));
+                            }
+                        }
+                        WindowEvent::KeyboardInput {
+                            event:
+                                KeyEvent {
+                                    state: ElementState::Pressed,
+                                    physical_key: PhysicalKey::Code(KeyCode::Digit2),
+                                    ..
+                                },
+                                ..
+                        } => {
+                            if modifiers.alt_key() {
+                                 let _ = state.window.request_inner_size(winit::dpi::LogicalSize::new(1920, 1080));
+                            }
+                        }
+                        WindowEvent::KeyboardInput {
+                            event:
+                                KeyEvent {
+                                    state: ElementState::Pressed,
+                                    physical_key: PhysicalKey::Code(KeyCode::Digit0),
+                                    ..
+                                },
+                                ..
+                        } => {
+                            if modifiers.alt_key() {
+                                 let _ = state.window.request_inner_size(winit::dpi::LogicalSize::new(
+                                     state.config.window.width,
+                                     state.config.window.height
+                                 ));
+                            }
+                        }
+                         WindowEvent::KeyboardInput {
+                            event:
+                                KeyEvent {
+                                    state: ElementState::Pressed,
+                                    physical_key: PhysicalKey::Code(KeyCode::KeyC),
+                                    ..
+                                },
+                                ..
+                        } => {
+                            if modifiers.control_key() {
+                                if let Some(path) = state.texture_manager.current_path() {
+                                    if let Ok(mut clipboard) = arboard::Clipboard::new() {
+                                        if let Err(e) = clipboard.set_text(path.as_str()) {
+                                            error!("Failed to copy to clipboard: {}", e);
+                                        } else {
+                                            info!("Copied path to clipboard: {}", path);
+                                        }
+                                    }
+                                }
                             }
                         }
                         _ => {}

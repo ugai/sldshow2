@@ -13,6 +13,8 @@ pub struct TextRenderer {
     text_renderer: GlyphonTextRenderer,
     pub buffer: Buffer,
     preferred_font_family: Option<String>,
+    current_color: Color,
+    current_font_size: f32,
 }
 
 struct ValidationViewport {
@@ -116,7 +118,22 @@ impl TextRenderer {
             text_renderer,
             buffer,
             preferred_font_family: font_family.map(|s| s.to_string()),
+            current_color: Color::rgb(255, 255, 255),
+            current_font_size: 20.0,
         })
+    }
+
+    pub fn set_style(&mut self, font_size: f32, color_rgba: [u8; 4]) {
+        self.current_font_size = font_size;
+        self.current_color = Color::rgba(
+            color_rgba[0],
+            color_rgba[1],
+            color_rgba[2],
+            color_rgba[3],
+        );
+        // Force buffer functionality update
+        let metrics = Metrics::new(font_size, font_size * 1.25);
+        self.buffer.set_metrics(&mut self.font_system, metrics);
     }
 
     pub fn resize(&mut self, width: u32, height: u32) {
@@ -163,7 +180,10 @@ impl TextRenderer {
                 .weight(weight)
                 .style(style)
                 .stretch(stretch)
-                .color(Color::rgb(255, 255, 255)),
+                .weight(weight)
+                .style(style)
+                .stretch(stretch)
+                .color(self.current_color),
             Shaping::Advanced,
         );
         self.buffer.shape_until_scroll(&mut self.font_system);
