@@ -79,6 +79,8 @@ pub struct ViewerConfig {
     /// Set to [0, 0] to use window dimensions (may cause frame spikes at 4K+).
     #[serde(default = "default_max_texture_size")]
     pub max_texture_size: [u32; 2],
+    #[serde(default = "default_filter_mode")]
+    pub filter_mode: String,
 }
 
 impl Default for ViewerConfig {
@@ -92,6 +94,7 @@ impl Default for ViewerConfig {
             cache_extent: default_cache_extent(),
             hot_reload: true,
             max_texture_size: default_max_texture_size(),
+            filter_mode: default_filter_mode(),
         }
     }
 }
@@ -130,6 +133,10 @@ pub struct StyleConfig {
     pub show_controls: bool,
     #[serde(default)]
     pub font_family: Option<String>,
+    #[serde(default = "default_text_color")]
+    pub text_color: [u8; 4],
+    #[serde(default = "default_font_size")]
+    pub font_size: f32,
 }
 
 impl Default for StyleConfig {
@@ -139,6 +146,8 @@ impl Default for StyleConfig {
             show_image_path: false,
             show_controls: true,
             font_family: None,
+            text_color: default_text_color(),
+            font_size: default_font_size(),
         }
     }
 }
@@ -170,6 +179,18 @@ fn default_bg_color() -> [u8; 4] {
 
 fn default_max_texture_size() -> [u32; 2] {
     [1920, 1080]
+}
+
+fn default_filter_mode() -> String {
+    "Linear".to_string()
+}
+
+fn default_text_color() -> [u8; 4] {
+    [255, 255, 255, 255]
+}
+
+fn default_font_size() -> f32 {
+    20.0
 }
 
 fn default_true() -> bool {

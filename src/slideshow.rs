@@ -41,4 +41,12 @@ impl SlideshowTimer {
     pub fn reset(&mut self) {
         self.last_tick = Instant::now();
     }
+
+    pub fn set_duration(&mut self, duration_secs: f32) {
+        self.interval = Duration::from_secs_f32(duration_secs.max(0.1));
+    }
+
+    pub fn duration(&self) -> f32 {
+        self.interval.as_secs_f32()
+    }
 }
