@@ -1,11 +1,11 @@
 use crate::error::{Result, SldshowError};
 use camino::{Utf8Path, Utf8PathBuf};
 use image::GenericImageView;
+use log::{debug, error, info, warn};
 use rayon::prelude::*;
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
-use std::sync::mpsc::{channel, Receiver, Sender};
-use log::{info, error, warn, debug};
+use std::sync::mpsc::{Receiver, Sender, channel};
 
 /// Maximum number of concurrent loading tasks
 const MAX_CONCURRENT_TASKS: usize = 2;
@@ -29,7 +29,7 @@ pub struct TextureManager {
     pub textures: HashMap<usize, LoadedTexture>,
     pub max_texture_size: (u32, u32),
     pub cache_extent: usize,
-    
+
     // Async loading
     loading_tasks: HashSet<usize>,
     tx: Sender<(usize, anyhow::Result<image::RgbaImage>)>,
@@ -65,7 +65,9 @@ impl TextureManager {
     }
 
     pub fn next(&mut self, pause_at_last: bool) -> bool {
-        if self.paths.is_empty() { return false; }
+        if self.paths.is_empty() {
+            return false;
+        }
         if self.current_index + 1 < self.paths.len() {
             self.current_index += 1;
             true
@@ -78,7 +80,9 @@ impl TextureManager {
     }
 
     pub fn previous(&mut self) -> bool {
-        if self.paths.is_empty() { return false; }
+        if self.paths.is_empty() {
+            return false;
+        }
         if self.current_index > 0 {
             self.current_index -= 1;
         } else {
@@ -86,7 +90,7 @@ impl TextureManager {
         }
         true
     }
-    
+
     pub fn len(&self) -> usize {
         self.paths.len()
     }
@@ -106,7 +110,9 @@ impl TextureManager {
     }
 
     pub fn update(&mut self, device: &wgpu::Device, queue: &wgpu::Queue) {
-        if self.paths.is_empty() { return; }
+        if self.paths.is_empty() {
+            return;
+        }
 
         // 1. Process received images and upload to GPU
         // Non-blocking try_recv
@@ -116,7 +122,7 @@ impl TextureManager {
                 Ok(img) => {
                     let width = img.width();
                     let height = img.height();
-                    
+
                     let texture_size = wgpu::Extent3d {
                         width,
                         height,
@@ -152,12 +158,15 @@ impl TextureManager {
 
                     let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
 
-                    self.textures.insert(idx, LoadedTexture {
-                        texture,
-                        view,
-                        width,
-                        height,
-                    });
+                    self.textures.insert(
+                        idx,
+                        LoadedTexture {
+                            texture,
+                            view,
+                            width,
+                            height,
+                        },
+                    );
                     debug!("Uploaded image {} ({}x{})", idx, width, height);
                 }
                 Err(e) => {
@@ -169,29 +178,29 @@ impl TextureManager {
         // 2. Manage cache and start new tasks
         let mut needed_indices = HashSet::new();
         needed_indices.insert(self.current_index);
-        
+
         let len = self.paths.len();
         for i in 1..=self.cache_extent {
             needed_indices.insert((self.current_index + i) % len); // Forward
-             needed_indices.insert((self.current_index + len - i) % len); // Backward
+            needed_indices.insert((self.current_index + len - i) % len); // Backward
         }
 
         // Cleanup unused textures
         self.textures.retain(|idx, _| needed_indices.contains(idx));
-        
+
         // Start new tasks
         for idx in needed_indices {
             if !self.textures.contains_key(&idx) && !self.loading_tasks.contains(&idx) {
                 if self.loading_tasks.len() >= MAX_CONCURRENT_TASKS {
                     break;
                 }
-                
+
                 if let Some(path) = self.paths.get(idx).cloned() {
                     let tx = self.tx.clone();
                     let max_size = self.max_texture_size;
-                    
+
                     self.loading_tasks.insert(idx);
-                    
+
                     // Spawn thread
                     std::thread::spawn(move || {
                         let res = load_image_rgba(&path, max_size);
@@ -206,7 +215,8 @@ impl TextureManager {
 // Standalone functions
 
 fn load_image_rgba(path: &Utf8Path, max_size: (u32, u32)) -> anyhow::Result<image::RgbaImage> {
-    let img = image::open(path.as_std_path()).map_err(|e| anyhow::anyhow!("Failed to open image: {}", e))?;
+    let img = image::open(path.as_std_path())
+        .map_err(|e| anyhow::anyhow!("Failed to open image: {}", e))?;
     let resized = resize_for_gpu(img, max_size.0, max_size.1);
     Ok(resized.to_rgba8())
 }
@@ -225,7 +235,7 @@ fn resize_for_gpu(
     let scale = scale_w.min(scale_h);
     let new_w = ((orig_w as f32 * scale).round() as u32).max(1);
     let new_h = ((orig_h as f32 * scale).round() as u32).max(1);
-    
+
     // Using Triangle filter for speed
     img.resize(new_w, new_h, image::imageops::FilterType::Triangle)
 }
@@ -263,7 +273,7 @@ pub fn scan_image_paths(
     if paths.is_empty() {
         return Err(SldshowError::NoImagesFound {
             paths: input_paths.to_vec(),
-        }.into());
+        });
     }
 
     Ok(paths)
