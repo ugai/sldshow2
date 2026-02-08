@@ -273,9 +273,6 @@ impl Config {
             self.style.bg_color[3] as f32 / 255.0,
         ]
     }
-
-    /// Get text color as normalized f32 array (wgpu Color)
-
 }
 
 #[cfg(test)]
