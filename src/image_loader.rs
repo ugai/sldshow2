@@ -91,6 +91,12 @@ impl TextureManager {
         true
     }
 
+    pub fn jump_to(&mut self, index: usize) {
+        if index < self.paths.len() {
+            self.current_index = index;
+        }
+    }
+
     pub fn len(&self) -> usize {
         self.paths.len()
     }

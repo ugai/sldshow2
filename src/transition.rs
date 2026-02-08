@@ -25,7 +25,7 @@ pub struct TransitionPipeline {
 }
 
 impl TransitionPipeline {
-    pub fn new(device: &wgpu::Device, format: wgpu::TextureFormat) -> Self {
+    pub fn new(device: &wgpu::Device, format: wgpu::TextureFormat, filter_mode: &str) -> Self {
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("Transition Shader"),
             source: wgpu::ShaderSource::Wgsl(Cow::Borrowed(include_str!(
@@ -123,13 +123,18 @@ impl TransitionPipeline {
             multiview: None,
         });
 
+        let filter = match filter_mode {
+            "Nearest" => wgpu::FilterMode::Nearest,
+            _ => wgpu::FilterMode::Linear,
+        };
+
         let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
             label: Some("Transition Sampler"),
             address_mode_u: wgpu::AddressMode::ClampToEdge,
             address_mode_v: wgpu::AddressMode::ClampToEdge,
             address_mode_w: wgpu::AddressMode::ClampToEdge,
-            mag_filter: wgpu::FilterMode::Linear,
-            min_filter: wgpu::FilterMode::Linear,
+            mag_filter: filter,
+            min_filter: filter,
             mipmap_filter: wgpu::FilterMode::Nearest,
             ..Default::default()
         });
