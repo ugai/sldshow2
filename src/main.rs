@@ -53,6 +53,14 @@ struct ApplicationState {
     // Input state
     last_cursor_move: Instant,
     cursor_visible: bool,
+    last_click_time: Option<Instant>,
+    drag_start_cursor: Option<winit::dpi::PhysicalPosition<f64>>,
+    is_dragging: bool,
+    ignore_next_release: bool,
+    cursor_pos: Option<winit::dpi::PhysicalPosition<f64>>,
+
+    // OSD
+    osd_message: Option<(String, Instant)>,
 }
 
 struct ActiveTransition {
@@ -195,6 +203,12 @@ impl ApplicationState {
             current_texture_index,
             last_cursor_move: Instant::now(),
             cursor_visible: true,
+            last_click_time: None,
+            drag_start_cursor: None,
+            is_dragging: false,
+            ignore_next_release: false,
+            cursor_pos: None,
+            osd_message: None,
         })
     }
 
@@ -208,14 +222,83 @@ impl ApplicationState {
         }
     }
 
-    fn input(&mut self, event: &WindowEvent) -> bool {
+    fn input(&mut self, event: &WindowEvent, modifiers: &winit::keyboard::ModifiersState) -> bool {
         match event {
-            WindowEvent::CursorMoved { .. } => {
+            WindowEvent::CursorMoved { position, .. } => {
                 self.last_cursor_move = Instant::now();
+                // self.cursor_pos = Some(*position); // Moved to calculation below
                 if !self.cursor_visible {
                     self.window.set_cursor_visible(true);
                     self.cursor_visible = true;
                 }
+
+                // Drag Logic
+                // We calculate screen position to be robust against window moving/resizing (e.g. fullscreen toggle)
+                let client_origin = self
+                    .window
+                    .inner_position()
+                    .unwrap_or(winit::dpi::PhysicalPosition::default());
+                let screen_pos_x = client_origin.x as f64 + position.x;
+                let screen_pos_y = client_origin.y as f64 + position.y;
+                let screen_pos = winit::dpi::PhysicalPosition::new(screen_pos_x, screen_pos_y);
+
+                if let Some(start_pos) = self.drag_start_cursor {
+                    let dx = screen_pos.x - start_pos.x;
+                    let dy = screen_pos.y - start_pos.y;
+                    let dist_sq = dx * dx + dy * dy;
+
+                    if !self.is_dragging {
+                        if dist_sq > 25.0 {
+                            // 5px threshold
+                            self.is_dragging = true;
+                        }
+                    }
+
+                    if self.is_dragging {
+                        // Check if fullscreen
+                        if self.window.fullscreen().is_some() {
+                            self.window.set_fullscreen(None);
+                            // Update drag start to current screen pos so we don't jump if logic had lag,
+                            // though with screen coords it should be fine.
+                            // But exiting fullscreen might take a frame.
+                            self.drag_start_cursor = Some(screen_pos);
+                            return true;
+                        }
+
+                        if let Ok(outer_pos) = self.window.outer_position() {
+                            let new_x = outer_pos.x + dx as i32;
+                            let new_y = outer_pos.y + dy as i32;
+                            self.window
+                                .set_outer_position(winit::dpi::PhysicalPosition::new(
+                                    new_x, new_y,
+                                ));
+
+                            // IMPORTANT: Update start pos so we don't accumulate delta from original start
+                            // recursively if we keep adding dx to Window Pos?
+                            // Wait, if we use `start_pos` (constant during drag) and `dx` (growing),
+                            // then `new_pos = original_outer_pos + dx`.
+                            // We need `original_outer_pos` stored at start of drag?
+                            // OR we use incremental delta.
+                            // `dx` here is "Movement since START of drag".
+                            // `outer_pos` is CURRENT window pos.
+                            // If we add `dx` to `current`, we fly away exponentially.
+                            // We need `dx` since *last frame*?
+                            // `dx = screen_pos - last_screen_pos`.
+                            // We need to track `last_screen_pos`.
+                            // `drag_start_cursor` is currently treated as "Start of Drag".
+                            // Let's change usage: `drag_start_cursor` -> `last_drag_pos`.
+
+                            self.drag_start_cursor = Some(screen_pos);
+                        }
+                    }
+                } else if self.cursor_pos.is_some() {
+                    // Update cursor pos for potential click/drag start
+                    // We only start detailed tracking when button is pressed?
+                    // Actually we need to track this *before* press to have valid start?
+                    // No, press sets `cursor_pos`.
+                }
+                // Store current screen pos as "cursor_pos" for drag start initiation
+                self.cursor_pos = Some(screen_pos);
                 false
             }
             WindowEvent::MouseInput {
@@ -223,10 +306,43 @@ impl ApplicationState {
                 button,
                 ..
             } => {
-                self.last_cursor_move = Instant::now(); // Clicking also wakes cursor
+                self.last_cursor_move = Instant::now();
                 match button {
                     MouseButton::Left => {
-                        self.next_image();
+                        // Double Click
+                        let now = Instant::now();
+                        if let Some(last) = self.last_click_time {
+                            if now.duration_since(last).as_millis() < 300 {
+                                let fullscreen = self.window.fullscreen().is_some();
+                                self.window.set_fullscreen(if fullscreen {
+                                    None
+                                } else {
+                                    Some(winit::window::Fullscreen::Borderless(None))
+                                });
+                                self.show_osd(
+                                    if fullscreen {
+                                        "Fullscreen: OFF"
+                                    } else {
+                                        "Fullscreen: ON"
+                                    }
+                                    .to_string(),
+                                );
+                                self.last_click_time = None;
+                                self.ignore_next_release = true; // Don't trigger 'next' on this release
+                                return true;
+                            }
+                        }
+                        self.last_click_time = Some(now);
+
+                        // Start tracking for Drag (or Click)
+                        if let Some(pos) = self.cursor_pos {
+                            // Initialize Drag Start with Screen Position
+                            self.drag_start_cursor = Some(pos);
+                        }
+
+                        self.is_dragging = false;
+                        self.ignore_next_release = false;
+
                         true
                     }
                     MouseButton::Right => {
@@ -236,23 +352,47 @@ impl ApplicationState {
                     _ => false,
                 }
             }
+            WindowEvent::MouseInput {
+                state: ElementState::Released,
+                button: MouseButton::Left,
+                ..
+            } => {
+                self.drag_start_cursor = None;
+                if self.is_dragging {
+                    self.is_dragging = false;
+                } else {
+                    if !self.ignore_next_release {
+                        self.next_image();
+                    }
+                }
+                true
+            }
             WindowEvent::MouseWheel { delta, .. } => {
                 self.last_cursor_move = Instant::now();
+                let steps = if modifiers.shift_key() { 10 } else { 1 };
                 // Simple wheel handling: any movement up/down triggers next/prev
                 match delta {
                     winit::event::MouseScrollDelta::LineDelta(_, y) => {
                         if *y > 0.0 {
-                            self.prev_image();
+                            for _ in 0..steps {
+                                self.prev_image();
+                            }
                         } else if *y < 0.0 {
-                            self.next_image();
+                            for _ in 0..steps {
+                                self.next_image();
+                            }
                         }
                         true
                     }
                     winit::event::MouseScrollDelta::PixelDelta(pos) => {
                         if pos.y > 0.0 {
-                            self.prev_image();
+                            for _ in 0..steps {
+                                self.prev_image();
+                            }
                         } else if pos.y < 0.0 {
-                            self.next_image();
+                            for _ in 0..steps {
+                                self.next_image();
+                            }
                         }
                         true
                     }
@@ -273,11 +413,17 @@ impl ApplicationState {
                 // Check for keys that work with any modifiers or specific combinations
                 match physical_key {
                     PhysicalKey::Code(KeyCode::ArrowRight) | PhysicalKey::Code(KeyCode::Space) => {
-                        self.next_image();
+                        let steps = if modifiers.shift_key() { 10 } else { 1 };
+                        for _ in 0..steps {
+                            self.next_image();
+                        }
                         true
                     }
                     PhysicalKey::Code(KeyCode::ArrowLeft) => {
-                        self.prev_image();
+                        let steps = if modifiers.shift_key() { 10 } else { 1 };
+                        for _ in 0..steps {
+                            self.prev_image();
+                        }
                         true
                     }
                     PhysicalKey::Code(KeyCode::Home) => {
@@ -292,6 +438,14 @@ impl ApplicationState {
                     PhysicalKey::Code(KeyCode::KeyP) => {
                         self.slideshow.toggle_pause();
                         info!("Slideshow paused: {}", self.slideshow.paused);
+                        self.show_osd(
+                            if self.slideshow.paused {
+                                "Paused"
+                            } else {
+                                "Resumed"
+                            }
+                            .to_string(),
+                        );
                         true
                     }
                     PhysicalKey::Code(KeyCode::KeyF) => {
@@ -301,11 +455,45 @@ impl ApplicationState {
                         } else {
                             Some(winit::window::Fullscreen::Borderless(None))
                         });
+                        self.show_osd(
+                            if fullscreen {
+                                "Fullscreen: OFF"
+                            } else {
+                                "Fullscreen: ON"
+                            }
+                            .to_string(),
+                        );
                         true
                     }
                     PhysicalKey::Code(KeyCode::KeyD) => {
                         let decorated = self.window.is_decorated();
                         self.window.set_decorations(!decorated);
+                        self.show_osd(
+                            if !decorated {
+                                "Decorations: ON"
+                            } else {
+                                "Decorations: OFF"
+                            }
+                            .to_string(),
+                        );
+                        true
+                    }
+                    PhysicalKey::Code(KeyCode::KeyT) => {
+                        let always_on_top = !self.config.window.always_on_top;
+                        self.config.window.always_on_top = always_on_top;
+                        self.window.set_window_level(if always_on_top {
+                            winit::window::WindowLevel::AlwaysOnTop
+                        } else {
+                            winit::window::WindowLevel::Normal
+                        });
+                        self.show_osd(
+                            if always_on_top {
+                                "Always On Top: ON"
+                            } else {
+                                "Always On Top: OFF"
+                            }
+                            .to_string(),
+                        );
                         true
                     }
                     PhysicalKey::Code(KeyCode::BracketLeft) => {
@@ -354,7 +542,11 @@ impl ApplicationState {
         let new_timer = (self.slideshow.duration() + delta).max(1.0);
         self.slideshow.set_duration(new_timer);
         info!("Slideshow timer set to: {:.1}s", new_timer);
-        // We could show a toast/OSD here if we had one.
+        self.show_osd(format!("Timer: {:.1}s", new_timer));
+    }
+
+    fn show_osd(&mut self, text: String) {
+        self.osd_message = Some((text, Instant::now() + Duration::from_millis(1500)));
     }
 
     fn start_transition(&mut self, from_index: usize, to_index: usize) {
@@ -416,6 +608,18 @@ impl ApplicationState {
                 .set_text(&format!("{} [{}/{}]", filename, index, total));
         } else {
             self.text_renderer.set_text("No images found");
+        }
+
+        // OSD Logic
+        if let Some((ref text, expiry)) = self.osd_message {
+            if Instant::now() > expiry {
+                self.osd_message = None;
+                self.text_renderer.set_osd_text("");
+            } else {
+                self.text_renderer.set_osd_text(text);
+            }
+        } else {
+            self.text_renderer.set_osd_text("");
         }
     }
 
@@ -619,7 +823,7 @@ fn main() -> Result<()> {
                     modifiers = state.state();
                 }
 
-                if !state.input(event) {
+                if !state.input(event, &modifiers) {
                     match event {
                         WindowEvent::CloseRequested
                         | WindowEvent::KeyboardInput {
@@ -659,6 +863,7 @@ fn main() -> Result<()> {
                                 let _ = state
                                     .window
                                     .request_inner_size(winit::dpi::LogicalSize::new(1280, 720));
+                                state.show_osd("Resize: 1280x720".to_string());
                             }
                         }
                         WindowEvent::KeyboardInput {
@@ -674,6 +879,7 @@ fn main() -> Result<()> {
                                 let _ = state
                                     .window
                                     .request_inner_size(winit::dpi::LogicalSize::new(1920, 1080));
+                                state.show_osd("Resize: 1920x1080".to_string());
                             }
                         }
                         WindowEvent::KeyboardInput {
@@ -693,6 +899,10 @@ fn main() -> Result<()> {
                                             state.config.window.width,
                                             state.config.window.height,
                                         ));
+                                state.show_osd(format!(
+                                    "Resize: {}x{}",
+                                    state.config.window.width, state.config.window.height
+                                ));
                             }
                         }
                         WindowEvent::KeyboardInput {
@@ -711,6 +921,7 @@ fn main() -> Result<()> {
                                             error!("Failed to copy to clipboard: {}", e);
                                         } else {
                                             info!("Copied path to clipboard: {}", path);
+                                            state.show_osd("Copied to Clipboard".to_string());
                                         }
                                     }
                                 }
