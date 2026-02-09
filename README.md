@@ -1,18 +1,19 @@
 # sldshow2
 
-Simple slideshow image viewer with custom WGSL transitions, built with Bevy.
+High-performance slideshow image viewer with custom WGSL transitions, built with Rust, winit, and wgpu.
 
 ## Features
 
 - **22 different transition effects** with custom WGSL shaders
-- **Embedded assets** (shaders and fonts) for standalone distribution
-- **Async image scanning** for non-blocking startup
+- **Embedded assets** (shaders) for standalone distribution
+- **Async image loading** for non-blocking startup and navigation
 - **Frameless window support** for clean presentation
 - **TOML configuration** with flexible settings
 - **Smart image preloading/caching** (configurable extent)
 - **Auto-advance timer** with pause/resume
 - **Keyboard/mouse controls** with hold-to-repeat navigation
-- **Optional file path display** with embedded Japanese font support
+- **Text rendering** with glyphon for file path display
+- **Hot-reload configuration** via file watching
 
 ## Quick Start
 
@@ -27,8 +28,14 @@ This creates 7 CC0 test images in `assets/test_images/`.
 ### 2. Run with Test Configuration
 
 ```bash
+# Development build
 cargo run -- test.sldshow
+
+# Release build (RECOMMENDED for performance testing)
+cargo run --release -- test.sldshow
 ```
+
+**Note**: Use `--release` for accurate performance evaluation. Debug builds may exhibit frame stuttering due to unoptimized image decoding and GPU operations.
 
 ### 3. Test Controls
 
@@ -49,14 +56,14 @@ cargo run -- test.sldshow
 ## Building
 
 ```bash
-# Development build
+# Development build (compile-time check)
 cargo build
 
-# Release build (optimized)
+# Release build (optimized, recommended for distribution)
 cargo build --release
 ```
 
-The executable is standalone and includes all required assets (shaders and fonts) embedded at compile time. You can run `target/release/sldshow2.exe` from any location without the `assets` folder.
+The executable is standalone and includes all required assets (shaders) embedded at compile time. You can run the binary from any location.
 
 ## Configuration
 
@@ -88,7 +95,7 @@ Default config location: `~/.sldshow`
 **Style:**
 
 - `bg_color` - Background color [R, G, B, A]
-- `show_image_path` - Display current file path (with embedded M PLUS 2 font)
+- `show_image_path` - Display current file path
 
 ## Transition Effects
 
@@ -99,23 +106,27 @@ Default config location: `~/.sldshow`
 - 10-11: Sliding door (open/close)
 - 12-15: Blind effects
 - 16-17: Box (expand/contract)
-- 18-19: Advanced effects (random squares, angular wipe)
+- 18-21: Advanced effects (random squares, angular wipe, etc.)
 
 ## Project Structure
 
 ```txt
 sldshow2/
 ├── src/
-│   ├── main.rs              # Entry point & integration
-│   ├── config.rs            # TOML configuration
-│   ├── image_loader.rs      # Image loading & caching
-│   ├── transition.rs        # Transition material system (embeds shader)
-│   └── slideshow.rs         # Auto-advance timer
+│   ├── main.rs              # Entry point, event loop, state management
+│   ├── config.rs            # TOML configuration parsing
+│   ├── image_loader.rs      # Async image loading & texture cache
+│   ├── transition.rs        # wgpu render pipeline & shader uniforms
+│   ├── slideshow.rs         # Auto-advance timer logic
+│   ├── text.rs              # Text rendering with glyphon
+│   ├── diagnostics.rs       # Performance diagnostics
+│   ├── metadata.rs          # Image metadata extraction
+│   ├── watcher.rs           # File watching for hot-reload
+│   ├── consts.rs            # Application constants
+│   └── error.rs             # Custom error types
 ├── assets/
 │   ├── shaders/
 │   │   └── transition.wgsl  # 22 transition effects (embedded at compile time)
-│   ├── fonts/
-│   │   └── MPLUS2-VariableFont_wght.ttf  # Japanese font (embedded)
 │   └── test_images/         # Generated test images
 ├── docs/
 │   ├── AI_DEVELOPMENT_GUIDE.md  # AI collaboration guidelines
@@ -130,19 +141,43 @@ sldshow2/
 
 ### Code Statistics
 
-- ~1,100 lines of Rust
-- 4 core modules
+- ~1,200 lines of Rust
+- 11 core modules
 - 22 WGSL transition effects
-- Bevy 0.15 integration
 
 ### Architecture
 
-- **ECS-based** using Bevy's Entity Component System
-- **Event-driven** transitions via TransitionEvent
-- **Resource-based** state management
-- **Plugin system** for modular organization
-- **Async task pool** for non-blocking image scanning
+**Direct wgpu Control Architecture:**
+- **Event-driven**: Uses `winit` event loop with `RedrawRequested` events
+- **State Management**: `ApplicationState` struct holds all app state
+  - `wgpu::Device`, `wgpu::Queue` for GPU operations
+  - `TextureManager` for async image loading and caching
+  - `TransitionPipeline` for render pipeline and bind groups
+- **Async Loading**: `rayon` thread pool for non-blocking image decoding
 - **Compile-time asset embedding** for standalone distribution
+- **Hot-reload**: `notify` crate watches config file for changes
+
+### Key Components
+
+**ApplicationState** (main.rs):
+- Central state management
+- Event handling and input processing
+- Update and render loop coordination
+
+**TransitionPipeline** (transition.rs):
+- wgpu render pipeline setup
+- Bind group management
+- Shader uniform updates
+
+**TextureManager** (image_loader.rs):
+- Background thread image decoding
+- GPU texture upload throttling
+- Rolling texture cache with configurable extent
+- Automatic image resizing to fit window
+
+**TextRenderer** (text.rs):
+- glyphon-based text rendering
+- File path display with custom styling
 
 ## Troubleshooting
 
@@ -159,21 +194,15 @@ sldshow2/
 
 **Text not displaying:**
 
-- Font is embedded at compile time; rebuild if issues occur
 - Check `show_image_path` setting in config
+- Verify glyphon initialization in logs
 
 **Performance issues:**
 
 - Reduce `cache_extent` if using many large images
 - Lower `transition.time` for faster transitions
 - Use `fullscreen = false` and smaller window size
-
-**Windows path syntax error on startup (os error 123):**
-
-- This is a harmless Bevy 0.15 initialization warning on Windows
-- The error appears once during startup and can be safely ignored
-- It does not affect image loading or application functionality
-- All images will load correctly despite this warning
+- **Use release builds** (`cargo run --release`) for accurate performance
 
 ## License
 
