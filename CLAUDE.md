@@ -69,6 +69,7 @@ Assets are embedded at compile time for standalone distribution:
 - **Always use `--release` for visual testing**. Pure debug builds of `image` (PNG/JPG decoding) and `wgpu` can be slow, causing frame stutters that don't reflect production performance.
 
 ### Commits and Pull Requests
+- **Always run `cargo fmt --all` before committing.** CI enforces `cargo fmt --all -- --check` and will fail on formatting differences.
 - Commit messages and PR titles follow [Conventional Commits](https://www.conventionalcommits.org/) format: `feat:`, `fix:`, `docs:`, `refactor:`, `perf:`, `style:`, `chore:`, etc.
 
 ### Code Style
