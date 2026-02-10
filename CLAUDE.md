@@ -68,6 +68,9 @@ Assets are embedded at compile time for standalone distribution:
 ### Build Strategy
 - **Always use `--release` for visual testing**. Pure debug builds of `image` (PNG/JPG decoding) and `wgpu` can be slow, causing frame stutters that don't reflect production performance.
 
+### Commits and Pull Requests
+- Commit messages and PR titles follow [Conventional Commits](https://www.conventionalcommits.org/) format: `feat:`, `fix:`, `docs:`, `refactor:`, `perf:`, `style:`, `chore:`, etc.
+
 ### Code Style
 - **English** comments and documentation.
 - **Structured Logging**: Use `log` crate (`info!`, `warn!`, `error!`).
