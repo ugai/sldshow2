@@ -12,11 +12,11 @@ use winit::{
 };
 
 mod config;
+mod error;
 mod image_loader;
 mod slideshow;
-mod transition;
-mod error;
 mod text;
+mod transition;
 
 use config::Config;
 use image_loader::TextureManager;
