@@ -195,7 +195,8 @@ impl TextureManager {
         self.textures.retain(|idx, _| needed_indices.contains(idx));
 
         // Cleanup stale loading_tasks (indices no longer needed whose results were never received)
-        self.loading_tasks.retain(|idx| needed_indices.contains(idx));
+        self.loading_tasks
+            .retain(|idx| needed_indices.contains(idx));
 
         // Start new tasks
         for idx in needed_indices {

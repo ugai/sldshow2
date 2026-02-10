@@ -236,7 +236,8 @@ impl ApplicationState {
                 // We calculate screen position to be robust against window moving/resizing (e.g. fullscreen toggle)
                 let Some(client_origin) = self.window.inner_position().ok() else {
                     // Can't determine window position (e.g. Wayland); skip drag calculation
-                    self.cursor_pos = Some(winit::dpi::PhysicalPosition::new(position.x, position.y));
+                    self.cursor_pos =
+                        Some(winit::dpi::PhysicalPosition::new(position.x, position.y));
                     return false;
                 };
                 let screen_pos_x = client_origin.x as f64 + position.x;
