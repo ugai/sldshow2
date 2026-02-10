@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-sldshow2 is a high-performance slideshow image viewer built with **Rust**, **winit**, and **wgpu**. It features 22 custom WGSL transition effects and standalone distribution with embedded assets.
+sldshow2 is a high-performance slideshow image viewer built with **Rust**, **winit**, and **wgpu**. It features 20 custom WGSL transition effects and standalone distribution with embedded assets.
 
 ## Development Commands
 
@@ -45,7 +45,7 @@ The application uses a standard `winit` event loop in `src/main.rs`.
 - **`render()`**: Called on `RedrawRequested`. Encodes GPU commands.
 
 ### Key Components
-- **TransitionPipeline** (`src/transition.rs`): Manages the wgpu render pipeline, bind groups, and shader uniforms for the 22 WGSL effects.
+- **TransitionPipeline** (`src/transition.rs`): Manages the wgpu render pipeline, bind groups, and shader uniforms for the 20 WGSL effects.
 - **TextureManager** (`src/image_loader.rs`): Handles async image loading (using `rayon` `image` crate) and GPU texture management. Maintains a rolling cache of textures.
 - **TextRenderer** (`src/text.rs`): High-quality text rendering using `glyphon` / `cosmic-text`.
 - **SlideshowTimer** (`src/slideshow.rs`): Simple `std::time::Instant`-based timer for auto-advancement.
@@ -97,4 +97,4 @@ Assets are embedded at compile time for standalone distribution:
 - `error.rs` - Custom error types.
 
 ### Assets
-- `assets/shaders/transition.wgsl` - 22 transition effects (embedded).
+- `assets/shaders/transition.wgsl` - 20 transition effects (embedded).
