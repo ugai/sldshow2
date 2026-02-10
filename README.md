@@ -128,9 +128,6 @@ sldshow2/
 │   ├── shaders/
 │   │   └── transition.wgsl  # 22 transition effects (embedded at compile time)
 │   └── test_images/         # Generated test images
-├── docs/
-│   ├── AI_DEVELOPMENT_GUIDE.md  # AI collaboration guidelines
-│   └── QUICK_START.md           # Quick start guide
 ├── examples/
 │   └── generate_test_images.rs # Test image generator
 ├── test.sldshow             # Test configuration
