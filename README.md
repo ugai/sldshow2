@@ -108,73 +108,9 @@ Default config location: `~/.sldshow`
 - 16-17: Box (expand/contract)
 - 18-21: Advanced effects (random squares, angular wipe, etc.)
 
-## Project Structure
-
-```txt
-sldshow2/
-├── src/
-│   ├── main.rs              # Entry point, event loop, state management
-│   ├── config.rs            # TOML configuration parsing
-│   ├── image_loader.rs      # Async image loading & texture cache
-│   ├── transition.rs        # wgpu render pipeline & shader uniforms
-│   ├── slideshow.rs         # Auto-advance timer logic
-│   ├── text.rs              # Text rendering with glyphon
-│   ├── diagnostics.rs       # Performance diagnostics
-│   ├── metadata.rs          # Image metadata extraction
-│   ├── watcher.rs           # File watching for hot-reload
-│   ├── consts.rs            # Application constants
-│   └── error.rs             # Custom error types
-├── assets/
-│   ├── shaders/
-│   │   └── transition.wgsl  # 22 transition effects (embedded at compile time)
-│   └── test_images/         # Generated test images
-├── examples/
-│   └── generate_test_images.rs # Test image generator
-├── test.sldshow             # Test configuration
-└── example.sldshow          # Example configuration
-```
-
 ## Development
 
-### Code Statistics
-
-- ~1,200 lines of Rust
-- 11 core modules
-- 22 WGSL transition effects
-
-### Architecture
-
-**Direct wgpu Control Architecture:**
-- **Event-driven**: Uses `winit` event loop with `RedrawRequested` events
-- **State Management**: `ApplicationState` struct holds all app state
-  - `wgpu::Device`, `wgpu::Queue` for GPU operations
-  - `TextureManager` for async image loading and caching
-  - `TransitionPipeline` for render pipeline and bind groups
-- **Async Loading**: `rayon` thread pool for non-blocking image decoding
-- **Compile-time asset embedding** for standalone distribution
-- **Hot-reload**: `notify` crate watches config file for changes
-
-### Key Components
-
-**ApplicationState** (main.rs):
-- Central state management
-- Event handling and input processing
-- Update and render loop coordination
-
-**TransitionPipeline** (transition.rs):
-- wgpu render pipeline setup
-- Bind group management
-- Shader uniform updates
-
-**TextureManager** (image_loader.rs):
-- Background thread image decoding
-- GPU texture upload throttling
-- Rolling texture cache with configurable extent
-- Automatic image resizing to fit window
-
-**TextRenderer** (text.rs):
-- glyphon-based text rendering
-- File path display with custom styling
+For architecture details and development guidelines, see [CLAUDE.md](CLAUDE.md) — named for development convenience, but written for everyone.
 
 ## Troubleshooting
 
