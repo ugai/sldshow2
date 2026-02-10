@@ -15,7 +15,6 @@ mod config;
 mod image_loader;
 mod slideshow;
 mod transition;
-// mod consts; // Unused for now
 mod error;
 mod text;
 
