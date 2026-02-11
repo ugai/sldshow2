@@ -24,6 +24,9 @@ use slideshow::SlideshowTimer;
 use text::TextRenderer;
 use transition::{TransitionPipeline, TransitionUniform};
 
+const TIMER_STEP_SMALL: f32 = 5.0;
+const TIMER_STEP_LARGE: f32 = 60.0;
+
 struct ApplicationState {
     surface: wgpu::Surface<'static>,
     device: wgpu::Device,
@@ -494,13 +497,25 @@ impl ApplicationState {
                         true
                     }
                     PhysicalKey::Code(KeyCode::BracketLeft) => {
-                        // [
-                        self.adjust_timer(-1.0);
+                        let delta = if modifiers.shift_key() {
+                            TIMER_STEP_LARGE
+                        } else {
+                            TIMER_STEP_SMALL
+                        };
+                        self.adjust_timer(-delta);
                         true
                     }
                     PhysicalKey::Code(KeyCode::BracketRight) => {
-                        // ]
-                        self.adjust_timer(1.0);
+                        let delta = if modifiers.shift_key() {
+                            TIMER_STEP_LARGE
+                        } else {
+                            TIMER_STEP_SMALL
+                        };
+                        self.adjust_timer(delta);
+                        true
+                    }
+                    PhysicalKey::Code(KeyCode::Backspace) => {
+                        self.reset_timer();
                         true
                     }
                     _ => false,
@@ -536,10 +551,17 @@ impl ApplicationState {
     }
 
     fn adjust_timer(&mut self, delta: f32) {
-        let new_timer = (self.slideshow.duration() + delta).max(1.0);
+        let new_timer = (self.slideshow.duration() + delta).round().max(1.0);
         self.slideshow.set_duration(new_timer);
         info!("Slideshow timer set to: {:.1}s", new_timer);
         self.show_osd(format!("Timer: {:.1}s", new_timer));
+    }
+
+    fn reset_timer(&mut self) {
+        let default = self.config.viewer.timer;
+        self.slideshow.set_duration(default);
+        info!("Slideshow timer reset to: {:.1}s", default);
+        self.show_osd(format!("Timer Reset: {:.1}s", default));
     }
 
     fn show_osd(&mut self, text: String) {
