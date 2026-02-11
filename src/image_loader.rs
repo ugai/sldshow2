@@ -194,6 +194,10 @@ impl TextureManager {
         // Cleanup unused textures
         self.textures.retain(|idx, _| needed_indices.contains(idx));
 
+        // Cleanup stale loading_tasks (indices no longer needed whose results were never received)
+        self.loading_tasks
+            .retain(|idx| needed_indices.contains(idx));
+
         // Start new tasks
         for idx in needed_indices {
             if !self.textures.contains_key(&idx) && !self.loading_tasks.contains(&idx) {
@@ -210,7 +214,9 @@ impl TextureManager {
                     // Spawn thread
                     std::thread::spawn(move || {
                         let res = load_image_rgba(&path, max_size);
-                        let _ = tx.send((idx, res));
+                        if tx.send((idx, res)).is_err() {
+                            warn!("Failed to send loaded image {} (receiver dropped)", idx);
+                        }
                     });
                 }
             }

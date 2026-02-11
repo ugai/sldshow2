@@ -43,7 +43,9 @@ impl TransitionPipeline {
                     ty: wgpu::BindingType::Buffer {
                         ty: wgpu::BufferBindingType::Uniform,
                         has_dynamic_offset: false,
-                        min_binding_size: None, // wgpu::BufferSize::new(64)
+                        min_binding_size: wgpu::BufferSize::new(
+                            std::mem::size_of::<TransitionUniform>() as u64,
+                        ),
                     },
                     count: None,
                 },

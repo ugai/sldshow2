@@ -30,7 +30,7 @@ max_texture_size = [1920, 1080]  # Max texture resolution for GPU upload
 [transition]
 time = 0.5              # Transition duration in seconds
 random = true           # Use random transition effects
-mode = 0                # Specific mode if random = false (0-21)
+mode = 0                # Specific mode if random = false (0-19)
                         # 0: crossfade, 1: smooth crossfade
                         # 2-9: roll (top/bottom/left/right/diagonals)
                         # 10-11: sliding door (open/close)
