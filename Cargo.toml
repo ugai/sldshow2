@@ -33,9 +33,6 @@ rand = "0.8"
 alphanumeric-sort = "1.5"
 dirs = "5.0"
 
-# Logging
-tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
-
 # Error handling
 thiserror = "2.0"
 
@@ -45,16 +42,9 @@ validator = { version = "0.19", features = ["derive"] }
 # Parallel computation
 rayon = "1.10"
 
-# File watching for hot-reload
-notify = "7.0"
-notify-debouncer-full = "0.4"
-
 # Multi-format config
 serde_json = "1.0"
 serde_yaml = "0.9"
-
-# Image metadata
-kamadak-exif = "0.5"
 
 # UTF-8 path handling
 camino = { version = "1.1", features = ["serde1"] }
@@ -84,6 +74,6 @@ inherits = "release"
 debug = true
 lto = false
 
-# Fast compile for dev with some optimizations for Bevy
+# Fast compile for dev with some optimizations for dependencies
 [profile.dev.package."*"]
 opt-level = 3
