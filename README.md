@@ -4,7 +4,7 @@ High-performance slideshow image viewer with custom WGSL transitions, built with
 
 ## Features
 
-- **22 different transition effects** with custom WGSL shaders
+- **20 different transition effects** with custom WGSL shaders
 - **Embedded assets** (shaders) for standalone distribution
 - **Async image loading** for non-blocking startup and navigation
 - **Frameless window support** for clean presentation
@@ -90,7 +90,7 @@ Default config location: `~/.sldshow`
 
 - `time` - Transition duration in seconds
 - `random` - Use random effects
-- `mode` - Specific effect (0-21) if not random
+- `mode` - Specific effect (0-19) if not random
 
 **Style:**
 
@@ -99,14 +99,14 @@ Default config location: `~/.sldshow`
 
 ## Transition Effects
 
-22 different effects (mode 0-21):
+20 different effects (mode 0-19):
 
 - 0-1: Crossfade variations
 - 2-9: Roll (from various directions)
 - 10-11: Sliding door (open/close)
 - 12-15: Blind effects
 - 16-17: Box (expand/contract)
-- 18-21: Advanced effects (random squares, angular wipe, etc.)
+- 18-19: Advanced effects (random squares, angular wipe)
 
 ## Development
 

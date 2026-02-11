@@ -98,7 +98,7 @@ impl ApplicationState {
             .request_device(
                 &wgpu::DeviceDescriptor {
                     label: None,
-                    required_features: wgpu::Features::SPIRV_SHADER_PASSTHROUGH,
+                    required_features: wgpu::Features::empty(),
                     required_limits: wgpu::Limits::default(),
                 },
                 None,
@@ -233,7 +233,12 @@ impl ApplicationState {
 
                 // Drag Logic
                 // We calculate screen position to be robust against window moving/resizing (e.g. fullscreen toggle)
-                let client_origin = self.window.inner_position().unwrap_or_default();
+                let Some(client_origin) = self.window.inner_position().ok() else {
+                    // Can't determine window position (e.g. Wayland); skip drag calculation
+                    self.cursor_pos =
+                        Some(winit::dpi::PhysicalPosition::new(position.x, position.y));
+                    return false;
+                };
                 let screen_pos_x = client_origin.x as f64 + position.x;
                 let screen_pos_y = client_origin.y as f64 + position.y;
                 let screen_pos = winit::dpi::PhysicalPosition::new(screen_pos_x, screen_pos_y);
