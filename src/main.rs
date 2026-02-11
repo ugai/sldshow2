@@ -71,7 +71,6 @@ struct ActiveTransition {
     mode: i32,
     from_index: usize,
     to_index: usize,
-    // We bind from_texture -> Texture A, to_texture -> Texture B
 }
 
 impl ApplicationState {
@@ -601,21 +600,21 @@ impl ApplicationState {
 
         self.texture_manager.update(&self.device, &self.queue);
 
+        // Check if transition finished (must run before auto-advance to avoid
+        // a one-frame gap where the destination is shown without a transition)
+        if let Some(ref transition) = self.transition {
+            if transition.start_time.elapsed() >= transition.duration {
+                self.current_texture_index = Some(transition.to_index);
+                self.transition = None;
+                self.bind_group = None;
+            }
+        }
+
         if self.transition.is_none()
             && !self.texture_manager.paths.is_empty()
             && self.slideshow.update()
         {
             self.next_image();
-        }
-
-        // Check if transition finished
-        if let Some(ref transition) = self.transition {
-            if transition.start_time.elapsed() >= transition.duration {
-                // Transition done
-                self.current_texture_index = Some(transition.to_index);
-                self.transition = None;
-                self.bind_group = None; // Needs recreation for static state
-            }
         }
 
         // Update text content
