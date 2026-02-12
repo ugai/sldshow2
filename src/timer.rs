@@ -1,3 +1,5 @@
+//! Interval-based timer for slideshow auto-advancement.
+
 use std::time::{Duration, Instant};
 
 pub struct SlideshowTimer {
@@ -43,10 +45,20 @@ impl SlideshowTimer {
     }
 
     pub fn set_duration(&mut self, duration_secs: f32) {
-        self.interval = Duration::from_secs_f32(duration_secs.max(0.1));
+        if duration_secs <= 0.0 {
+            self.paused = true;
+        } else {
+            self.interval = Duration::from_secs_f32(duration_secs);
+            self.paused = false;
+            self.last_tick = Instant::now();
+        }
     }
 
     pub fn duration(&self) -> f32 {
-        self.interval.as_secs_f32()
+        if self.paused {
+            0.0
+        } else {
+            self.interval.as_secs_f32()
+        }
     }
 }

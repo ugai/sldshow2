@@ -1,3 +1,5 @@
+//! Application entry point, event loop, and input handling.
+
 use anyhow::{Context, Result};
 use camino::Utf8PathBuf;
 use log::{error, info, warn};
@@ -14,17 +16,18 @@ use winit::{
 mod config;
 mod error;
 mod image_loader;
-mod slideshow;
+mod screenshot;
 mod text;
+mod timer;
 mod transition;
 
 use config::Config;
 use image_loader::TextureManager;
-use slideshow::SlideshowTimer;
+use screenshot::ScreenshotCapture;
 use text::TextRenderer;
+use timer::SlideshowTimer;
 use transition::{TransitionPipeline, TransitionUniform};
 
-const TIMER_STEP_SMALL: f32 = 5.0;
 const TIMER_STEP_LARGE: f32 = 60.0;
 
 struct ApplicationState {
@@ -61,8 +64,24 @@ struct ApplicationState {
     ignore_next_release: bool,
     cursor_pos: Option<winit::dpi::PhysicalPosition<f64>>,
 
-    // OSD
+    // OSD (top-right, reactive feedback)
     osd_message: Option<(String, Instant)>,
+
+    // Display toggles
+    show_filename_text: bool,
+    // Temporary displays — share the same area as their persistent counterparts
+    filename_bar_temp_expiry: Option<Instant>, // o temp → same bottom-left as O persistent
+    info_temp_expiry: Option<Instant>,         // i temp → same top-left as I persistent
+
+    // Color adjustments (mpv-like)
+    color_brightness: f32,
+    color_contrast: f32,
+    color_gamma: f32,
+    color_saturation: f32,
+
+    // Screenshot
+    screenshot_requested: bool,
+    screenshot: ScreenshotCapture,
 }
 
 struct ActiveTransition {
@@ -117,12 +136,35 @@ impl ApplicationState {
             .unwrap_or(caps.formats[0]);
 
         let surface_config = wgpu::SurfaceConfiguration {
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
             format: config_format,
             width: size.width,
             height: size.height,
             present_mode: wgpu::PresentMode::AutoVsync,
-            alpha_mode: caps.alpha_modes[0],
+            alpha_mode: {
+                let transparent = config.style.bg_color[3] < 255;
+                info!("Available alpha modes: {:?}", caps.alpha_modes);
+                if transparent {
+                    // Try PreMultiplied first, then PostMultiplied, then Auto
+                    let preferred = [
+                        wgpu::CompositeAlphaMode::PreMultiplied,
+                        wgpu::CompositeAlphaMode::PostMultiplied,
+                        wgpu::CompositeAlphaMode::Auto,
+                    ];
+                    let selected = preferred
+                        .iter()
+                        .copied()
+                        .find(|m| caps.alpha_modes.contains(m))
+                        .unwrap_or(caps.alpha_modes[0]);
+                    info!(
+                        "Transparent mode enabled, selected alpha mode: {:?}",
+                        selected
+                    );
+                    selected
+                } else {
+                    caps.alpha_modes[0]
+                }
+            },
             view_formats: vec![],
             desired_maximum_frame_latency: 2,
         };
@@ -170,6 +212,10 @@ impl ApplicationState {
             window_size: [size.width as f32, size.height as f32],
             image_a_size: [1.0, 1.0], // Placeholder
             image_b_size: [1.0, 1.0], // Placeholder
+            brightness: 0.0,
+            contrast: 1.0,
+            gamma: 1.0,
+            saturation: 1.0,
             _padding: [0.0; 2],
         };
 
@@ -180,6 +226,7 @@ impl ApplicationState {
         });
 
         // Initialize state
+        let show_filename_text = config.style.show_image_path;
         let current_texture_index = if texture_manager.len() > 0 {
             Some(0)
         } else {
@@ -210,6 +257,15 @@ impl ApplicationState {
             ignore_next_release: false,
             cursor_pos: None,
             osd_message: None,
+            show_filename_text,
+            filename_bar_temp_expiry: None,
+            info_temp_expiry: None,
+            color_brightness: 0.0,
+            color_contrast: 1.0,
+            color_gamma: 1.0,
+            color_saturation: 1.0,
+            screenshot_requested: false,
+            screenshot: ScreenshotCapture::new(),
         })
     }
 
@@ -499,7 +555,7 @@ impl ApplicationState {
                         let delta = if modifiers.shift_key() {
                             TIMER_STEP_LARGE
                         } else {
-                            TIMER_STEP_SMALL
+                            self.timer_step(false)
                         };
                         self.adjust_timer(-delta);
                         true
@@ -508,13 +564,83 @@ impl ApplicationState {
                         let delta = if modifiers.shift_key() {
                             TIMER_STEP_LARGE
                         } else {
-                            TIMER_STEP_SMALL
+                            self.timer_step(true)
                         };
                         self.adjust_timer(delta);
                         true
                     }
                     PhysicalKey::Code(KeyCode::Backspace) => {
                         self.reset_timer();
+                        true
+                    }
+                    PhysicalKey::Code(KeyCode::KeyS) => {
+                        self.screenshot_requested = true;
+                        true
+                    }
+                    // Color adjustments (mpv-like: 1/2=contrast, 3/4=brightness, 5/6=gamma, 7/8=saturation)
+                    PhysicalKey::Code(
+                        key @ (KeyCode::Digit1
+                        | KeyCode::Digit2
+                        | KeyCode::Digit3
+                        | KeyCode::Digit4
+                        | KeyCode::Digit5
+                        | KeyCode::Digit6
+                        | KeyCode::Digit7
+                        | KeyCode::Digit8),
+                    ) if !modifiers.alt_key()
+                        && !modifiers.shift_key()
+                        && !modifiers.control_key() =>
+                    {
+                        self.handle_color_key(*key);
+                        true
+                    }
+                    PhysicalKey::Code(KeyCode::KeyI) => {
+                        if modifiers.shift_key() {
+                            let visible = self.text_renderer.toggle_info_overlay();
+                            self.info_temp_expiry = None; // Clear temp when toggling persistent
+                            if !visible {
+                                self.text_renderer.set_info_text("");
+                            }
+                            self.show_osd(
+                                if visible { "Info: ON" } else { "Info: OFF" }.to_string(),
+                            );
+                        } else if !self.text_renderer.info_overlay_visible() {
+                            // Temporarily show info in top-left (same area as I persistent)
+                            let info = self.build_info_string();
+                            self.text_renderer.set_info_text(&info);
+                            self.info_temp_expiry =
+                                Some(Instant::now() + Duration::from_millis(1500));
+                        }
+                        true
+                    }
+                    PhysicalKey::Code(KeyCode::KeyO) => {
+                        if modifiers.shift_key() {
+                            self.show_filename_text = !self.show_filename_text;
+                            self.filename_bar_temp_expiry = None; // Clear temp when toggling persistent
+                            self.show_osd(
+                                if self.show_filename_text {
+                                    "Filename: ON"
+                                } else {
+                                    "Filename: OFF"
+                                }
+                                .to_string(),
+                            );
+                        } else if !self.show_filename_text {
+                            // Temporarily show filename bar (same bottom-left area as O)
+                            self.filename_bar_temp_expiry =
+                                Some(Instant::now() + Duration::from_millis(1500));
+                        }
+                        true
+                    }
+                    PhysicalKey::Code(KeyCode::KeyL) => {
+                        self.config.viewer.pause_at_last = !self.config.viewer.pause_at_last;
+                        let status = if self.config.viewer.pause_at_last {
+                            "Loop: OFF"
+                        } else {
+                            "Loop: ON"
+                        };
+                        info!("{}", status);
+                        self.show_osd(status.to_string());
                         true
                     }
                     _ => false,
@@ -549,11 +675,26 @@ impl ApplicationState {
         }
     }
 
+    /// Timer step: 1s when <= 5s, 5s when > 5s (sequence: 0,1,2,3,4,5,10,15,...)
+    fn timer_step(&self, increasing: bool) -> f32 {
+        let current = self.slideshow.duration();
+        if increasing && current < 5.0 || !increasing && current <= 5.0 {
+            1.0
+        } else {
+            5.0
+        }
+    }
+
     fn adjust_timer(&mut self, delta: f32) {
-        let new_timer = (self.slideshow.duration() + delta).round().max(1.0);
+        let new_timer = (self.slideshow.duration() + delta).round().max(0.0);
         self.slideshow.set_duration(new_timer);
-        info!("Slideshow timer set to: {:.1}s", new_timer);
-        self.show_osd(format!("Timer: {:.1}s", new_timer));
+        if new_timer <= 0.0 {
+            info!("Slideshow paused (timer: 0)");
+            self.show_osd("Timer: 0.0s (Paused)".to_string());
+        } else {
+            info!("Slideshow timer set to: {:.1}s", new_timer);
+            self.show_osd(format!("Timer: {:.1}s", new_timer));
+        }
     }
 
     fn reset_timer(&mut self) {
@@ -563,18 +704,70 @@ impl ApplicationState {
         self.show_osd(format!("Timer Reset: {:.1}s", default));
     }
 
+    fn handle_color_key(&mut self, key: KeyCode) {
+        let (value, delta, name, fmt) = match key {
+            KeyCode::Digit1 => (&mut self.color_contrast, -0.05f32, "Contrast", "{:.2}"),
+            KeyCode::Digit2 => (&mut self.color_contrast, 0.05, "Contrast", "{:.2}"),
+            KeyCode::Digit3 => (&mut self.color_brightness, -0.05, "Brightness", "{:.2}"),
+            KeyCode::Digit4 => (&mut self.color_brightness, 0.05, "Brightness", "{:.2}"),
+            KeyCode::Digit5 => (&mut self.color_gamma, -0.1, "Gamma", "{:.1}"),
+            KeyCode::Digit6 => (&mut self.color_gamma, 0.1, "Gamma", "{:.1}"),
+            KeyCode::Digit7 => (&mut self.color_saturation, -0.05, "Saturation", "{:.2}"),
+            KeyCode::Digit8 => (&mut self.color_saturation, 0.05, "Saturation", "{:.2}"),
+            _ => return,
+        };
+        let (min, max) = match key {
+            KeyCode::Digit1 | KeyCode::Digit2 => (0.0, 3.0),
+            KeyCode::Digit3 | KeyCode::Digit4 => (-1.0, 1.0),
+            KeyCode::Digit5 | KeyCode::Digit6 => (0.1, 5.0),
+            KeyCode::Digit7 | KeyCode::Digit8 => (0.0, 3.0),
+            _ => return,
+        };
+        *value = (*value + delta).clamp(min, max);
+        let msg = if fmt == "{:.1}" {
+            format!("{}: {:.1}", name, *value)
+        } else {
+            format!("{}: {:.2}", name, *value)
+        };
+        self.show_osd(msg);
+    }
+
+    fn build_info_string(&self) -> String {
+        let Some(path) = self.texture_manager.current_path() else {
+            return "No image loaded".to_string();
+        };
+
+        let resolution = if let Some(tex) = self.texture_manager.get_current_texture() {
+            format!("{}x{}", tex.width, tex.height)
+        } else {
+            "Loading...".to_string()
+        };
+
+        let format = path.extension().unwrap_or("unknown").to_uppercase();
+
+        let file_size = std::fs::metadata(path.as_std_path())
+            .map(|m| {
+                let bytes = m.len();
+                if bytes >= 1_048_576 {
+                    format!("{:.1} MB", bytes as f64 / 1_048_576.0)
+                } else if bytes >= 1024 {
+                    format!("{:.1} KB", bytes as f64 / 1024.0)
+                } else {
+                    format!("{} B", bytes)
+                }
+            })
+            .unwrap_or_else(|_| "Unknown size".to_string());
+
+        format!("{}\n{} {}\n{}", path, resolution, format, file_size)
+    }
+
     fn show_osd(&mut self, text: String) {
         self.osd_message = Some((text, Instant::now() + Duration::from_millis(1500)));
     }
 
     fn start_transition(&mut self, from_index: usize, to_index: usize) {
-        // If already transitioning, just update target or snap?
-        // For simplicity, snap to target then start new transition from there?
-        // Actually, if we are transitioning A->B, and user presses next, we go B->C?
-        // Let's simplified: snap current transition to end, then start new.
-
         let mode = if self.config.transition.random {
-            transition::random_transition_mode()
+            TransitionPipeline::random_mode()
         } else {
             self.config.transition.mode
         };
@@ -617,20 +810,34 @@ impl ApplicationState {
             self.next_image();
         }
 
-        // Update text content
-        if let Some(path) = self.texture_manager.current_path() {
-            let filename = path.file_name().unwrap_or("Unknown");
-            let index = self.texture_manager.current_index + 1;
-            let total = self.texture_manager.len();
-            self.text_renderer
-                .set_text(&format!("{} [{}/{}]", filename, index, total));
-        } else {
-            self.text_renderer.set_text("No images found");
+        // Expire temporary timers
+        let now = Instant::now();
+        if self.filename_bar_temp_expiry.is_some_and(|t| now >= t) {
+            self.filename_bar_temp_expiry = None;
+        }
+        if self.info_temp_expiry.is_some_and(|t| now >= t) {
+            self.info_temp_expiry = None;
         }
 
-        // OSD Logic
+        // Update filename bar (bottom-left) — persistent O or temporary o
+        let show_bar = self.show_filename_text || self.filename_bar_temp_expiry.is_some();
+        if show_bar {
+            if let Some(path) = self.texture_manager.current_path() {
+                let filename = path.file_name().unwrap_or("Unknown");
+                let index = self.texture_manager.current_index + 1;
+                let total = self.texture_manager.len();
+                self.text_renderer
+                    .set_text(&format!("{} [{}/{}]", filename, index, total));
+            } else {
+                self.text_renderer.set_text("No images found");
+            }
+        } else {
+            self.text_renderer.set_text("");
+        }
+
+        // OSD (top-right) — reactive feedback
         if let Some((ref text, expiry)) = self.osd_message {
-            if Instant::now() > expiry {
+            if now > expiry {
                 self.osd_message = None;
                 self.text_renderer.set_osd_text("");
             } else {
@@ -639,6 +846,16 @@ impl ApplicationState {
         } else {
             self.text_renderer.set_osd_text("");
         }
+
+        // Info overlay (top-left) — persistent I or temporary i
+        if self.text_renderer.info_overlay_visible() {
+            let info = self.build_info_string();
+            self.text_renderer.set_info_text(&info);
+        } else if self.info_temp_expiry.is_some() {
+            // Content was already set by key handler; just keep it
+        } else {
+            self.text_renderer.set_info_text("");
+        }
     }
 
     fn render(&mut self) -> Result<(), wgpu::SurfaceError> {
@@ -646,6 +863,13 @@ impl ApplicationState {
         let view = output
             .texture
             .create_view(&wgpu::TextureViewDescriptor::default());
+        let bg = &self.config.style.bg_color;
+        let clear_color = wgpu::Color {
+            r: bg[0] as f64 / 255.0,
+            g: bg[1] as f64 / 255.0,
+            b: bg[2] as f64 / 255.0,
+            a: bg[3] as f64 / 255.0,
+        };
 
         let mut encoder = self
             .device
@@ -671,14 +895,7 @@ impl ApplicationState {
         let tex_b = self.texture_manager.get_texture(tex_b_idx);
 
         if let (Some(tex_a), Some(tex_b)) = (tex_a, tex_b) {
-            // Check if bind group needs creation
-            // We recreate it every frame if transition is active? No, only on change?
-            // Actually, we can assume validation error if we reuse bind group with different textures?
-            // BindGroup holds references to views. If views change, we need new BindGroup.
-            // Since we are creating logic where transition changes A/B, we definitely need new BindGroup when transition starts/ends.
-            // AND we need it every frame? No, only when A or B changes.
-            // But A and B are constant during transition A->B.
-
+            // Recreate bind group when textures change (transition start/end)
             if self.bind_group.is_none() {
                 self.bind_group = Some(self.pipeline.create_bind_group(
                     &self.device,
@@ -692,11 +909,15 @@ impl ApplicationState {
             let uniform = TransitionUniform {
                 blend,
                 mode,
-                aspect_ratio: [1.0, 1.0], // TODO: Calculate this if needed by shader? Shader calculates it.
+                aspect_ratio: [1.0, 1.0],
                 bg_color: self.config.bg_color_f32(),
                 window_size: [self.size.width as f32, self.size.height as f32],
                 image_a_size: [tex_a.width as f32, tex_a.height as f32],
                 image_b_size: [tex_b.width as f32, tex_b.height as f32],
+                brightness: self.color_brightness,
+                contrast: self.color_contrast,
+                gamma: self.color_gamma,
+                saturation: self.color_saturation,
                 _padding: [0.0; 2],
             };
 
@@ -710,12 +931,7 @@ impl ApplicationState {
                         view: &view,
                         resolve_target: None,
                         ops: wgpu::Operations {
-                            load: wgpu::LoadOp::Clear(wgpu::Color {
-                                r: self.config.style.bg_color[0] as f64 / 255.0,
-                                g: self.config.style.bg_color[1] as f64 / 255.0,
-                                b: self.config.style.bg_color[2] as f64 / 255.0,
-                                a: self.config.style.bg_color[3] as f64 / 255.0,
-                            }),
+                            load: wgpu::LoadOp::Clear(clear_color),
                             store: wgpu::StoreOp::Store,
                         },
                     })],
@@ -731,19 +947,13 @@ impl ApplicationState {
                 }
             } // End of render pass
         } else {
-            // Just clear
             let _render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("Render Pass (Clear)"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                     view: &view,
                     resolve_target: None,
                     ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(wgpu::Color {
-                            r: self.config.style.bg_color[0] as f64 / 255.0,
-                            g: self.config.style.bg_color[1] as f64 / 255.0,
-                            b: self.config.style.bg_color[2] as f64 / 255.0,
-                            a: self.config.style.bg_color[3] as f64 / 255.0,
-                        }),
+                        load: wgpu::LoadOp::Clear(clear_color),
                         store: wgpu::StoreOp::Store,
                     },
                 })],
@@ -751,12 +961,6 @@ impl ApplicationState {
                 occlusion_query_set: None,
                 timestamp_writes: None,
             });
-
-            // If we are supposed to be displaying something but it's not loaded,
-            // maybe we should trigger a redraw to check next frame.
-            // Handled by Event loop request_redraw.
-
-            // Still render text even if no image
         }
 
         {
@@ -783,7 +987,22 @@ impl ApplicationState {
             }
         }
 
-        self.queue.submit(std::iter::once(encoder.finish()));
+        if self.screenshot_requested {
+            self.screenshot_requested = false;
+            match self.screenshot.capture(
+                &self.device,
+                &self.queue,
+                encoder,
+                &output.texture,
+                &self.surface_config,
+            ) {
+                Ok(filename) => self.show_osd(format!("Screenshot: {}", filename)),
+                Err(msg) => self.show_osd(msg),
+            }
+        } else {
+            self.queue.submit(std::iter::once(encoder.finish()));
+        }
+
         output.present();
 
         Ok(())
@@ -812,6 +1031,7 @@ fn main() -> Result<()> {
     });
 
     let event_loop = EventLoop::new().unwrap();
+    let transparent = config.style.bg_color[3] < 255;
     let window = Arc::new(
         WindowBuilder::new()
             .with_title("sldshow2")
@@ -821,6 +1041,7 @@ fn main() -> Result<()> {
             ))
             .with_decorations(config.window.decorations)
             .with_resizable(config.window.resizable)
+            .with_transparent(transparent)
             .build(&event_loop)
             .unwrap(),
     );

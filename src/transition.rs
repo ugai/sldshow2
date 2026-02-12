@@ -1,6 +1,10 @@
-// use wgpu::util::DeviceExt;
+//! WGPU render pipeline for image transitions with 20 WGSL shader effects.
+
 use bytemuck::{Pod, Zeroable};
 use std::borrow::Cow;
+
+/// Number of available transition modes (must match TRANSITION_MAX_MODE_IDX in WGSL)
+const TRANSITION_MODE_COUNT: i32 = 20; // Modes 0..=19
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug, Pod, Zeroable)]
@@ -12,10 +16,13 @@ pub struct TransitionUniform {
     pub window_size: [f32; 2],
     pub image_a_size: [f32; 2],
     pub image_b_size: [f32; 2],
-    // Padding to ensure 16-byte alignment of the struct size if necessary,
-    // though 56 bytes might be fine depending on usage, but usually good practice to pad to 16 bytes for array elements or strict backends.
-    // 4 + 4 + 8 + 16 + 8 + 8 + 8 = 56.
-    pub _padding: [f32; 2], // Pad to 64 bytes
+    // Color adjustment parameters (mpv-like: keys 1-8)
+    pub brightness: f32,
+    pub contrast: f32,
+    pub gamma: f32,
+    pub saturation: f32,
+    // 4+4+8+16+8+8+8+4+4+4+4 = 72, pad to 80 (16-byte aligned)
+    pub _padding: [f32; 2],
 }
 
 pub struct TransitionPipeline {
@@ -36,10 +43,9 @@ impl TransitionPipeline {
         let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("Transition Bind Group Layout"),
             entries: &[
-                // Uniforms
                 wgpu::BindGroupLayoutEntry {
                     binding: 0,
-                    visibility: wgpu::ShaderStages::FRAGMENT, // Used in fragment
+                    visibility: wgpu::ShaderStages::FRAGMENT,
                     ty: wgpu::BindingType::Buffer {
                         ty: wgpu::BufferBindingType::Uniform,
                         has_dynamic_offset: false,
@@ -49,7 +55,6 @@ impl TransitionPipeline {
                     },
                     count: None,
                 },
-                // Texture A
                 wgpu::BindGroupLayoutEntry {
                     binding: 1,
                     visibility: wgpu::ShaderStages::FRAGMENT,
@@ -60,14 +65,12 @@ impl TransitionPipeline {
                     },
                     count: None,
                 },
-                // Sampler A
                 wgpu::BindGroupLayoutEntry {
                     binding: 2,
                     visibility: wgpu::ShaderStages::FRAGMENT,
                     ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
                     count: None,
                 },
-                // Texture B
                 wgpu::BindGroupLayoutEntry {
                     binding: 3,
                     visibility: wgpu::ShaderStages::FRAGMENT,
@@ -78,7 +81,6 @@ impl TransitionPipeline {
                     },
                     count: None,
                 },
-                // Sampler B
                 wgpu::BindGroupLayoutEntry {
                     binding: 4,
                     visibility: wgpu::ShaderStages::FRAGMENT,
@@ -100,7 +102,7 @@ impl TransitionPipeline {
             vertex: wgpu::VertexState {
                 module: &shader,
                 entry_point: "vs_main",
-                buffers: &[], // No vertex buffers, using vertex_index
+                buffers: &[],
             },
             fragment: Some(wgpu::FragmentState {
                 module: &shader,
@@ -182,11 +184,11 @@ impl TransitionPipeline {
             ],
         })
     }
-}
 
-/// Helper to pick a random transition mode
-pub fn random_transition_mode() -> i32 {
-    use rand::Rng;
-    let mut rng = rand::thread_rng();
-    rng.gen_range(0..=19) // Modes 0-19 are available
+    /// Pick a random transition mode from available effects
+    pub fn random_mode() -> i32 {
+        use rand::Rng;
+        let mut rng = rand::thread_rng();
+        rng.gen_range(0..TRANSITION_MODE_COUNT)
+    }
 }
