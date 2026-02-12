@@ -97,7 +97,7 @@ impl ApplicationState {
         let size = window.inner_size();
 
         // Initialize WGPU
-        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
+        let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
             backends: wgpu::Backends::all(),
             ..Default::default()
         });
@@ -116,14 +116,12 @@ impl ApplicationState {
         info!("Using adapter: {:?}", adapter.get_info());
 
         let (device, queue) = adapter
-            .request_device(
-                &wgpu::DeviceDescriptor {
-                    label: None,
-                    required_features: wgpu::Features::empty(),
-                    required_limits: wgpu::Limits::default(),
-                },
-                None,
-            )
+            .request_device(&wgpu::DeviceDescriptor {
+                label: None,
+                required_features: wgpu::Features::empty(),
+                required_limits: wgpu::Limits::default(),
+                ..Default::default()
+            })
             .await
             .context("Failed to create device")?;
 
@@ -275,7 +273,8 @@ impl ApplicationState {
             self.surface_config.width = new_size.width;
             self.surface_config.height = new_size.height;
             self.surface.configure(&self.device, &self.surface_config);
-            self.text_renderer.resize(new_size.width, new_size.height);
+            self.text_renderer
+                .resize(&self.queue, new_size.width, new_size.height);
         }
     }
 
@@ -936,8 +935,7 @@ impl ApplicationState {
                         },
                     })],
                     depth_stencil_attachment: None,
-                    occlusion_query_set: None,
-                    timestamp_writes: None,
+                    ..Default::default()
                 });
 
                 if let Some(ref bind_group) = self.bind_group {
