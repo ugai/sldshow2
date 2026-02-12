@@ -41,11 +41,6 @@ validator = { version = "0.19", features = ["derive"] }
 
 # Parallel computation
 rayon = "1.10"
-
-# Multi-format config
-serde_json = "1.0"
-serde_yaml = "0.9"
-
 # UTF-8 path handling
 camino = { version = "1.1", features = ["serde1"] }
 

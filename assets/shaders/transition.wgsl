@@ -29,6 +29,10 @@ struct TransitionUniform {
     window_size: vec2<f32>,
     image_a_size: vec2<f32>,
     image_b_size: vec2<f32>,
+    brightness: f32,
+    contrast: f32,
+    gamma: f32,
+    saturation: f32,
 }
 
 @group(0) @binding(0)
@@ -47,7 +51,7 @@ var texture_b: texture_2d<f32>;
 var sampler_b: sampler;
 
 // Transition effect functions
-const TRANSITION_MAX_MODE_IDX: i32 = 21;
+const TRANSITION_MAX_MODE_IDX: i32 = 19;
 const PI: f32 = 3.141592653589793;
 
 // UV adjustment helper functions for letterboxing
@@ -332,6 +336,29 @@ fn ts_angular(uv: vec2<f32>, progress: f32) -> vec4<f32> {
     return color;
 }
 
+// Color adjustment post-processing (mpv-like: brightness, contrast, gamma, saturation)
+fn apply_color_adjustments(color: vec4<f32>) -> vec4<f32> {
+    var c = color.rgb;
+
+    // Contrast (around 0.5 midpoint) — applied first to preserve dynamic range
+    c = (c - 0.5) * material.contrast + 0.5;
+
+    // Brightness (additive offset) — after contrast
+    c = c + vec3<f32>(material.brightness);
+
+    // Gamma correction
+    c = pow(max(c, vec3<f32>(0.0)), vec3<f32>(1.0 / material.gamma));
+
+    // Saturation (blend with luminance)
+    let luminance = dot(c, vec3<f32>(0.2126, 0.7152, 0.0722));
+    c = mix(vec3<f32>(luminance), c, material.saturation);
+
+    // Clamp to valid range
+    c = clamp(c, vec3<f32>(0.0), vec3<f32>(1.0));
+
+    return vec4<f32>(c, color.a);
+}
+
 @fragment
 fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     let progress = material.blend;
@@ -342,7 +369,7 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
         // Show only image A
         let uv_a = adjust_uv(in.uv, material.image_a_size, material.window_size);
         if is_uv_in_bounds(uv_a) {
-            return textureSample(texture_a, sampler_a, uv_a);
+            return apply_color_adjustments(textureSample(texture_a, sampler_a, uv_a));
         } else {
             return material.bg_color;
         }
@@ -352,35 +379,38 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
         // Show only image B
         let uv_b = adjust_uv(in.uv, material.image_b_size, material.window_size);
         if is_uv_in_bounds(uv_b) {
-            return textureSample(texture_b, sampler_b, uv_b);
+            return apply_color_adjustments(textureSample(texture_b, sampler_b, uv_b));
         } else {
             return material.bg_color;
         }
     }
 
     // Route to appropriate transition effect
+    var result: vec4<f32>;
     if mode == 0 {
-        return ts_crossfading(in.uv, progress);
+        result = ts_crossfading(in.uv, progress);
     } else if mode == 1 {
-        return ts_smooth_crossfading(in.uv, progress);
+        result = ts_smooth_crossfading(in.uv, progress);
     } else if mode >= 2 && mode <= 9 {
-        return ts_roll(in.uv, progress, mode - 2);
+        result = ts_roll(in.uv, progress, mode - 2);
     } else if mode == 10 {
-        return ts_sliding_door(in.uv, progress, true);
+        result = ts_sliding_door(in.uv, progress, true);
     } else if mode == 11 {
-        return ts_sliding_door(in.uv, progress, false);
+        result = ts_sliding_door(in.uv, progress, false);
     } else if mode >= 12 && mode <= 15 {
-        return ts_blind(in.uv, progress, mode - 12);
+        result = ts_blind(in.uv, progress, mode - 12);
     } else if mode == 16 {
-        return ts_box(in.uv, progress, true);
+        result = ts_box(in.uv, progress, true);
     } else if mode == 17 {
-        return ts_box(in.uv, progress, false);
+        result = ts_box(in.uv, progress, false);
     } else if mode == 18 {
-        return ts_randomsquares(in.uv, progress);
+        result = ts_randomsquares(in.uv, progress);
     } else if mode == 19 {
-        return ts_angular(in.uv, progress);
+        result = ts_angular(in.uv, progress);
     } else {
         // Default to crossfade
-        return ts_crossfading(in.uv, progress);
+        result = ts_crossfading(in.uv, progress);
     }
+
+    return apply_color_adjustments(result);
 }
