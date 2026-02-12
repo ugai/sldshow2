@@ -60,7 +60,7 @@ impl TextureManager {
 
     pub fn shuffle_paths(&mut self) {
         use rand::seq::SliceRandom;
-        let mut rng = rand::thread_rng();
+        let mut rng = rand::rng();
         self.paths.shuffle(&mut rng);
     }
 
@@ -144,14 +144,14 @@ impl TextureManager {
                     });
 
                     queue.write_texture(
-                        wgpu::ImageCopyTexture {
+                        wgpu::TexelCopyTextureInfo {
                             texture: &texture,
                             mip_level: 0,
                             origin: wgpu::Origin3d::ZERO,
                             aspect: wgpu::TextureAspect::All,
                         },
                         &img,
-                        wgpu::ImageDataLayout {
+                        wgpu::TexelCopyBufferLayout {
                             offset: 0,
                             bytes_per_row: Some(4 * width),
                             rows_per_image: Some(height),
