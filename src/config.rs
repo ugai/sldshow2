@@ -1,3 +1,5 @@
+//! TOML-based application configuration with validation.
+
 use anyhow::{Context, Result};
 use camino::{Utf8Path, Utf8PathBuf};
 use serde::{Deserialize, Serialize};
@@ -21,30 +23,24 @@ pub struct Config {
 
 /// Window configuration
 #[derive(Debug, Clone, Serialize, Deserialize, Validate)]
+#[serde(default)]
 pub struct WindowConfig {
-    #[serde(default = "default_width")]
-    #[validate(range(min = 320, max = 7680))] // Min VGA width, Max 8K width
+    #[validate(range(min = 320, max = 7680))]
     pub width: u32,
-    #[serde(default = "default_height")]
-    #[validate(range(min = 240, max = 4320))] // Min VGA height, Max 8K height
+    #[validate(range(min = 240, max = 4320))]
     pub height: u32,
-    #[serde(default)]
     pub fullscreen: bool,
-    #[serde(default)]
     pub always_on_top: bool,
-    #[serde(default = "default_true")]
     pub decorations: bool,
-    #[serde(default)]
     pub resizable: bool,
-    #[serde(default)]
     pub monitor_index: usize,
 }
 
 impl Default for WindowConfig {
     fn default() -> Self {
         Self {
-            width: default_width(),
-            height: default_height(),
+            width: 1280,
+            height: 720,
             fullscreen: false,
             always_on_top: false,
             decorations: true,
@@ -56,30 +52,22 @@ impl Default for WindowConfig {
 
 /// Viewer configuration
 #[derive(Debug, Clone, Serialize, Deserialize, Validate)]
+#[serde(default)]
 pub struct ViewerConfig {
-    #[serde(default)]
     pub image_paths: Vec<Utf8PathBuf>,
-    #[serde(default = "default_timer")]
-    #[validate(range(min = 0.1))] // Minimum 100ms between images
+    #[validate(range(min = 0.0))]
     pub timer: f32,
-    #[serde(default = "default_true")]
     pub scan_subfolders: bool,
-    #[serde(default = "default_true")]
     pub shuffle: bool,
-    #[serde(default)]
     pub pause_at_last: bool,
-    #[serde(default = "default_cache_extent")]
-    #[validate(range(min = 1, max = 100))] // Reasonable cache limits
+    #[validate(range(min = 1, max = 100))]
     pub cache_extent: usize,
-    #[serde(default = "default_true")]
     pub hot_reload: bool,
     /// Maximum texture size [width, height] for GPU upload.
     /// Images larger than this are downscaled before GPU upload to reduce frame spikes.
     /// Lower values = faster uploads but lower quality. [1920, 1080] is a good balance.
     /// Set to [0, 0] to use window dimensions (may cause frame spikes at 4K+).
-    #[serde(default = "default_max_texture_size")]
     pub max_texture_size: [u32; 2],
-    #[serde(default = "default_filter_mode")]
     pub filter_mode: String,
 }
 
@@ -87,35 +75,33 @@ impl Default for ViewerConfig {
     fn default() -> Self {
         Self {
             image_paths: Vec::new(),
-            timer: default_timer(),
+            timer: 10.0,
             scan_subfolders: true,
             shuffle: true,
             pause_at_last: false,
-            cache_extent: default_cache_extent(),
+            cache_extent: 5,
             hot_reload: true,
-            max_texture_size: default_max_texture_size(),
-            filter_mode: default_filter_mode(),
+            max_texture_size: [1920, 1080],
+            filter_mode: "Linear".to_string(),
         }
     }
 }
 
 /// Transition configuration
 #[derive(Debug, Clone, Serialize, Deserialize, Validate)]
+#[serde(default)]
 pub struct TransitionConfig {
-    #[serde(default = "default_transition_time")]
-    #[validate(range(min = 0.0, max = 10.0))] // 0 to 10 seconds
+    #[validate(range(min = 0.0, max = 10.0))]
     pub time: f32,
-    #[serde(default = "default_true")]
     pub random: bool,
-    #[serde(default)]
-    #[validate(range(min = 0, max = 21))] // 0-21 transition modes
+    #[validate(range(min = 0, max = 19))]
     pub mode: i32,
 }
 
 impl Default for TransitionConfig {
     fn default() -> Self {
         Self {
-            time: default_transition_time(),
+            time: 0.5,
             random: true,
             mode: 0,
         }
@@ -124,102 +110,39 @@ impl Default for TransitionConfig {
 
 /// Style configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
 pub struct StyleConfig {
-    #[serde(default = "default_bg_color")]
     pub bg_color: [u8; 4],
-    #[serde(default)]
     pub show_image_path: bool,
-    #[serde(default = "default_true")]
     pub show_controls: bool,
-    #[serde(default)]
     pub font_family: Option<String>,
-    #[serde(default = "default_text_color")]
     pub text_color: [u8; 4],
-    #[serde(default = "default_font_size")]
     pub font_size: f32,
 }
 
 impl Default for StyleConfig {
     fn default() -> Self {
         Self {
-            bg_color: default_bg_color(),
+            bg_color: [0, 0, 0, 255],
             show_image_path: false,
             show_controls: true,
             font_family: None,
-            text_color: default_text_color(),
-            font_size: default_font_size(),
+            text_color: [255, 255, 255, 255],
+            font_size: 20.0,
         }
     }
 }
 
-// Default value functions
-fn default_width() -> u32 {
-    1280
-}
-
-fn default_height() -> u32 {
-    720
-}
-
-fn default_timer() -> f32 {
-    10.0
-}
-
-fn default_cache_extent() -> usize {
-    5
-}
-
-fn default_transition_time() -> f32 {
-    0.5
-}
-
-fn default_bg_color() -> [u8; 4] {
-    [0, 0, 0, 255]
-}
-
-fn default_max_texture_size() -> [u32; 2] {
-    [1920, 1080]
-}
-
-fn default_filter_mode() -> String {
-    "Linear".to_string()
-}
-
-fn default_text_color() -> [u8; 4] {
-    [255, 255, 255, 255]
-}
-
-fn default_font_size() -> f32 {
-    20.0
-}
-
-fn default_true() -> bool {
-    true
-}
-
 impl Config {
-    /// Load configuration from file (supports TOML, JSON, YAML)
+    /// Load configuration from a TOML file
     pub fn load<P: AsRef<Utf8Path>>(path: P) -> Result<Self> {
         let path_ref = path.as_ref();
         let content = std::fs::read_to_string(path_ref.as_std_path())
             .with_context(|| format!("Failed to read config file: {}", path_ref))?;
 
-        // Detect format by file extension
-        let extension = path_ref.extension().map(|e| e.to_lowercase());
+        let config: Config = toml::from_str(&content)
+            .with_context(|| format!("Failed to parse config file: {}", path_ref))?;
 
-        let config: Config = match extension.as_deref() {
-            Some("json") => serde_json::from_str(&content)
-                .with_context(|| format!("Failed to parse JSON config file: {}", path_ref))?,
-            Some("yaml") | Some("yml") => serde_yaml::from_str(&content)
-                .with_context(|| format!("Failed to parse YAML config file: {}", path_ref))?,
-            Some("toml") | Some("sldshow") => toml::from_str(&content)
-                .with_context(|| format!("Failed to parse TOML config file: {}", path_ref))?,
-            _ => toml::from_str(&content).with_context(|| {
-                format!("Failed to parse config file (assuming TOML): {}", path_ref)
-            })?,
-        };
-
-        // Validate configuration
         config.validate().with_context(|| "Invalid configuration")?;
 
         Ok(config)
@@ -230,7 +153,6 @@ impl Config {
     /// 2. ~/.sldshow
     /// 3. Default config
     pub fn load_default(config_path: Option<Utf8PathBuf>) -> Result<Self> {
-        // Try command line argument first
         if let Some(path) = config_path {
             if path.as_std_path().exists() {
                 return Self::load(&path);
@@ -239,7 +161,6 @@ impl Config {
             }
         }
 
-        // Try home directory
         if let Some(home) = dirs::home_dir() {
             let home_config = home.join(".sldshow");
             if home_config.exists() {
@@ -249,7 +170,6 @@ impl Config {
             }
         }
 
-        // Use default
         Ok(Self::default())
     }
 
