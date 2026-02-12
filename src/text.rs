@@ -1,3 +1,5 @@
+//! Text rendering via glyphon/cosmic-text with multiple display areas.
+
 use anyhow::Result;
 use glyphon::cosmic_text::Align;
 use glyphon::{
@@ -6,17 +8,32 @@ use glyphon::{
 };
 use wgpu::{Device, MultisampleState, Queue, RenderPass, SurfaceConfiguration};
 
+/// Line height as a multiple of font size
+const LINE_HEIGHT_RATIO: f32 = 1.25;
+/// Vertical offset for main and OSD text areas (in font-size units)
+const TEXT_MARGIN_TOP: f32 = 0.5;
+/// Vertical offset for info overlay text area (in font-size units)
+const INFO_OFFSET_TOP: f32 = 2.5;
+
 pub struct TextRenderer {
     font_system: FontSystem,
     swash_cache: SwashCache,
     viewport: ValidationViewport,
     atlas: TextAtlas,
     text_renderer: GlyphonTextRenderer,
-    pub buffer: Buffer,
-    pub osd_buffer: Buffer,
+    buffer: Buffer,
+    osd_buffer: Buffer,
+    info_buffer: Buffer,
     preferred_font_family: Option<String>,
     current_color: Color,
     current_font_size: f32,
+    show_info_overlay: bool,
+}
+
+enum BufferTarget {
+    Main,
+    Osd,
+    Info,
 }
 
 struct ValidationViewport {
@@ -90,8 +107,18 @@ impl TextRenderer {
         let mut atlas = TextAtlas::new(device, queue, config.format);
         let text_renderer =
             GlyphonTextRenderer::new(&mut atlas, device, MultisampleState::default(), None);
-        let mut buffer = Buffer::new(&mut font_system, Metrics::new(20.0, 25.0));
-        let mut osd_buffer = Buffer::new(&mut font_system, Metrics::new(20.0, 25.0));
+        let mut buffer = Buffer::new(
+            &mut font_system,
+            Metrics::new(20.0, 20.0 * LINE_HEIGHT_RATIO),
+        );
+        let mut osd_buffer = Buffer::new(
+            &mut font_system,
+            Metrics::new(20.0, 20.0 * LINE_HEIGHT_RATIO),
+        );
+        let mut info_buffer = Buffer::new(
+            &mut font_system,
+            Metrics::new(20.0, 20.0 * LINE_HEIGHT_RATIO),
+        );
 
         buffer.set_size(&mut font_system, config.width as f32, config.height as f32);
         osd_buffer.set_size(
@@ -99,6 +126,7 @@ impl TextRenderer {
             config.width as f32 - 20.0,
             config.height as f32,
         );
+        info_buffer.set_size(&mut font_system, config.width as f32, config.height as f32);
 
         // Note: glyphon::Attributes::family() takes a Family enum.
         // If we provide Family::Name("FoundName"), it tries to use it.
@@ -126,9 +154,11 @@ impl TextRenderer {
             text_renderer,
             buffer,
             osd_buffer,
+            info_buffer,
             preferred_font_family: font_family.map(|s| s.to_string()),
             current_color: Color::rgb(255, 255, 255),
             current_font_size: 20.0,
+            show_info_overlay: false,
         })
     }
 
@@ -164,17 +194,23 @@ impl TextRenderer {
         self.current_color =
             Color::rgba(color_rgba[0], color_rgba[1], color_rgba[2], color_rgba[3]);
         // Force buffer functionality update
-        let metrics = Metrics::new(font_size, font_size * 1.25);
+        let metrics = Metrics::new(font_size, font_size * LINE_HEIGHT_RATIO);
         self.buffer.set_metrics(&mut self.font_system, metrics);
         self.osd_buffer.set_metrics(&mut self.font_system, metrics);
+        self.info_buffer.set_metrics(&mut self.font_system, metrics);
 
-        // Re-apply size to OSD buffer to update margin based on new font size
         self.osd_buffer.set_size(
             &mut self.font_system,
             self.viewport.width as f32 - self.current_font_size,
             self.viewport.height as f32,
         );
         self.osd_buffer.shape_until_scroll(&mut self.font_system);
+        self.info_buffer.set_size(
+            &mut self.font_system,
+            self.viewport.width as f32,
+            self.viewport.height as f32,
+        );
+        self.info_buffer.shape_until_scroll(&mut self.font_system);
     }
 
     pub fn resize(&mut self, width: u32, height: u32) {
@@ -189,55 +225,72 @@ impl TextRenderer {
             height as f32,
         );
         self.osd_buffer.shape_until_scroll(&mut self.font_system);
+        self.info_buffer
+            .set_size(&mut self.font_system, width as f32, height as f32);
+        self.info_buffer.shape_until_scroll(&mut self.font_system);
+    }
+
+    fn set_buffer_text(&mut self, buffer: BufferTarget, text: &str) {
+        let (weight, stretch, style) =
+            Self::resolve_attributes(self.font_system.db(), self.preferred_font_family.as_deref());
+        let family = self
+            .preferred_font_family
+            .as_deref()
+            .map(Family::Name)
+            .unwrap_or(Family::SansSerif);
+
+        let attrs = Attrs::new()
+            .family(family)
+            .weight(weight)
+            .style(style)
+            .stretch(stretch)
+            .color(self.current_color);
+
+        let buf = match buffer {
+            BufferTarget::Main => &mut self.buffer,
+            BufferTarget::Osd => &mut self.osd_buffer,
+            BufferTarget::Info => &mut self.info_buffer,
+        };
+
+        buf.set_text(&mut self.font_system, text, attrs, Shaping::Advanced);
+
+        if matches!(buffer, BufferTarget::Osd) {
+            for line in buf.lines.iter_mut() {
+                line.set_align(Some(Align::Right));
+            }
+        }
+
+        buf.shape_until_scroll(&mut self.font_system);
     }
 
     pub fn set_text(&mut self, text: &str) {
-        let (weight, stretch, style) =
-            Self::resolve_attributes(self.font_system.db(), self.preferred_font_family.as_deref());
-        let family = self
-            .preferred_font_family
-            .as_deref()
-            .map(Family::Name)
-            .unwrap_or(Family::SansSerif);
-
-        self.buffer.set_text(
-            &mut self.font_system,
-            text,
-            Attrs::new()
-                .family(family)
-                .weight(weight)
-                .style(style)
-                .stretch(stretch)
-                .color(self.current_color),
-            Shaping::Advanced,
-        );
-        self.buffer.shape_until_scroll(&mut self.font_system);
+        self.set_buffer_text(BufferTarget::Main, text);
     }
 
     pub fn set_osd_text(&mut self, text: &str) {
-        let (weight, stretch, style) =
-            Self::resolve_attributes(self.font_system.db(), self.preferred_font_family.as_deref());
-        let family = self
-            .preferred_font_family
-            .as_deref()
-            .map(Family::Name)
-            .unwrap_or(Family::SansSerif);
+        self.set_buffer_text(BufferTarget::Osd, text);
+    }
 
-        self.osd_buffer.set_text(
-            &mut self.font_system,
-            text,
-            Attrs::new()
-                .family(family)
-                .weight(weight)
-                .style(style)
-                .stretch(stretch)
-                .color(self.current_color),
-            Shaping::Advanced,
-        );
-        for line in self.osd_buffer.lines.iter_mut() {
-            line.set_align(Some(Align::Right));
-        }
-        self.osd_buffer.shape_until_scroll(&mut self.font_system);
+    pub fn set_info_text(&mut self, text: &str) {
+        self.set_buffer_text(BufferTarget::Info, text);
+    }
+
+    pub fn toggle_info_overlay(&mut self) -> bool {
+        self.show_info_overlay = !self.show_info_overlay;
+        self.show_info_overlay
+    }
+
+    pub fn info_overlay_visible(&self) -> bool {
+        self.show_info_overlay
+    }
+
+    /// Returns true if the info buffer has non-empty content to render.
+    /// main.rs manages setting/clearing the buffer content based on overlay state and temporary messages.
+    fn info_has_content(&self) -> bool {
+        self.info_buffer
+            .lines
+            .iter()
+            .any(|line| !line.text().is_empty())
     }
 
     pub fn render<'a>(
@@ -246,6 +299,53 @@ impl TextRenderer {
         queue: &Queue,
         pass: &mut RenderPass<'a>,
     ) -> Result<()> {
+        let mut text_areas = vec![
+            TextArea {
+                buffer: &self.buffer,
+                left: self.current_font_size,
+                top: self.current_font_size * TEXT_MARGIN_TOP,
+                scale: 1.0,
+                bounds: TextBounds {
+                    left: 0,
+                    top: 0,
+                    right: self.viewport.width as i32,
+                    bottom: self.viewport.height as i32,
+                },
+                default_color: Color::rgb(255, 255, 255),
+            },
+            TextArea {
+                buffer: &self.osd_buffer,
+                left: 0.0,
+                top: self.current_font_size * TEXT_MARGIN_TOP,
+                scale: 1.0,
+                bounds: TextBounds {
+                    left: 0,
+                    top: 0,
+                    right: self.viewport.width as i32,
+                    bottom: self.viewport.height as i32,
+                },
+                default_color: Color::rgb(255, 255, 255),
+            },
+        ];
+
+        // Show info buffer when persistent overlay is active OR temporary info message is set
+        // (main.rs manages setting/clearing the buffer content)
+        if self.info_has_content() {
+            text_areas.push(TextArea {
+                buffer: &self.info_buffer,
+                left: self.current_font_size,
+                top: self.current_font_size * INFO_OFFSET_TOP,
+                scale: 1.0,
+                bounds: TextBounds {
+                    left: 0,
+                    top: 0,
+                    right: self.viewport.width as i32,
+                    bottom: self.viewport.height as i32,
+                },
+                default_color: Color::rgb(255, 255, 255),
+            });
+        }
+
         self.text_renderer.prepare(
             device,
             queue,
@@ -255,34 +355,7 @@ impl TextRenderer {
                 width: self.viewport.width,
                 height: self.viewport.height,
             },
-            [
-                TextArea {
-                    buffer: &self.buffer,
-                    left: self.current_font_size,
-                    top: self.current_font_size * 0.5,
-                    scale: 1.0,
-                    bounds: TextBounds {
-                        left: 0,
-                        top: 0,
-                        right: self.viewport.width as i32,
-                        bottom: self.viewport.height as i32,
-                    },
-                    default_color: Color::rgb(255, 255, 255),
-                },
-                TextArea {
-                    buffer: &self.osd_buffer,
-                    left: 0.0,
-                    top: self.current_font_size * 0.5,
-                    scale: 1.0,
-                    bounds: TextBounds {
-                        left: 0,
-                        top: 0,
-                        right: self.viewport.width as i32,
-                        bottom: self.viewport.height as i32,
-                    },
-                    default_color: Color::rgb(255, 255, 255),
-                },
-            ],
+            text_areas,
             &mut self.swash_cache,
         )?;
 

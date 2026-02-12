@@ -1,3 +1,5 @@
+//! Async image loading with GPU texture management and rolling cache.
+
 use crate::error::{Result, SldshowError};
 use camino::{Utf8Path, Utf8PathBuf};
 use image::GenericImageView;
@@ -10,13 +12,11 @@ use std::sync::mpsc::{Receiver, Sender, channel};
 /// Maximum number of concurrent loading tasks
 const MAX_CONCURRENT_TASKS: usize = 2;
 
-/// Supported image file extensions
-const SUPPORTED_EXTENSIONS: &[&str] = &[
-    "png", "jpg", "jpeg", "gif", "webp", "bmp", "tga", "tiff", "tif", "ico", "hdr",
-];
+/// Maximum directory recursion depth to prevent infinite loops
+const MAX_SCAN_DEPTH: usize = 128;
 
-#[allow(dead_code)]
 pub struct LoadedTexture {
+    #[allow(dead_code)] // Kept alive to prevent GPU texture deallocation
     pub texture: wgpu::Texture,
     pub view: wgpu::TextureView,
     pub width: u32,
@@ -101,12 +101,10 @@ impl TextureManager {
         self.paths.len()
     }
 
-    #[allow(dead_code)]
     pub fn current_path(&self) -> Option<&Utf8Path> {
         self.paths.get(self.current_index).map(|p| p.as_path())
     }
 
-    #[allow(dead_code)]
     pub fn get_current_texture(&self) -> Option<&LoadedTexture> {
         self.textures.get(&self.current_index)
     }
@@ -121,7 +119,6 @@ impl TextureManager {
         }
 
         // 1. Process received images and upload to GPU
-        // Non-blocking try_recv
         while let Ok((idx, result)) = self.rx.try_recv() {
             self.loading_tasks.remove(&idx);
             match result {
@@ -187,18 +184,14 @@ impl TextureManager {
 
         let len = self.paths.len();
         for i in 1..=self.cache_extent {
-            needed_indices.insert((self.current_index + i) % len); // Forward
-            needed_indices.insert((self.current_index + len - i) % len); // Backward
+            needed_indices.insert((self.current_index + i) % len);
+            needed_indices.insert((self.current_index + len - i) % len);
         }
 
-        // Cleanup unused textures
         self.textures.retain(|idx, _| needed_indices.contains(idx));
-
-        // Cleanup stale loading_tasks (indices no longer needed whose results were never received)
         self.loading_tasks
             .retain(|idx| needed_indices.contains(idx));
 
-        // Start new tasks
         for idx in needed_indices {
             if !self.textures.contains_key(&idx) && !self.loading_tasks.contains(&idx) {
                 if self.loading_tasks.len() >= MAX_CONCURRENT_TASKS {
@@ -211,7 +204,6 @@ impl TextureManager {
 
                     self.loading_tasks.insert(idx);
 
-                    // Spawn thread
                     std::thread::spawn(move || {
                         let res = load_image_rgba(&path, max_size);
                         if tx.send((idx, res)).is_err() {
@@ -248,8 +240,7 @@ fn resize_for_gpu(
     let new_w = ((orig_w as f32 * scale).round() as u32).max(1);
     let new_h = ((orig_h as f32 * scale).round() as u32).max(1);
 
-    // Using Triangle filter for speed
-    img.resize(new_w, new_h, image::imageops::FilterType::Triangle)
+    img.resize(new_w, new_h, image::imageops::FilterType::Lanczos3)
 }
 
 pub fn scan_image_paths(
@@ -267,7 +258,7 @@ pub fn scan_image_paths(
                     vec![].into_iter()
                 }
             } else if std_path.is_dir() {
-                match scan_directory_recursive_parallel(std_path, scan_subfolders) {
+                match scan_directory_recursive_parallel(std_path, scan_subfolders, 0) {
                     Ok(dir_paths) => dir_paths.into_iter(),
                     Err(e) => {
                         warn!("Failed to scan directory {}: {}", path, e);
@@ -291,7 +282,20 @@ pub fn scan_image_paths(
     Ok(paths)
 }
 
-fn scan_directory_recursive_parallel(dir: &Path, recursive: bool) -> Result<Vec<Utf8PathBuf>> {
+fn scan_directory_recursive_parallel(
+    dir: &Path,
+    recursive: bool,
+    depth: usize,
+) -> Result<Vec<Utf8PathBuf>> {
+    if depth >= MAX_SCAN_DEPTH {
+        warn!(
+            "Maximum scan depth ({}) reached at: {}",
+            MAX_SCAN_DEPTH,
+            dir.display()
+        );
+        return Ok(Vec::new());
+    }
+
     let entries = match std::fs::read_dir(dir) {
         Ok(e) => e,
         Err(e) => {
@@ -311,7 +315,7 @@ fn scan_directory_recursive_parallel(dir: &Path, recursive: bool) -> Result<Vec<
                     Err(_) => vec![].into_iter(),
                 }
             } else if path.is_dir() && recursive {
-                match scan_directory_recursive_parallel(&path, recursive) {
+                match scan_directory_recursive_parallel(&path, recursive, depth + 1) {
                     Ok(subdir_paths) => subdir_paths.into_iter(),
                     Err(_) => vec![].into_iter(),
                 }
@@ -324,9 +328,6 @@ fn scan_directory_recursive_parallel(dir: &Path, recursive: bool) -> Result<Vec<
     Ok(paths)
 }
 
-pub fn is_supported_image(path: &Path) -> bool {
-    path.extension()
-        .and_then(|ext| ext.to_str())
-        .map(|ext| SUPPORTED_EXTENSIONS.contains(&ext.to_lowercase().as_str()))
-        .unwrap_or(false)
+fn is_supported_image(path: &Path) -> bool {
+    image::ImageFormat::from_path(path).is_ok()
 }
