@@ -11,13 +11,13 @@ homepage = "https://github.com/ugai/sldshow2"
 
 [dependencies]
 # Graphics & Windowing
-winit = { version = "0.29", features = ["rwh_05"] }
-wgpu = "0.19"
+winit = "0.29"
+wgpu = "25"
 pollster = "0.3"
 bytemuck = { version = "1.16", features = ["derive"] }
 env_logger = "0.11"
 log = "0.4"
-glyphon = "0.5" # Text rendering
+glyphon = "0.9" # Text rendering
 
 
 # Configuration
@@ -29,7 +29,7 @@ image = "0.25"
 
 # Utilities
 anyhow = "1.0"
-rand = "0.8"
+rand = "0.9"
 alphanumeric-sort = "1.5"
 dirs = "5.0"
 

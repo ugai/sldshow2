@@ -3,8 +3,8 @@
 use anyhow::Result;
 use glyphon::cosmic_text::Align;
 use glyphon::{
-    Attrs, Buffer, Color, Family, FontSystem, Metrics, Resolution, Shaping, SwashCache, TextArea,
-    TextAtlas, TextBounds, TextRenderer as GlyphonTextRenderer,
+    Attrs, Buffer, Cache, Color, Family, FontSystem, Metrics, Resolution, Shaping, SwashCache,
+    TextArea, TextAtlas, TextBounds, TextRenderer as GlyphonTextRenderer, Viewport,
 };
 use wgpu::{Device, MultisampleState, Queue, RenderPass, SurfaceConfiguration};
 
@@ -18,7 +18,9 @@ const INFO_OFFSET_TOP: f32 = 2.5;
 pub struct TextRenderer {
     font_system: FontSystem,
     swash_cache: SwashCache,
-    viewport: ValidationViewport,
+    #[allow(dead_code)] // Kept alive to prevent GPU cache deallocation
+    cache: Cache,
+    viewport: Viewport,
     atlas: TextAtlas,
     text_renderer: GlyphonTextRenderer,
     buffer: Buffer,
@@ -34,11 +36,6 @@ enum BufferTarget {
     Main,
     Osd,
     Info,
-}
-
-struct ValidationViewport {
-    width: u32,
-    height: u32,
 }
 
 impl TextRenderer {
@@ -100,11 +97,16 @@ impl TextRenderer {
         }
 
         let swash_cache = SwashCache::new();
-        let viewport = ValidationViewport {
-            width: config.width,
-            height: config.height,
-        };
-        let mut atlas = TextAtlas::new(device, queue, config.format);
+        let cache = Cache::new(device);
+        let mut viewport = Viewport::new(device, &cache);
+        viewport.update(
+            queue,
+            Resolution {
+                width: config.width,
+                height: config.height,
+            },
+        );
+        let mut atlas = TextAtlas::new(device, queue, &cache, config.format);
         let text_renderer =
             GlyphonTextRenderer::new(&mut atlas, device, MultisampleState::default(), None);
         let mut buffer = Buffer::new(
@@ -120,13 +122,21 @@ impl TextRenderer {
             Metrics::new(20.0, 20.0 * LINE_HEIGHT_RATIO),
         );
 
-        buffer.set_size(&mut font_system, config.width as f32, config.height as f32);
+        buffer.set_size(
+            &mut font_system,
+            Some(config.width as f32),
+            Some(config.height as f32),
+        );
         osd_buffer.set_size(
             &mut font_system,
-            config.width as f32 - 20.0,
-            config.height as f32,
+            Some(config.width as f32 - 20.0),
+            Some(config.height as f32),
         );
-        info_buffer.set_size(&mut font_system, config.width as f32, config.height as f32);
+        info_buffer.set_size(
+            &mut font_system,
+            Some(config.width as f32),
+            Some(config.height as f32),
+        );
 
         // Note: glyphon::Attributes::family() takes a Family enum.
         // If we provide Family::Name("FoundName"), it tries to use it.
@@ -138,17 +148,14 @@ impl TextRenderer {
             Family::SansSerif
         };
 
-        buffer.set_text(
-            &mut font_system,
-            "",
-            Attrs::new().family(family),
-            Shaping::Advanced,
-        );
-        buffer.shape_until_scroll(&mut font_system);
+        let attrs = Attrs::new().family(family);
+        buffer.set_text(&mut font_system, "", &attrs, Shaping::Advanced);
+        buffer.shape_until_scroll(&mut font_system, true);
 
         Ok(Self {
             font_system,
             swash_cache,
+            cache,
             viewport,
             atlas,
             text_renderer,
@@ -199,35 +206,45 @@ impl TextRenderer {
         self.osd_buffer.set_metrics(&mut self.font_system, metrics);
         self.info_buffer.set_metrics(&mut self.font_system, metrics);
 
+        let res = self.viewport.resolution();
         self.osd_buffer.set_size(
             &mut self.font_system,
-            self.viewport.width as f32 - self.current_font_size,
-            self.viewport.height as f32,
+            Some(res.width as f32 - self.current_font_size),
+            Some(res.height as f32),
         );
-        self.osd_buffer.shape_until_scroll(&mut self.font_system);
+        self.osd_buffer
+            .shape_until_scroll(&mut self.font_system, true);
         self.info_buffer.set_size(
             &mut self.font_system,
-            self.viewport.width as f32,
-            self.viewport.height as f32,
+            Some(res.width as f32),
+            Some(res.height as f32),
         );
-        self.info_buffer.shape_until_scroll(&mut self.font_system);
+        self.info_buffer
+            .shape_until_scroll(&mut self.font_system, true);
     }
 
-    pub fn resize(&mut self, width: u32, height: u32) {
-        self.viewport.width = width;
-        self.viewport.height = height;
-        self.buffer
-            .set_size(&mut self.font_system, width as f32, height as f32);
-        self.buffer.shape_until_scroll(&mut self.font_system);
+    pub fn resize(&mut self, queue: &Queue, width: u32, height: u32) {
+        self.viewport.update(queue, Resolution { width, height });
+        self.buffer.set_size(
+            &mut self.font_system,
+            Some(width as f32),
+            Some(height as f32),
+        );
+        self.buffer.shape_until_scroll(&mut self.font_system, true);
         self.osd_buffer.set_size(
             &mut self.font_system,
-            width as f32 - self.current_font_size,
-            height as f32,
+            Some(width as f32 - self.current_font_size),
+            Some(height as f32),
         );
-        self.osd_buffer.shape_until_scroll(&mut self.font_system);
+        self.osd_buffer
+            .shape_until_scroll(&mut self.font_system, true);
+        self.info_buffer.set_size(
+            &mut self.font_system,
+            Some(width as f32),
+            Some(height as f32),
+        );
         self.info_buffer
-            .set_size(&mut self.font_system, width as f32, height as f32);
-        self.info_buffer.shape_until_scroll(&mut self.font_system);
+            .shape_until_scroll(&mut self.font_system, true);
     }
 
     fn set_buffer_text(&mut self, buffer: BufferTarget, text: &str) {
@@ -252,7 +269,7 @@ impl TextRenderer {
             BufferTarget::Info => &mut self.info_buffer,
         };
 
-        buf.set_text(&mut self.font_system, text, attrs, Shaping::Advanced);
+        buf.set_text(&mut self.font_system, text, &attrs, Shaping::Advanced);
 
         if matches!(buffer, BufferTarget::Osd) {
             for line in buf.lines.iter_mut() {
@@ -260,7 +277,7 @@ impl TextRenderer {
             }
         }
 
-        buf.shape_until_scroll(&mut self.font_system);
+        buf.shape_until_scroll(&mut self.font_system, true);
     }
 
     pub fn set_text(&mut self, text: &str) {
@@ -299,6 +316,7 @@ impl TextRenderer {
         queue: &Queue,
         pass: &mut RenderPass<'a>,
     ) -> Result<()> {
+        let res = self.viewport.resolution();
         let mut text_areas = vec![
             TextArea {
                 buffer: &self.buffer,
@@ -308,10 +326,11 @@ impl TextRenderer {
                 bounds: TextBounds {
                     left: 0,
                     top: 0,
-                    right: self.viewport.width as i32,
-                    bottom: self.viewport.height as i32,
+                    right: res.width as i32,
+                    bottom: res.height as i32,
                 },
                 default_color: Color::rgb(255, 255, 255),
+                custom_glyphs: &[],
             },
             TextArea {
                 buffer: &self.osd_buffer,
@@ -321,10 +340,11 @@ impl TextRenderer {
                 bounds: TextBounds {
                     left: 0,
                     top: 0,
-                    right: self.viewport.width as i32,
-                    bottom: self.viewport.height as i32,
+                    right: res.width as i32,
+                    bottom: res.height as i32,
                 },
                 default_color: Color::rgb(255, 255, 255),
+                custom_glyphs: &[],
             },
         ];
 
@@ -339,10 +359,11 @@ impl TextRenderer {
                 bounds: TextBounds {
                     left: 0,
                     top: 0,
-                    right: self.viewport.width as i32,
-                    bottom: self.viewport.height as i32,
+                    right: res.width as i32,
+                    bottom: res.height as i32,
                 },
                 default_color: Color::rgb(255, 255, 255),
+                custom_glyphs: &[],
             });
         }
 
@@ -351,16 +372,13 @@ impl TextRenderer {
             queue,
             &mut self.font_system,
             &mut self.atlas,
-            Resolution {
-                width: self.viewport.width,
-                height: self.viewport.height,
-            },
+            &self.viewport,
             text_areas,
             &mut self.swash_cache,
         )?;
 
         self.text_renderer
-            .render(&self.atlas, pass)
+            .render(&self.atlas, &self.viewport, pass)
             .map_err(|e| anyhow::anyhow!(e))?;
         Ok(())
     }

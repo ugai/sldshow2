@@ -101,12 +101,14 @@ impl TransitionPipeline {
             layout: Some(&pipeline_layout),
             vertex: wgpu::VertexState {
                 module: &shader,
-                entry_point: "vs_main",
+                entry_point: Some("vs_main"),
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
                 buffers: &[],
             },
             fragment: Some(wgpu::FragmentState {
                 module: &shader,
-                entry_point: "fragment",
+                entry_point: Some("fragment"),
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
                 targets: &[Some(wgpu::ColorTargetState {
                     format,
                     blend: Some(wgpu::BlendState::REPLACE),
@@ -115,16 +117,13 @@ impl TransitionPipeline {
             }),
             primitive: wgpu::PrimitiveState {
                 topology: wgpu::PrimitiveTopology::TriangleList,
-                strip_index_format: None,
                 front_face: wgpu::FrontFace::Ccw,
-                cull_mode: None,
-                unclipped_depth: false,
-                polygon_mode: wgpu::PolygonMode::Fill,
-                conservative: false,
+                ..Default::default()
             },
             depth_stencil: None,
             multisample: wgpu::MultisampleState::default(),
             multiview: None,
+            cache: None,
         });
 
         let filter = match filter_mode {
@@ -188,7 +187,7 @@ impl TransitionPipeline {
     /// Pick a random transition mode from available effects
     pub fn random_mode() -> i32 {
         use rand::Rng;
-        let mut rng = rand::thread_rng();
-        rng.gen_range(0..TRANSITION_MODE_COUNT)
+        let mut rng = rand::rng();
+        rng.random_range(0..TRANSITION_MODE_COUNT)
     }
 }
