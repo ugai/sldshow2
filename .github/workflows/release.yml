@@ -41,16 +41,14 @@ jobs:
           7z a "$ARCHIVE" ./target/release/sldshow2.exe
           echo "ARCHIVE=$ARCHIVE" >> "$GITHUB_ENV"
 
-      - name: Install NSIS
+      - name: Build installer (NSIS)
         run: |
           iwr -useb get.scoop.sh -outfile 'install.ps1'
           .\install.ps1 -RunAsAdmin
           scoop update
           scoop bucket add extras
           scoop install nsis
-
-      - name: Build installer (NSIS)
-        run: makensis ./setup/sldshow2.nsi
+          makensis ./setup/sldshow2.nsi
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
