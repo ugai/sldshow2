@@ -35,4 +35,5 @@ draft/
 issue_*.json
 
 # Worktrees
-.agent-worktrees/
+.agent-worktrees/*
+!.agent-worktrees/README.md
