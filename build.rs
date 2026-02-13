@@ -3,6 +3,14 @@ use std::fs;
 use std::path::Path;
 
 fn main() {
+    // Embed application icon and metadata into the Windows executable
+    #[cfg(windows)]
+    {
+        let mut res = winresource::WindowsResource::new();
+        res.set_icon("assets/icon/icon.ico");
+        res.compile().unwrap();
+    }
+
     // 1. Determine source assets directory
     let manifest_dir = env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR not set");
     let src_assets = Path::new(&manifest_dir).join("assets").join("fonts");
