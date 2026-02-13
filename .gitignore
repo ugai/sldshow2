@@ -7,7 +7,8 @@ Cargo.lock
 # Editor
 .vscode/
 .idea/
-.claude/
+.claude/*
+!.claude/skills/
 *.swp
 *.swo
 *~
@@ -32,3 +33,6 @@ nul
 !example.sldshow
 draft/
 issue_*.json
+
+# Worktrees
+.agent-worktrees/
