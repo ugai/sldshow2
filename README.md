@@ -110,7 +110,8 @@ Default config location: `~/.sldshow`
 
 ## Development
 
-For architecture details and development guidelines, see [CLAUDE.md](CLAUDE.md) — named for development convenience, but written for everyone.
+- **Contributing**: See [CONTRIBUTING.md](CONTRIBUTING.md) for setup, workflow, and coding standards.
+- **Architecture**: See [CLAUDE.md](CLAUDE.md) for detailed architecture documentation and AI agent guidelines.
 
 ## Troubleshooting
 

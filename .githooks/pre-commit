@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+set -e
+
+echo "=== pre-commit: cargo fmt ==="
+cargo fmt --all -- --check
+if [ $? -ne 0 ]; then
+    echo "ERROR: cargo fmt check failed. Run 'cargo fmt --all' and re-commit."
+    exit 1
+fi
+
+echo "=== pre-commit: cargo clippy ==="
+cargo clippy --all-features -- -D warnings
+if [ $? -ne 0 ]; then
+    echo "ERROR: cargo clippy failed. Fix warnings and re-commit."
+    exit 1
+fi
+
+echo "=== pre-commit: cargo test ==="
+cargo test --all-features
+if [ $? -ne 0 ]; then
+    echo "ERROR: cargo test failed. Fix tests and re-commit."
+    exit 1
+fi
+
+echo "=== pre-commit: all checks passed ==="
