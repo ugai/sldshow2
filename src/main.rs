@@ -20,6 +20,7 @@ mod screenshot;
 mod text;
 mod timer;
 mod transition;
+mod ui;
 
 use config::Config;
 use image_loader::TextureManager;
@@ -44,6 +45,7 @@ struct ApplicationState {
     pipeline: TransitionPipeline,
     slideshow: SlideshowTimer,
     text_renderer: TextRenderer,
+    ui_state: ui::UiState,
 
     // Rendering resources
     uniform_buffer: wgpu::Buffer,
@@ -97,7 +99,7 @@ impl ApplicationState {
         let size = window.inner_size();
 
         // Initialize WGPU
-        let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
+        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
             backends: wgpu::Backends::all(),
             ..Default::default()
         });
@@ -116,12 +118,14 @@ impl ApplicationState {
         info!("Using adapter: {:?}", adapter.get_info());
 
         let (device, queue) = adapter
-            .request_device(&wgpu::DeviceDescriptor {
-                label: None,
-                required_features: wgpu::Features::empty(),
-                required_limits: wgpu::Limits::default(),
-                ..Default::default()
-            })
+            .request_device(
+                &wgpu::DeviceDescriptor {
+                    label: None,
+                    required_features: wgpu::Features::empty(),
+                    required_limits: wgpu::Limits::default(),
+                },
+                None, // trace_path
+            )
             .await
             .context("Failed to create device")?;
 
@@ -199,6 +203,8 @@ impl ApplicationState {
         // Apply style config
         text_renderer.set_style(config.style.font_size, config.style.text_color);
 
+        let ui_state = ui::UiState::new(&device, config_format, 1, &window);
+
         let slideshow = SlideshowTimer::new(config.viewer.timer);
 
         // Create uniform buffer
@@ -243,6 +249,7 @@ impl ApplicationState {
             pipeline,
             slideshow,
             text_renderer,
+            ui_state,
             uniform_buffer,
             bind_group: None,
             transition: None,
@@ -279,6 +286,10 @@ impl ApplicationState {
     }
 
     fn input(&mut self, event: &WindowEvent, modifiers: &winit::keyboard::ModifiersState) -> bool {
+        if self.ui_state.handle_input(&self.window, event) {
+            return true;
+        }
+
         match event {
             WindowEvent::CursorMoved { position, .. } => {
                 self.last_cursor_move = Instant::now();
@@ -645,6 +656,61 @@ impl ApplicationState {
                     _ => false,
                 }
             }
+            WindowEvent::DroppedFile(path) => {
+                self.last_cursor_move = Instant::now();
+                let path_utf8 = match Utf8PathBuf::try_from(path.clone()) {
+                    Ok(p) => p,
+                    Err(e) => {
+                        error!("Dropped file path is not valid UTF-8: {}", e);
+                        self.show_osd("Error: Invalid path encoding".to_string());
+                        return true;
+                    }
+                };
+
+                info!("File dropped: {}", path_utf8);
+
+                // Clear existing textures and load new path(s)
+                // We treat the dropped item as the new root.
+                // Note: This replaces the current playlist.
+                self.texture_manager.paths.clear();
+                self.texture_manager.textures.clear();
+
+                match self
+                    .texture_manager
+                    .scan_paths(&[path_utf8], self.config.viewer.scan_subfolders)
+                {
+                    Ok(_) => {
+                        if self.config.viewer.shuffle {
+                            self.texture_manager.shuffle_paths();
+                        }
+
+                        let count = self.texture_manager.len();
+                        info!("Loaded {} images from dropped content", count);
+                        self.show_osd(format!("Loaded {} images", count));
+
+                        // Reset state to start slideshow
+                        self.current_texture_index = Some(0);
+                        self.texture_manager.current_index = 0;
+                        self.slideshow.reset();
+                        self.transition = None;
+
+                        // Force a transition/load of the first image
+                        // We can simulate a "jump" to 0 to trigger loading
+                        // But since we cleared everything, we might need to manually trigger the first load?
+                        // TextureManager::update will handle loading if we set the index.
+                        // But we want to show it immediately.
+                        // The update loop handles it.
+                    }
+                    Err(e) => {
+                        warn!("Failed to load dropped content: {}", e);
+                        self.show_osd("No images found".to_string());
+                        // Restore? Or leave empty?
+                        // Current logic clears paths first, so it's empty.
+                        self.current_texture_index = None;
+                    }
+                }
+                true
+            }
             _ => false,
         }
     }
@@ -985,6 +1051,30 @@ impl ApplicationState {
             }
         }
 
+        {
+            let screen_descriptor = egui_wgpu::ScreenDescriptor {
+                size_in_pixels: [self.size.width, self.size.height],
+                pixels_per_point: self.window.scale_factor() as f32,
+            };
+
+            self.ui_state.render(
+                &self.device,
+                &self.queue,
+                &mut encoder,
+                &self.window,
+                &view,
+                screen_descriptor,
+                |ctx| {
+                    egui::Window::new("Egui Debug").show(ctx, |ui| {
+                        ui.label("Egui is working!");
+                        if ui.button("Quit").clicked() {
+                            // TODO: Send exit signal
+                        }
+                    });
+                },
+            );
+        }
+
         if self.screenshot_requested {
             self.screenshot_requested = false;
             match self.screenshot.capture(
@@ -1060,6 +1150,11 @@ fn main() -> Result<()> {
                     modifiers = state.state();
                 }
 
+                // Handle Resized separately or ensure it passes through
+                if let WindowEvent::Resized(physical_size) = event {
+                    state.resize(*physical_size);
+                }
+
                 if !state.input(event, &modifiers) {
                     match event {
                         WindowEvent::CloseRequested
@@ -1074,9 +1169,7 @@ fn main() -> Result<()> {
                                 },
                             ..
                         } => target.exit(),
-                        WindowEvent::Resized(physical_size) => {
-                            state.resize(*physical_size);
-                        }
+                        WindowEvent::Resized(_) => {} // Handled above
                         WindowEvent::RedrawRequested => {
                             state.update();
                             match state.render() {

@@ -1,6 +1,8 @@
-use glyphon::FontSystem;
+// use glyphon::FontSystem;
 
 fn main() {
+    println!("Glyphon example disabled due to dependency conflicts");
+    /*
     let mut db = FontSystem::new();
     let font_path = "assets/fonts/MPLUS2-VariableFont_wght.ttf";
 
@@ -18,4 +20,5 @@ fn main() {
             println!("  - {}", family);
         }
     }
+    */
 }
