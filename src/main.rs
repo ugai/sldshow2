@@ -90,6 +90,7 @@ struct ActiveTransition {
     mode: i32,
     from_index: usize,
     to_index: usize,
+    warmup: bool,
 }
 
 impl ApplicationState {
@@ -777,6 +778,7 @@ impl ApplicationState {
             mode,
             from_index,
             to_index,
+            warmup: true,
         });
 
         // Force bind group recreation
@@ -878,9 +880,27 @@ impl ApplicationState {
 
         // Prepare BindGroup and Uniforms
         // Determine which textures to use
-        let (tex_a_idx, tex_b_idx, blend, mode) = if let Some(ref t) = self.transition {
-            let progress = t.start_time.elapsed().as_secs_f32() / t.duration.as_secs_f32();
-            (t.from_index, t.to_index, progress.min(1.0), t.mode)
+        let (tex_a_idx, tex_b_idx, blend, mode) = if let Some(ref mut t) = self.transition {
+            if t.warmup {
+                // detailed explanation:
+                // The first frame of a transition might take longer due to:
+                // 1. Texture upload (if not pre-uploaded)
+                // 2. Pipeline/BindGroup creation overhead
+                // If we use 'elapsed' from the *moment* we created the transition object,
+                // by the time we actually draw the first frame, 'elapsed' might already be
+                // distinct non-zero (e.g., 16ms or more), causing the transition to "jump"
+                // or flash the blended result immediately.
+                //
+                // To fix this, we "warm up" for one frame:
+                // - Force blend to 0.0 (show exactly image A)
+                // - Reset start_time to NOW, so the *next* frame starts counting from 0.0 correctly.
+                t.warmup = false;
+                t.start_time = Instant::now();
+                (t.from_index, t.to_index, 0.0, t.mode)
+            } else {
+                let progress = t.start_time.elapsed().as_secs_f32() / t.duration.as_secs_f32();
+                (t.from_index, t.to_index, progress.min(1.0), t.mode)
+            }
         } else if let Some(idx) = self.current_texture_index {
             (idx, idx, 0.0, 0)
         } else {
