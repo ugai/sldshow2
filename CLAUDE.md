@@ -71,6 +71,10 @@ Assets are embedded at compile time for standalone distribution:
 ### Commits and Pull Requests
 - **Always run `cargo fmt --all` before committing.** CI enforces `cargo fmt --all -- --check` and will fail on formatting differences.
 - Commit messages and PR titles follow [Conventional Commits](https://www.conventionalcommits.org/) format: `feat:`, `fix:`, `docs:`, `refactor:`, `perf:`, `style:`, `chore:`, etc.
+- **AI Co-authorship**: When Gemini/Antigravity writes code, include the following trailer in the commit message:
+  ```text
+  Co-authored-by: Gemini Code Assist[bot] (Antigravity) <176961590+gemini-code-assist[bot]@users.noreply.github.com>
+  ```
 
 ### Code Style
 - **English** comments and documentation.

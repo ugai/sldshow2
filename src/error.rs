@@ -24,9 +24,25 @@ pub enum SldshowError {
     #[error("No images found in paths: {}", paths.iter().map(|p| p.as_str()).collect::<Vec<_>>().join(", "))]
     NoImagesFound { paths: Vec<Utf8PathBuf> },
 
+    #[error("Failed to load config from {path}: {source}")]
+    ConfigLoadError {
+        path: Utf8PathBuf,
+        #[source]
+        source: std::io::Error,
+    },
+
+    #[error("Failed to parse config from {path}: {source}")]
+    ConfigParseError {
+        path: Utf8PathBuf,
+        #[source]
+        source: toml::de::Error,
+    },
+
     #[error("Invalid configuration: {0}")]
-    #[allow(dead_code)]
-    ConfigError(String),
+    ConfigValidationError(#[from] validator::ValidationErrors),
+
+    #[error("Failed to serialize config: {0}")]
+    ConfigSerializeError(#[from] toml::ser::Error),
 
     #[error("IO error: {0}")]
     IoError(#[from] std::io::Error),

@@ -1,6 +1,6 @@
 //! TOML-based application configuration with validation.
 
-use anyhow::{Context, Result};
+use crate::error::{Result, SldshowError};
 use camino::{Utf8Path, Utf8PathBuf};
 use serde::{Deserialize, Serialize};
 use validator::Validate;
@@ -137,13 +137,21 @@ impl Config {
     /// Load configuration from a TOML file
     pub fn load<P: AsRef<Utf8Path>>(path: P) -> Result<Self> {
         let path_ref = path.as_ref();
-        let content = std::fs::read_to_string(path_ref.as_std_path())
-            .with_context(|| format!("Failed to read config file: {}", path_ref))?;
+        let content = std::fs::read_to_string(path_ref.as_std_path()).map_err(|e| {
+            SldshowError::ConfigLoadError {
+                path: path_ref.to_path_buf(),
+                source: e,
+            }
+        })?;
 
-        let config: Config = toml::from_str(&content)
-            .with_context(|| format!("Failed to parse config file: {}", path_ref))?;
+        let config: Config = toml::from_str(&content).map_err(|e| {
+            SldshowError::ConfigParseError {
+                path: path_ref.to_path_buf(),
+                source: e,
+            }
+        })?;
 
-        config.validate().with_context(|| "Invalid configuration")?;
+        config.validate()?;
 
         Ok(config)
     }
@@ -157,7 +165,13 @@ impl Config {
             if path.as_std_path().exists() {
                 return Self::load(&path);
             } else {
-                anyhow::bail!("Config file not found: {}", path);
+                return Err(SldshowError::ConfigLoadError {
+                    path: path.clone(),
+                    source: std::io::Error::new(
+                        std::io::ErrorKind::NotFound,
+                        format!("Config file not found: {}", path),
+                    ),
+                });
             }
         }
 
@@ -176,10 +190,14 @@ impl Config {
     /// Save configuration to file
     #[allow(dead_code)]
     pub fn save<P: AsRef<Utf8Path>>(&self, path: P) -> Result<()> {
-        let content = toml::to_string_pretty(self).context("Failed to serialize config")?;
+        let content = toml::to_string_pretty(self)?;
 
-        std::fs::write(path.as_ref().as_std_path(), content)
-            .with_context(|| format!("Failed to write config file: {}", path.as_ref()))?;
+        std::fs::write(path.as_ref().as_std_path(), content).map_err(|e| {
+            SldshowError::ConfigLoadError {
+                path: path.as_ref().to_path_buf(),
+                source: e,
+            }
+        })?;
 
         Ok(())
     }
