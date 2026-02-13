@@ -144,12 +144,11 @@ impl Config {
             }
         })?;
 
-        let config: Config = toml::from_str(&content).map_err(|e| {
-            SldshowError::ConfigParseError {
+        let config: Config =
+            toml::from_str(&content).map_err(|e| SldshowError::ConfigParseError {
                 path: path_ref.to_path_buf(),
-                source: e,
-            }
-        })?;
+                source: Box::new(e),
+            })?;
 
         config.validate()?;
 

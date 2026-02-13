@@ -35,7 +35,7 @@ pub enum SldshowError {
     ConfigParseError {
         path: Utf8PathBuf,
         #[source]
-        source: toml::de::Error,
+        source: Box<toml::de::Error>,
     },
 
     #[error("Invalid configuration: {0}")]
