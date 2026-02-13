@@ -221,8 +221,43 @@ impl TextureManager {
 fn load_image_rgba(path: &Utf8Path, max_size: (u32, u32)) -> anyhow::Result<image::RgbaImage> {
     let img = image::open(path.as_std_path())
         .map_err(|e| anyhow::anyhow!("Failed to open image: {}", e))?;
+
+    // Apply EXIF rotation
+    let img = apply_exif_rotation(img, path);
+
     let resized = resize_for_gpu(img, max_size.0, max_size.1);
     Ok(resized.to_rgba8())
+}
+
+fn apply_exif_rotation(img: image::DynamicImage, path: &Utf8Path) -> image::DynamicImage {
+    use std::fs::File;
+    use std::io::BufReader;
+
+    let file = match File::open(path.as_std_path()) {
+        Ok(f) => f,
+        Err(_) => return img,
+    };
+
+    let mut reader = BufReader::new(&file);
+    let exifreader = exif::Reader::new();
+    let exif = match exifreader.read_from_container(&mut reader) {
+        Ok(exif) => exif,
+        Err(_) => return img,
+    };
+
+    match exif.get_field(exif::Tag::Orientation, exif::In::PRIMARY) {
+        Some(field) => match field.value.get_uint(0) {
+            Some(2) => img.fliph(),
+            Some(3) => img.rotate180(),
+            Some(4) => img.flipv(),
+            Some(5) => img.rotate90().fliph(),
+            Some(6) => img.rotate90(),
+            Some(7) => img.rotate270().fliph(),
+            Some(8) => img.rotate270(),
+            _ => img,
+        },
+        None => img,
+    }
 }
 
 fn resize_for_gpu(
