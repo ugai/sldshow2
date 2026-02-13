@@ -68,13 +68,51 @@ Assets are embedded at compile time for standalone distribution:
 ### Build Strategy
 - **Always use `--release` for visual testing**. Pure debug builds of `image` (PNG/JPG decoding) and `wgpu` can be slow, causing frame stutters that don't reflect production performance.
 
+### Naming Conventions (Issues, PRs, Commits)
+All titles follow [Conventional Commits](https://www.conventionalcommits.org/) format:
+
+```
+<type>: <short description in lowercase>
+```
+
+- **Types**: `feat:`, `fix:`, `docs:`, `refactor:`, `perf:`, `style:`, `chore:`, etc.
+- **Issue titles**: `feat: implement ambient fit shader`, `fix: transition flash on first frame`
+- **PR titles**: Same format. When a PR addresses a single issue, the title can match the issue title.
+- **Commit messages**: Same format. Reference issues in the body (e.g., `Closes #38`).
+- **Branch names**: `feat/ambient-fit-shader`, `fix/transition-flash` (type/kebab-case-description)
+
 ### Commits and Pull Requests
+- **No direct push to `main`.** All changes go through pull requests.
+- **Squash merge only.** PRs are squash-merged to keep `main` history clean.
+- **CI must pass** before merge. PR checks: `cargo check` (Linux + Windows), `cargo fmt --check`, `cargo clippy -D warnings`, `cargo test`. Release build (Windows) runs on push to `main` only.
 - **Always run `cargo fmt --all` before committing.** CI enforces `cargo fmt --all -- --check` and will fail on formatting differences.
-- Commit messages and PR titles follow [Conventional Commits](https://www.conventionalcommits.org/) format: `feat:`, `fix:`, `docs:`, `refactor:`, `perf:`, `style:`, `chore:`, etc.
-- **AI Co-authorship**: When Gemini/Antigravity writes code, include the following trailer in the commit message:
-  ```text
-  Co-authored-by: Gemini Code Assist[bot] (Antigravity) <176961590+gemini-code-assist[bot]@users.noreply.github.com>
-  ```
+- PRs should reference related issues in the body using `Closes #N` syntax for auto-close on merge.
+
+### Pre-Commit Hook
+A pre-commit hook runs `cargo fmt --check`, `cargo clippy -D warnings`, and `cargo test` automatically. Setup:
+```bash
+git config core.hooksPath .githooks
+```
+This is a repository-local setting (not global). Each clone must run this once. **Do not skip the hook with `--no-verify`.**
+
+### Versioning and Releases
+- **SemVer** (`MAJOR.MINOR.PATCH`). Single source of truth: `version` in `Cargo.toml`.
+- **Release flow**: Update `Cargo.toml` version → merge to `main` → push tag `v0.2.0` → CI builds Windows binary and creates GitHub Release automatically.
+- **Tag must match `Cargo.toml` version.** The release CI verifies this and fails on mismatch.
+- Do not create tags or releases without explicit instruction from the user.
+
+### AI Co-Authorship
+Include the appropriate trailer in commit messages:
+- **Claude Code**: `Co-Authored-By: Claude <noreply@anthropic.com>`
+- **Gemini/Antigravity**: `Co-authored-by: Gemini Code Assist[bot] (Antigravity) <176961590+gemini-code-assist[bot]@users.noreply.github.com>`
+
+### Parallel Development Guidelines
+Multiple AI agents may work on separate issues simultaneously. Follow these rules to minimize merge conflicts:
+
+- **Extract new modules.** New features should live in dedicated files (e.g., `src/egui_overlay.rs`, `src/drag_drop.rs`). Keep changes to `main.rs` minimal — ideally just `mod` declarations, field additions to `ApplicationState`, and call sites.
+- **Conflict-prone files**: `main.rs`, `Cargo.toml`, `config.rs` are modified by most features. Keep diffs small and localized.
+- **Rebase before PR.** Always rebase your branch on latest `main` before requesting review. Resolve conflicts in your branch, not on `main`.
+- **One feature per branch.** Do not bundle unrelated changes. Each branch maps to one or more related issues.
 
 ### Code Style
 - **English** comments and documentation.
