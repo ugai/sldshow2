@@ -112,6 +112,7 @@ Default config location: `~/.sldshow`
 
 - **Contributing**: See [CONTRIBUTING.md](CONTRIBUTING.md) for setup, workflow, and coding standards.
 - **Architecture**: See [CLAUDE.md](CLAUDE.md) for detailed architecture documentation and AI agent guidelines.
+- **AI Agent Automation**: Issues labeled `agent:ready` are picked up and slain by AI agents. See [CONTRIBUTING.md](CONTRIBUTING.md#ai-agent-workflow) for details.
 
 ## Troubleshooting
 

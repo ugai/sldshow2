@@ -9,6 +9,7 @@ Cargo.lock
 .idea/
 .claude/*
 !.claude/skills/
+!.claude/agents/
 *.swp
 *.swo
 *~
