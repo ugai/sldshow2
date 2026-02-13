@@ -10,6 +10,42 @@ description: >
 
 Run a complete Issue → PR flow inside an isolated git worktree.
 
+## Issue Selection Rules
+
+**Eligibility** — An issue may only be picked if ALL of the following are true:
+
+1. Has the `agent:ready` label
+2. State is `open`
+3. Not assigned to anyone (`no:assignee`)
+4. Does NOT have the `pending` label
+
+**Priority** — When multiple eligible issues exist, prefer in this order:
+
+1. `bug` over `enhancement`
+2. `phase:1` > `phase:2` > `phase:3`
+3. Lower issue number first
+
+**Prohibitions**:
+
+- **Never** pick an issue without the `agent:ready` label.
+- **Never** pick an issue that is already assigned.
+- One agent, one issue — do not work on multiple issues simultaneously.
+
+## Execution Mode
+
+This skill supports two execution patterns:
+
+**Pattern A (Standalone)**: Invoked directly by a user. Uses `EnterPlanMode`
+for user approval. The user drives cleanup decisions.
+
+**Pattern B (Team Member)**: Spawned by a Team Lead via `Task` with a
+`team_name`. Uses `SendMessage` to send plans to the Lead for approval.
+Cleanup requires Lead instruction.
+
+Detection: If you were spawned with a `team_name` or received a task
+assignment via `TaskList`/`TaskUpdate`, you are in Pattern B. Otherwise
+Pattern A.
+
 ## 0. Worktree Setup
 
 1. Determine the **main repo root** via `git rev-parse --show-toplevel`.
@@ -31,26 +67,33 @@ Run a complete Issue → PR flow inside an isolated git worktree.
 
 ## 1. Issue Selection & Setup
 
-1. If the user specifies an issue number, use that.
-   Otherwise, find unassigned open issues:
+1. Query eligible issues:
    ```bash
-   gh issue list --search "no:assignee state:open" --limit 20
+   gh issue list --label "agent:ready" --search "no:assignee state:open -label:pending" --json number,title,labels --limit 20
    ```
-   Present the list and let the user pick, or pick the highest-priority one if instructed.
-2. Claim the issue immediately:
+2. If the user specifies an issue number, verify it meets the eligibility
+   criteria above before proceeding.
+3. **Pattern A**: Present the ranked list to the user and let them choose.
+   **Pattern B**: Check `TaskList` to see what other teammates are working on.
+   Select the highest-priority eligible issue that no other teammate has
+   claimed. If a specific issue was assigned to you via `TaskUpdate`, use that.
+4. Claim the issue immediately:
    ```bash
    gh issue edit <N> --add-assignee "@me"
    gh issue comment <N> --body "Starting work on this issue."
    ```
-3. If assignment fails (race condition), pick another issue.
-4. Now proceed with worktree creation (step 0.3) using the issue details.
+5. If assignment fails (race condition), pick another issue.
+6. Now proceed with worktree creation (step 0.3) using the issue details.
 
 ## 2. Design (Plan Mode)
 
 1. Read the issue details, relevant source files, `CLAUDE.md`, and `CONTRIBUTING.md`.
-2. Use **EnterPlanMode** to design the implementation approach.
-   - Do **not** create an `implementation_plan.md` file. The plan lives in Claude Code's plan mode.
-3. Wait for user approval before writing any code.
+2. **Pattern A**: Use `EnterPlanMode` to design the implementation approach.
+   Wait for user approval before writing any code.
+   **Pattern B**: Draft the implementation plan and send it to the Team Lead
+   via `SendMessage`. Wait for the Lead's approval message before writing code.
+   - Do **not** create an `implementation_plan.md` file. The plan lives in
+     Claude Code's plan mode (Pattern A) or in the message exchange (Pattern B).
 
 ## 3. Implementation
 
@@ -59,6 +102,9 @@ Run a complete Issue → PR flow inside an isolated git worktree.
   defined in `CLAUDE.md` and `CONTRIBUTING.md`.
 - For co-author trailers in commit messages, refer to the **AI Co-Authorship**
   section in `CLAUDE.md` and use the appropriate trailer for the current agent.
+- **Team Note**: When working in Pattern B, minimize changes to conflict-prone
+  files (`main.rs`, `Cargo.toml`, `config.rs`). Extract new functionality into
+  dedicated modules. Keep diffs to shared files small and localized.
 
 ## 4. Verification
 
@@ -88,10 +134,12 @@ All four commands must pass. Do not push on failure.
    - Title follows Conventional Commits (e.g., `feat: add ambient fit shader`).
    - Body references the issue (`Closes #<N>`).
 3. **Do NOT merge.** Notify the user that the PR is ready for review.
+4. **Pattern B**: Send the PR URL to the Team Lead via `SendMessage`.
 
 ## 6. Cleanup (Optional)
 
-When the user requests cleanup after the PR is merged:
+When the user (Pattern A) or Team Lead (Pattern B) requests cleanup after the
+PR is merged:
 
 1. Return to the main repo root.
 2. Remove the worktree and branch:
@@ -100,3 +148,13 @@ When the user requests cleanup after the PR is merged:
    git branch -d <type>/issue-<N>-<description>
    ```
    Use `git branch -D` only if the user explicitly requests force deletion.
+3. **Pattern B**: Do not remove worktrees unless the Team Lead instructs you to.
+
+## Team Operation Flow (Reference)
+
+```
+1. Team Lead: TeamCreate → TaskCreate (per issue) → Task spawn (issue-slayer agent)
+2. Each Teammate: Issue claim → plan → Lead approval → implement → verify → PR
+3. Team Lead: Coordinate PR merge order → instruct agents to rebase if needed
+4. Team Lead: shutdown_request → TeamDelete
+```
