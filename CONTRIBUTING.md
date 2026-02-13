@@ -77,5 +77,29 @@ Multiple contributors may work on separate issues simultaneously. To minimize me
 - Pushing a tag like `v0.2.0` triggers the release workflow, which builds a Windows binary and creates a GitHub Release.
 - The tag must match the version in `Cargo.toml` — the CI verifies this.
 
+## AI Agent Workflow
+
+This project supports autonomous AI agent development using the `ultimate-issue-slayer` skill.
+
+### The `agent:ready` Label
+
+Issues must have the **`agent:ready`** label before an AI agent can pick them up. The full workflow is defined as a Claude Code Skill (`.claude/skills/ultimate-issue-slayer/SKILL.md`) and works with any agent that supports Claude Code Skills. This is an opt-in guardrail — maintainers explicitly approve issues for autonomous implementation by adding this label.
+
+**Eligibility criteria** — an agent may only work on an issue if ALL of:
+1. Has the `agent:ready` label
+2. Is open and unassigned
+3. Does not have a `pending` label
+
+**Priority** — when multiple eligible issues exist, agents prefer: `bug` > `enhancement`, then `phase:1` > `phase:2` > `phase:3`, then lowest issue number.
+
+### Execution Patterns
+
+| Pattern | How it runs | Plan approval | Use case |
+|---------|------------|---------------|----------|
+| **A (Standalone)** | User invokes the skill directly | `EnterPlanMode` → user approves | Single-issue work |
+| **B (Team)** | Team Lead spawns multiple agents | `SendMessage` → Lead approves | Parallel multi-issue sprint |
+
+Both patterns use isolated git worktrees (`.agent-worktrees/`) so work never touches the `main` branch directly. See `.claude/skills/ultimate-issue-slayer/SKILL.md` for the full workflow.
+
 ## Project Board
 Active issues and roadmap are tracked on the [GitHub Project](https://github.com/users/ugai/projects/1).
