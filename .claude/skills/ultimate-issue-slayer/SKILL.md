@@ -8,57 +8,57 @@ description: >
 
 # Ultimate Issue Slayer
 
-Run a complete Issue → PR flow inside a worktree managed by the `worktree-manager` skill.
+Run a complete Issue → PR flow inside an isolated git worktree.
 
-> **Boundary rule**: This skill never creates or deletes worktrees.
-> Worktree lifecycle is handled exclusively by `worktree-manager`.
+## 0. Worktree Setup
 
-## 0. Pre-flight — Verify Worktree
-
-1. Check `Get-Location` and `git rev-parse --show-toplevel`.
-   - Expected path pattern: `.agent-worktrees/agent-<agent_id>-<task>`.
-2. If already inside an agent worktree → continue.
-3. If **not** inside a worktree → ask `worktree-manager` to create a temporary
-   `agent-<agent_id>-wip` worktree, then `cd` into it.
-4. Abort only if the user declines or the manager reports a collision.
-
-### Naming conventions
-
-| Element | Format | Example |
-|---------|--------|---------|
-| `agent_id` | `[a-zA-Z0-9]+` | `copilot01` |
-| Temporary branch | `agent-<agent_id>-wip` | `agent-copilot01-wip` |
-| Final branch | `agent-<agent_id>-<task>` | `agent-copilot01-issue-42` |
-| `<task>` | `[a-z0-9-]{1,32}` | `issue-42` |
+1. Determine the **main repo root** via `git rev-parse --show-toplevel`.
+2. Fetch the latest remote state:
+   ```bash
+   git fetch origin main
+   ```
+3. After Issue Selection (step 1), create the worktree with the final branch name directly:
+   ```bash
+   git worktree add .agent-worktrees/<type>-issue-<N>-<description> -b <type>/issue-<N>-<description> origin/main
+   ```
+   - `<type>` — Conventional Commits type (`feat`, `fix`, `refactor`, …), determined from the issue.
+   - `<N>` — Issue number.
+   - `<description>` — Short kebab-case summary (max 32 chars).
+   - Example branch: `feat/issue-42-ambient-fit-shader`
+   - Example worktree path: `.agent-worktrees/feat-issue-42-ambient-fit-shader`
+4. If the worktree path already exists, **abort** and ask the user.
+5. `cd` into the new worktree to perform all subsequent work.
 
 ## 1. Issue Selection & Setup
 
-1. Find an unassigned issue: `gh issue list --assignee "" --state open`.
-2. Claim it immediately:
+1. If the user specifies an issue number, use that.
+   Otherwise, find unassigned open issues:
    ```bash
-   gh issue edit <id> --add-assignee "@me"
-   gh issue comment <id> --body "Starting work (Agent: <agent_id>)"
+   gh issue list --search "no:assignee state:open" --limit 20
+   ```
+   Present the list and let the user pick, or pick the highest-priority one if instructed.
+2. Claim the issue immediately:
+   ```bash
+   gh issue edit <N> --add-assignee "@me"
+   gh issue comment <N> --body "Starting work on this issue."
    ```
 3. If assignment fails (race condition), pick another issue.
-4. Create the final branch inside the worktree:
-   ```bash
-   git switch -c agent-<agent_id>-issue-<number>
-   ```
+4. Now proceed with worktree creation (step 0.3) using the issue details.
 
-## 2. Design & Planning
+## 2. Design (Plan Mode)
 
-1. Draft `implementation_plan.md` (scope, approach, acceptance criteria).
-2. **Wait for user review** before writing any code.
+1. Read the issue details, relevant source files, `CLAUDE.md`, and `CONTRIBUTING.md`.
+2. Use **EnterPlanMode** to design the implementation approach.
+   - Do **not** create an `implementation_plan.md` file. The plan lives in Claude Code's plan mode.
+3. Wait for user approval before writing any code.
 
 ## 3. Implementation
 
 - Prefer new modules under `src/`; keep `main.rs` changes minimal.
 - Follow the project's Conventional Commits format and coding standards
-  defined in `CONTRIBUTING.md` and `CLAUDE.md`.
-- Include co-author trailer when appropriate:
-  ```
-  Co-authored-by: GitHub Copilot <copilot@users.noreply.github.com>
-  ```
+  defined in `CLAUDE.md` and `CONTRIBUTING.md`.
+- For co-author trailers in commit messages, refer to the **AI Co-Authorship**
+  section in `CLAUDE.md` and use the appropriate trailer for the current agent.
 
 ## 4. Verification
 
@@ -75,8 +75,28 @@ All four commands must pass. Do not push on failure.
 
 ## 5. Pull Request
 
-1. Rebase onto `origin/main` and resolve any conflicts.
+1. Rebase onto `origin/main` and resolve any conflicts:
+   ```bash
+   git fetch origin main
+   git rebase origin/main
+   ```
 2. Push the branch and open a PR:
+   ```bash
+   git push -u origin <branch-name>
+   gh pr create --title "<type>: <description>" --body "Closes #<N>"
+   ```
    - Title follows Conventional Commits (e.g., `feat: add ambient fit shader`).
-   - Body references the issue (`Closes #<number>`) and links to `implementation_plan.md`.
-3. **Do NOT merge.** Enter WAITING state and notify the user for review.
+   - Body references the issue (`Closes #<N>`).
+3. **Do NOT merge.** Notify the user that the PR is ready for review.
+
+## 6. Cleanup (Optional)
+
+When the user requests cleanup after the PR is merged:
+
+1. Return to the main repo root.
+2. Remove the worktree and branch:
+   ```bash
+   git worktree remove .agent-worktrees/<type>-issue-<N>-<description>
+   git branch -d <type>/issue-<N>-<description>
+   ```
+   Use `git branch -D` only if the user explicitly requests force deletion.
