@@ -5,10 +5,8 @@ Unicode True
 SetCompressor /SOLID lzma
 RequestExecutionLevel user
 
-!getdllversion "..\target\release\sldshow2.exe" Version_
-!define VER_MAJOR ${Version_1}
-!define VER_MINOR ${Version_2}
-!define VER_PATCH ${Version_3}
+; VER_MAJOR, VER_MINOR, VER_PATCH must be passed via /D flags:
+;   makensis /DVER_MAJOR=0 /DVER_MINOR=2 /DVER_PATCH=0 sldshow2.nsi
 
 !define APP_NAME "sldshow2"
 !define APP_SEMANTIC_VERSION "${VER_MAJOR}.${VER_MINOR}.${VER_PATCH}"
