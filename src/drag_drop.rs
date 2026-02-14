@@ -5,7 +5,6 @@
 //! simpler, more reliable `DragAcceptFiles` / `WM_DROPFILES` mechanism.
 
 use camino::Utf8PathBuf;
-use log::warn;
 use std::sync::mpsc;
 
 /// Receiver half lives in `ApplicationState`, sender is captured by the
@@ -74,7 +73,7 @@ pub fn build_msg_hook(
             let os_str = String::from_utf16_lossy(&buf[..len]);
             match Utf8PathBuf::try_from(std::path::PathBuf::from(os_str)) {
                 Ok(p) => paths.push(p),
-                Err(e) => warn!("Dropped path is not valid UTF-8: {}", e),
+                Err(e) => log::warn!("Dropped path is not valid UTF-8: {}", e),
             }
         }
         unsafe { DragFinish(hdrop) };
@@ -94,7 +93,7 @@ pub fn enable_wm_dropfiles(window: &winit::window::Window) {
     use winit::raw_window_handle::{HasWindowHandle, RawWindowHandle};
 
     let Ok(handle) = window.window_handle() else {
-        warn!("Could not get window handle for drag-and-drop setup");
+        log::warn!("Could not get window handle for drag-and-drop setup");
         return;
     };
     let RawWindowHandle::Win32(win32) = handle.as_raw() else {
