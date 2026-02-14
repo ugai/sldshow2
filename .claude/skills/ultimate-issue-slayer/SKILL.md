@@ -106,6 +106,19 @@ Pattern A.
   files (`main.rs`, `Cargo.toml`, `config.rs`). Extract new functionality into
   dedicated modules. Keep diffs to shared files small and localized.
 
+### Documentation & Example Updates
+
+After implementing the feature or fix, check whether accompanying files need
+updates. This is part of the implementation — not a separate step.
+
+- **`example.sldshow`**: If new config options were added to `config.rs`,
+  add corresponding entries (with comments) to `example.sldshow` so users
+  can discover them. Match the existing style (TOML comments, grouping).
+- **`CONTRIBUTING.md`**: If the change introduces a new development pattern,
+  build step, or workflow rule, update `CONTRIBUTING.md` accordingly.
+- **`CLAUDE.md`**: If a new module was created, add it to the Module Map
+  table. If a new convention was established, document it.
+
 ## 4. Verification
 
 Run the full quality gate locally before pushing:
@@ -118,6 +131,21 @@ cargo build --release
 ```
 
 All four commands must pass. Do not push on failure.
+
+### Manual Test Command
+
+After verification passes, output a ready-to-run command block so the user
+can quickly launch the app for visual testing in the worktree:
+
+```
+To test manually, run:
+
+cd <worktree-absolute-path>
+$env:RUST_LOG="warn"; cargo run --release -- example.sldshow
+```
+
+Replace `<worktree-absolute-path>` with the actual absolute path to the
+worktree directory (e.g., `D:\git\sldshow2\.agent-worktrees\feat-issue-42-ambient-fit-shader`).
 
 ## 5. Pull Request
 
