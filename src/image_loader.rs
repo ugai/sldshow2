@@ -193,7 +193,8 @@ impl TextureManager {
         needed_indices.insert(self.current_index);
 
         let len = self.paths.len();
-        for i in 1..=self.cache_extent {
+        let extent = self.cache_extent.min(len.saturating_sub(1));
+        for i in 1..=extent {
             needed_indices.insert((self.current_index + i) % len);
             needed_indices.insert((self.current_index + len - i) % len);
         }
