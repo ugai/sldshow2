@@ -92,7 +92,8 @@ fn get_fill_uv(uv: vec2<f32>, image_size: vec2<f32>, window_size: vec2<f32>) -> 
         scale = vec2<f32>(1.0, img_aspect / win_aspect);
     }
 
-    return (uv - 0.5) * scale + 0.5;
+    // Zoom in 2x further to lose detail and show only colors/vibe (YouTube style)
+    return (uv - 0.5) * scale * 0.5 + 0.5;
 }
 
 fn sample_image_at(tex: texture_2d<f32>, smp: sampler, uv: vec2<f32>, image_size: vec2<f32>, window_size: vec2<f32>) -> vec4<f32> {
@@ -105,16 +106,36 @@ fn sample_image_at(tex: texture_2d<f32>, smp: sampler, uv: vec2<f32>, image_size
             var color = vec4<f32>(0.0);
             let blur = material.ambient_blur;
 
-            // 9-tap sparse blur for ambient fill
+            // 13-tap sparse cross blur for a very soft ambient fill
+            // Using a larger spread to mimic high-radius Gaussian blur
             var count = 0.0;
-            for (var i: f32 = -1.0; i <= 1.0; i += 1.0) {
-                for (var j: f32 = -1.0; j <= 1.0; j += 1.0) {
-                    let offset = vec2<f32>(i, j) * blur;
-                    color += textureSample(tex, smp, clamp(fill_uv + offset, vec2<f32>(0.001), vec2<f32>(0.999)));
-                    count += 1.0;
-                }
+            
+            // Center
+            color += textureSample(tex, smp, clamp(fill_uv, vec2<f32>(0.001), vec2<f32>(0.999))) * 2.0;
+            count += 2.0;
+
+            // Large spread ring
+            let offsets = array<vec2<f32>, 8>(
+                vec2<f32>(1.0, 0.0), vec2<f32>(-1.0, 0.0),
+                vec2<f32>(0.0, 1.0), vec2<f32>(0.0, -1.0),
+                vec2<f32>(0.7, 0.7), vec2<f32>(-0.7, 0.7),
+                vec2<f32>(0.7, -0.7), vec2<f32>(-0.7, -1.0)
+            );
+
+            for (var i = 0; i < 8; i++) {
+                let off = offsets[i] * blur;
+                color += textureSample(tex, smp, clamp(fill_uv + off, vec2<f32>(0.001), vec2<f32>(0.999)));
+                count += 1.0;
             }
-            return (color / count) * 0.6; // Darken a bit to emphasize the main image
+
+            // Even larger spread for outer glow
+            for (var i = 0; i < 4; i++) {
+                let off = offsets[i] * blur * 2.5;
+                color += textureSample(tex, smp, clamp(fill_uv + off, vec2<f32>(0.001), vec2<f32>(0.999)));
+                count += 1.0;
+            }
+
+            return (color / count) * 0.5; // Darken more for a subtle "glow" look
         } else {
             return material.bg_color;
         }

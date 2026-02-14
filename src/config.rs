@@ -70,7 +70,7 @@ pub struct ViewerConfig {
     pub max_texture_size: [u32; 2],
     pub filter_mode: String,
     pub fit_mode: String,
-    #[validate(range(min = 0.0, max = 0.5))]
+    #[validate(range(min = 0.0, max = 2.0))]
     pub ambient_blur: f32,
 }
 
