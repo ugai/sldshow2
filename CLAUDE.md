@@ -34,7 +34,10 @@ No unit tests — testing is manual only.
 
 ## AI Agent Rules
 
-- **Co-authorship trailer**: `Co-Authored-By: Claude <noreply@anthropic.com>`
+- **Co-authorship trailer** — format: `Co-Authored-By: {model} ({tool}) <email>`. Use the actual model name:
+  - Claude Code: `Co-Authored-By: {model} (Claude Code) <noreply@anthropic.com>` (e.g., `Claude Opus 4.6`, `gpt-oss:20b`)
+  - Gemini CLI: `Co-Authored-By: {model} (Gemini CLI) <176961590+gemini-code-assist[bot]@users.noreply.github.com>`
+  - Antigravity: `Co-Authored-By: {model} (Antigravity) <176961590+gemini-code-assist[bot]@users.noreply.github.com>`
 - **Do not** create git tags or releases unless explicitly instructed.
 - **New features**: Extract to dedicated modules (e.g., `src/drag_drop.rs`). Keep `main.rs` diffs minimal.
 - **Conflict-prone files**: `main.rs`, `Cargo.toml`, `config.rs` — keep changes small and localized.
