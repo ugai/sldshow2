@@ -88,17 +88,18 @@ fn sample_image_at(tex: texture_2d<f32>, smp: sampler, uv: vec2<f32>, image_size
             var color = vec4<f32>(0.0);
             let blur = material.ambient_blur;
 
-            // Simple heavy 5x5 box blur on stretched UV
+            // Heavy 15x15 sparse blur (225 taps) for massive smoothing
+            // This creates a completely abstract color field by heavily overlapping samples
             var count = 0.0;
-            for (var i: f32 = -2.0; i <= 2.0; i += 1.0) {
-                for (var j: f32 = -2.0; j <= 2.0; j += 1.0) {
-                    let offset = vec2<f32>(i, j) * blur;
+            for (var i: f32 = -7.0; i <= 7.0; i += 1.0) {
+                for (var j: f32 = -7.0; j <= 7.0; j += 1.0) {
+                    let offset = vec2<f32>(i, j) * (blur * 1.5);
                     // Use raw 'uv' to stretch the image to full screen in the background
                     color += textureSample(tex, smp, clamp(uv + offset, vec2<f32>(0.001), vec2<f32>(0.999)));
                     count += 1.0;
                 }
             }
-            return (color / count) * 0.5; // Darken for better contrast with main image
+            return (color / count) * 0.45; // Darken more for a subtle abstract background
         } else {
             return material.bg_color;
         }
