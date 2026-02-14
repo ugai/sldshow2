@@ -9,12 +9,13 @@ use std::time::{Duration, Instant};
 use wgpu::util::DeviceExt;
 use winit::{
     event::{ElementState, Event, KeyEvent, MouseButton, WindowEvent},
-    event_loop::EventLoop,
+    event_loop::EventLoopBuilder,
     keyboard::{KeyCode, PhysicalKey},
     window::WindowBuilder,
 };
 
 mod config;
+mod drag_drop;
 mod error;
 mod image_loader;
 mod screenshot;
@@ -23,6 +24,7 @@ mod timer;
 mod transition;
 
 use config::Config;
+use drag_drop::DragDropHandler;
 use image_loader::TextureManager;
 use screenshot::ScreenshotCapture;
 use text::TextRenderer;
@@ -83,6 +85,9 @@ struct ApplicationState {
     // Screenshot
     screenshot_requested: bool,
     screenshot: ScreenshotCapture,
+
+    // Drag & drop
+    drag_drop: DragDropHandler,
 }
 
 struct ActiveTransition {
@@ -94,7 +99,11 @@ struct ActiveTransition {
 }
 
 impl ApplicationState {
-    async fn new(window: Arc<winit::window::Window>, config: Config) -> Result<Self> {
+    async fn new(
+        window: Arc<winit::window::Window>,
+        config: Config,
+        drag_drop: DragDropHandler,
+    ) -> Result<Self> {
         let size = window.inner_size();
 
         // Initialize WGPU
@@ -265,6 +274,7 @@ impl ApplicationState {
             color_saturation: 1.0,
             screenshot_requested: false,
             screenshot: ScreenshotCapture::new(),
+            drag_drop,
         })
     }
 
@@ -791,6 +801,31 @@ impl ApplicationState {
             self.cursor_visible = false;
         }
 
+        // Process drag & drop
+        if let Some(dropped_paths) = self.drag_drop.take_pending() {
+            match image_loader::scan_image_paths(&dropped_paths, self.config.viewer.scan_subfolders)
+            {
+                Ok(mut new_paths) => {
+                    if self.config.viewer.shuffle {
+                        use rand::seq::SliceRandom;
+                        new_paths.shuffle(&mut rand::rng());
+                    }
+                    let count = new_paths.len();
+                    self.texture_manager.replace_paths(new_paths);
+                    self.transition = None;
+                    self.bind_group = None;
+                    self.current_texture_index = if count > 0 { Some(0) } else { None };
+                    self.slideshow.reset();
+                    self.show_osd(format!("Loaded {} images", count));
+                    info!("Drag & drop: loaded {} images", count);
+                }
+                Err(e) => {
+                    warn!("Drag & drop scan failed: {}", e);
+                    self.show_osd("No supported images found".to_string());
+                }
+            }
+        }
+
         self.texture_manager.update(&self.device, &self.queue);
 
         // Check if transition finished (must run before auto-advance to avoid
@@ -1029,7 +1064,21 @@ fn main() -> Result<()> {
         Config::default()
     });
 
-    let event_loop = EventLoop::new().unwrap();
+    // Set up drag-and-drop channel and event loop with message hook
+    let (drag_drop, drag_drop_tx) = DragDropHandler::new();
+
+    let event_loop = {
+        let mut builder = EventLoopBuilder::new();
+        #[cfg(windows)]
+        {
+            use winit::platform::windows::EventLoopBuilderExtWindows;
+            builder.with_msg_hook(drag_drop::build_msg_hook(drag_drop_tx));
+        }
+        #[cfg(not(windows))]
+        drop(drag_drop_tx); // suppress unused-variable on non-Windows
+        builder.build().unwrap()
+    };
+
     let transparent = config.style.bg_color[3] < 255;
     let window = Arc::new(
         WindowBuilder::new()
@@ -1045,8 +1094,16 @@ fn main() -> Result<()> {
             .unwrap(),
     );
 
+    // Replace winit's OLE drag-and-drop with WM_DROPFILES
+    #[cfg(windows)]
+    drag_drop::enable_wm_dropfiles(&window);
+
     // Initialize WGPU state
-    let mut state = pollster::block_on(ApplicationState::new(window.clone(), config.clone()))?;
+    let mut state = pollster::block_on(ApplicationState::new(
+        window.clone(),
+        config.clone(),
+        drag_drop,
+    ))?;
 
     let mut modifiers = winit::keyboard::ModifiersState::default();
 
