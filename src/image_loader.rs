@@ -97,6 +97,16 @@ impl TextureManager {
         }
     }
 
+    /// Replace the entire image list, clearing all cached textures and pending loads.
+    pub fn replace_paths(&mut self, new_paths: Vec<Utf8PathBuf>) {
+        self.paths = new_paths;
+        self.textures.clear();
+        self.loading_tasks.clear();
+        self.current_index = 0;
+        // Drain any in-flight results so stale images aren't uploaded later
+        while self.rx.try_recv().is_ok() {}
+    }
+
     pub fn len(&self) -> usize {
         self.paths.len()
     }
