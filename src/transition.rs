@@ -21,8 +21,8 @@ pub struct TransitionUniform {
     pub contrast: f32,
     pub gamma: f32,
     pub saturation: f32,
-    // 4+4+8+16+8+8+8+4+4+4+4 = 72, pad to 80 (16-byte aligned)
-    pub _padding: [f32; 2],
+    pub fit_mode: i32,
+    pub ambient_blur: f32,
 }
 
 pub struct TransitionPipeline {

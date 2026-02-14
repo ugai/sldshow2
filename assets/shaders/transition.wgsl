@@ -33,6 +33,8 @@ struct TransitionUniform {
     contrast: f32,
     gamma: f32,
     saturation: f32,
+    fit_mode: i32,
+    ambient_blur: f32,
 }
 
 @group(0) @binding(0)
@@ -77,27 +79,39 @@ fn is_uv_in_bounds(uv: vec2<f32>) -> bool {
     return uv.x >= 0.0 && uv.x <= 1.0 && uv.y >= 0.0 && uv.y <= 1.0;
 }
 
+fn sample_image_at(tex: texture_2d<f32>, smp: sampler, adjusted_uv: vec2<f32>) -> vec4<f32> {
+    if is_uv_in_bounds(adjusted_uv) {
+        return textureSample(tex, smp, adjusted_uv);
+    } else {
+        if material.fit_mode == 1 {
+            let center = clamp(adjusted_uv, vec2<f32>(0.0), vec2<f32>(1.0));
+            var color = vec4<f32>(0.0);
+            let blur = material.ambient_blur;
+            
+            // 5x5 box blur for ambient fill
+            var count = 0.0;
+            for (var i: f32 = -2.0; i <= 2.0; i += 1.0) {
+                for (var j: f32 = -2.0; j <= 2.0; j += 1.0) {
+                    let offset = vec2<f32>(i, j) * blur;
+                    color += textureSample(tex, smp, clamp(center + offset, vec2<f32>(0.0), vec2<f32>(1.0)));
+                    count += 1.0;
+                }
+            }
+            return color / count;
+        } else {
+            return material.bg_color;
+        }
+    }
+}
+
 // 0: Basic crossfade
 fn ts_crossfading(uv: vec2<f32>, progress: f32) -> vec4<f32> {
     // Adjust UVs for letterboxing
     let uv_a = adjust_uv(uv, material.image_a_size, material.window_size);
     let uv_b = adjust_uv(uv, material.image_b_size, material.window_size);
 
-    var color_a: vec4<f32>;
-    var color_b: vec4<f32>;
-
-    // Sample texture or use background color if out of bounds
-    if is_uv_in_bounds(uv_a) {
-        color_a = textureSample(texture_a, sampler_a, uv_a);
-    } else {
-        color_a = material.bg_color;
-    }
-
-    if is_uv_in_bounds(uv_b) {
-        color_b = textureSample(texture_b, sampler_b, uv_b);
-    } else {
-        color_b = material.bg_color;
-    }
+    let color_a = sample_image_at(texture_a, sampler_a, uv_a);
+    let color_b = sample_image_at(texture_b, sampler_b, uv_b);
 
     return mix(color_a, color_b, progress);
 }
@@ -107,20 +121,8 @@ fn ts_smooth_crossfading(uv: vec2<f32>, progress: f32) -> vec4<f32> {
     let uv_a = adjust_uv(uv, material.image_a_size, material.window_size);
     let uv_b = adjust_uv(uv, material.image_b_size, material.window_size);
 
-    var color_a: vec4<f32>;
-    var color_b: vec4<f32>;
-
-    if is_uv_in_bounds(uv_a) {
-        color_a = textureSample(texture_a, sampler_a, uv_a);
-    } else {
-        color_a = material.bg_color;
-    }
-
-    if is_uv_in_bounds(uv_b) {
-        color_b = textureSample(texture_b, sampler_b, uv_b);
-    } else {
-        color_b = material.bg_color;
-    }
+    let color_a = sample_image_at(texture_a, sampler_a, uv_a);
+    let color_b = sample_image_at(texture_b, sampler_b, uv_b);
 
     let smooth_progress = smoothstep(0.0, 1.0, progress);
     return mix(color_a, color_b, smooth_progress);
@@ -153,17 +155,9 @@ fn ts_roll(uv: vec2<f32>, progress: f32, direction: i32) -> vec4<f32> {
 
     var color: vec4<f32>;
     if progress > threshold {
-        if is_uv_in_bounds(uv_b) {
-            color = textureSample(texture_b, sampler_b, uv_b);
-        } else {
-            color = material.bg_color;
-        }
+        color = sample_image_at(texture_b, sampler_b, uv_b);
     } else {
-        if is_uv_in_bounds(uv_a) {
-            color = textureSample(texture_a, sampler_a, uv_a);
-        } else {
-            color = material.bg_color;
-        }
+        color = sample_image_at(texture_a, sampler_a, uv_a);
     }
 
     return color;
@@ -185,17 +179,9 @@ fn ts_sliding_door(uv: vec2<f32>, progress: f32, opening: bool) -> vec4<f32> {
 
     var color: vec4<f32>;
     if center_distance < threshold {
-        if is_uv_in_bounds(uv_b) {
-            color = textureSample(texture_b, sampler_b, uv_b);
-        } else {
-            color = material.bg_color;
-        }
+        color = sample_image_at(texture_b, sampler_b, uv_b);
     } else {
-        if is_uv_in_bounds(uv_a) {
-            color = textureSample(texture_a, sampler_a, uv_a);
-        } else {
-            color = material.bg_color;
-        }
+        color = sample_image_at(texture_a, sampler_a, uv_a);
     }
 
     return color;
@@ -219,17 +205,9 @@ fn ts_blind(uv: vec2<f32>, progress: f32, direction: i32) -> vec4<f32> {
 
     var color: vec4<f32>;
     if slice_progress < progress {
-        if is_uv_in_bounds(uv_b) {
-            color = textureSample(texture_b, sampler_b, uv_b);
-        } else {
-            color = material.bg_color;
-        }
+        color = sample_image_at(texture_b, sampler_b, uv_b);
     } else {
-        if is_uv_in_bounds(uv_a) {
-            color = textureSample(texture_a, sampler_a, uv_a);
-        } else {
-            color = material.bg_color;
-        }
+        color = sample_image_at(texture_a, sampler_a, uv_a);
     }
 
     return color;
@@ -252,17 +230,9 @@ fn ts_box(uv: vec2<f32>, progress: f32, expanding: bool) -> vec4<f32> {
 
     var color: vec4<f32>;
     if show_new {
-        if is_uv_in_bounds(uv_b) {
-            color = textureSample(texture_b, sampler_b, uv_b);
-        } else {
-            color = material.bg_color;
-        }
+        color = sample_image_at(texture_b, sampler_b, uv_b);
     } else {
-        if is_uv_in_bounds(uv_a) {
-            color = textureSample(texture_a, sampler_a, uv_a);
-        } else {
-            color = material.bg_color;
-        }
+        color = sample_image_at(texture_a, sampler_a, uv_a);
     }
 
     return color;
@@ -279,20 +249,8 @@ fn ts_randomsquares(uv: vec2<f32>, progress: f32) -> vec4<f32> {
     let r = fract(sin(dot(floor(uv * size), vec2<f32>(12.9898, 78.233))) * 43758.5453);
     let m = smoothstep(0.0, -smoothness, r - (progress * (1.0 + smoothness)));
 
-    var color_a: vec4<f32>;
-    var color_b: vec4<f32>;
-
-    if is_uv_in_bounds(uv_a) {
-        color_a = textureSample(texture_a, sampler_a, uv_a);
-    } else {
-        color_a = material.bg_color;
-    }
-
-    if is_uv_in_bounds(uv_b) {
-        color_b = textureSample(texture_b, sampler_b, uv_b);
-    } else {
-        color_b = material.bg_color;
-    }
+    let color_a = sample_image_at(texture_a, sampler_a, uv_a);
+    let color_b = sample_image_at(texture_b, sampler_b, uv_b);
 
     return mix(color_a, color_b, m);
 }
@@ -320,17 +278,9 @@ fn ts_angular(uv: vec2<f32>, progress: f32) -> vec4<f32> {
 
     var color: vec4<f32>;
     if normalized_angle - progress > 0.0 {
-        if is_uv_in_bounds(uv_a) {
-            color = textureSample(texture_a, sampler_a, uv_a);
-        } else {
-            color = material.bg_color;
-        }
+        color = sample_image_at(texture_a, sampler_a, uv_a);
     } else {
-        if is_uv_in_bounds(uv_b) {
-            color = textureSample(texture_b, sampler_b, uv_b);
-        } else {
-            color = material.bg_color;
-        }
+        color = sample_image_at(texture_b, sampler_b, uv_b);
     }
 
     return color;
@@ -368,21 +318,13 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     if progress <= 0.0 {
         // Show only image A
         let uv_a = adjust_uv(in.uv, material.image_a_size, material.window_size);
-        if is_uv_in_bounds(uv_a) {
-            return apply_color_adjustments(textureSample(texture_a, sampler_a, uv_a));
-        } else {
-            return material.bg_color;
-        }
+        return apply_color_adjustments(sample_image_at(texture_a, sampler_a, uv_a));
     }
 
     if progress >= 1.0 {
         // Show only image B
         let uv_b = adjust_uv(in.uv, material.image_b_size, material.window_size);
-        if is_uv_in_bounds(uv_b) {
-            return apply_color_adjustments(textureSample(texture_b, sampler_b, uv_b));
-        } else {
-            return material.bg_color;
-        }
+        return apply_color_adjustments(sample_image_at(texture_b, sampler_b, uv_b));
     }
 
     // Route to appropriate transition effect

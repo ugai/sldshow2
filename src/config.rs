@@ -69,6 +69,9 @@ pub struct ViewerConfig {
     /// Set to [0, 0] to use window dimensions (may cause frame spikes at 4K+).
     pub max_texture_size: [u32; 2],
     pub filter_mode: String,
+    pub fit_mode: String,
+    #[validate(range(min = 0.0, max = 0.5))]
+    pub ambient_blur: f32,
 }
 
 impl Default for ViewerConfig {
@@ -83,6 +86,8 @@ impl Default for ViewerConfig {
             hot_reload: true,
             max_texture_size: [1920, 1080],
             filter_mode: "Linear".to_string(),
+            fit_mode: "Fit".to_string(),
+            ambient_blur: 0.1,
         }
     }
 }

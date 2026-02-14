@@ -224,7 +224,12 @@ impl ApplicationState {
             contrast: 1.0,
             gamma: 1.0,
             saturation: 1.0,
-            _padding: [0.0; 2],
+            fit_mode: if config.viewer.fit_mode == "Ambient" {
+                1
+            } else {
+                0
+            },
+            ambient_blur: config.viewer.ambient_blur,
         };
 
         let uniform_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
@@ -585,6 +590,23 @@ impl ApplicationState {
                     }
                     PhysicalKey::Code(KeyCode::KeyS) => {
                         self.screenshot_requested = true;
+                        true
+                    }
+                    PhysicalKey::Code(KeyCode::KeyA) => {
+                        let is_ambient = self.config.viewer.fit_mode == "Ambient";
+                        self.config.viewer.fit_mode = if is_ambient {
+                            "Fit".to_string()
+                        } else {
+                            "Ambient".to_string()
+                        };
+                        self.show_osd(
+                            if is_ambient {
+                                "Fit: Normal"
+                            } else {
+                                "Fit: Ambient"
+                            }
+                            .to_string(),
+                        );
                         true
                     }
                     // Color adjustments (mpv-like: 1/2=contrast, 3/4=brightness, 5/6=gamma, 7/8=saturation)
@@ -953,7 +975,12 @@ impl ApplicationState {
                 contrast: self.color_contrast,
                 gamma: self.color_gamma,
                 saturation: self.color_saturation,
-                _padding: [0.0; 2],
+                fit_mode: if self.config.viewer.fit_mode == "Ambient" {
+                    1
+                } else {
+                    0
+                },
+                ambient_blur: self.config.viewer.ambient_blur,
             };
 
             self.queue
