@@ -810,17 +810,16 @@ impl ApplicationState {
     fn spawn_explorer(path: &std::path::Path) -> std::io::Result<()> {
         #[cfg(windows)]
         {
-            // Use canonicalize to get an absolute path with backslashes,
-            // then strip the \\?\ prefix that Windows canonicalize adds.
+            use std::os::windows::process::CommandExt;
+            // canonicalize gives an absolute path with backslashes;
+            // strip the \\?\ prefix that Windows canonicalize adds.
             let abs = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
-            let abs_str = abs
-                .to_str()
-                .unwrap_or_default()
-                .strip_prefix(r"\\?\")
-                .unwrap_or(abs.to_str().unwrap_or_default());
-            // explorer /select, requires raw command line (not individually quoted args)
-            std::process::Command::new("cmd")
-                .args(["/c", "explorer", &format!("/select,{}", abs_str)])
+            let abs_lossy = abs.to_string_lossy();
+            let clean = abs_lossy.strip_prefix(r"\\?\").unwrap_or(&abs_lossy);
+            info!("Opening explorer for: {}", clean);
+            // raw_arg avoids Rust's auto-quoting so explorer sees /select,<path> verbatim
+            std::process::Command::new("explorer")
+                .raw_arg(format!("/select,\"{}\"", clean))
                 .spawn()?;
         }
         #[cfg(target_os = "macos")]
