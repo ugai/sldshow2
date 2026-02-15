@@ -17,7 +17,8 @@ No unit tests — testing is manual only.
 
 | File | Responsibility |
 |---|---|
-| `main.rs` | Event loop, `ApplicationState`, input handling |
+| `main.rs` | Event loop, `ApplicationState`, action execution |
+| `input.rs` | Input event handling (keyboard, mouse, cursor) |
 | `transition.rs` | wgpu render pipeline, 20 WGSL transition effects |
 | `image_loader.rs` | Async texture loading (rayon + channels) |
 | `text.rs` | glyphon text rendering |

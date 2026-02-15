@@ -8,7 +8,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use wgpu::util::DeviceExt;
 use winit::{
-    event::{ElementState, Event, KeyEvent, MouseButton, WindowEvent},
+    event::{ElementState, Event, KeyEvent, WindowEvent},
     event_loop::EventLoopBuilder,
     keyboard::{KeyCode, PhysicalKey},
     window::WindowBuilder,
@@ -18,6 +18,7 @@ mod config;
 mod drag_drop;
 mod error;
 mod image_loader;
+mod input;
 mod screenshot;
 mod text;
 mod timer;
@@ -26,12 +27,11 @@ mod transition;
 use config::Config;
 use drag_drop::DragDropHandler;
 use image_loader::TextureManager;
+use input::{InputAction, InputHandler};
 use screenshot::ScreenshotCapture;
 use text::TextRenderer;
 use timer::SlideshowTimer;
 use transition::{TransitionPipeline, TransitionUniform};
-
-const TIMER_STEP_LARGE: f32 = 60.0;
 
 struct ApplicationState {
     surface: wgpu::Surface<'static>,
@@ -47,6 +47,7 @@ struct ApplicationState {
     pipeline: TransitionPipeline,
     slideshow: SlideshowTimer,
     text_renderer: TextRenderer,
+    input_handler: InputHandler,
 
     // Rendering resources
     uniform_buffer: wgpu::Buffer,
@@ -57,15 +58,6 @@ struct ApplicationState {
     transition: Option<ActiveTransition>,
     // The texture currently being displayed (when no transition active)
     current_texture_index: Option<usize>,
-
-    // Input state
-    last_cursor_move: Instant,
-    cursor_visible: bool,
-    last_click_time: Option<Instant>,
-    drag_start_cursor: Option<winit::dpi::PhysicalPosition<f64>>,
-    is_dragging: bool,
-    ignore_next_release: bool,
-    cursor_pos: Option<winit::dpi::PhysicalPosition<f64>>,
 
     // OSD (top-right, reactive feedback)
     osd_message: Option<(String, Instant)>,
@@ -258,17 +250,11 @@ impl ApplicationState {
             pipeline,
             slideshow,
             text_renderer,
+            input_handler: InputHandler::new(),
             uniform_buffer,
             bind_group: None,
             transition: None,
             current_texture_index,
-            last_cursor_move: Instant::now(),
-            cursor_visible: true,
-            last_click_time: None,
-            drag_start_cursor: None,
-            is_dragging: false,
-            ignore_next_release: false,
-            cursor_pos: None,
             osd_message: None,
             show_filename_text,
             filename_bar_temp_expiry: None,
@@ -298,383 +284,183 @@ impl ApplicationState {
     }
 
     fn input(&mut self, event: &WindowEvent, modifiers: &winit::keyboard::ModifiersState) -> bool {
-        match event {
-            WindowEvent::CursorMoved { position, .. } => {
-                self.last_cursor_move = Instant::now();
-                // self.cursor_pos = Some(*position); // Moved to calculation below
-                if !self.cursor_visible {
-                    self.window.set_cursor_visible(true);
-                    self.cursor_visible = true;
-                }
+        let fullscreen = self.window.fullscreen().is_some();
+        let image_count = self.texture_manager.len();
+        let (consumed, action) = self.input_handler.handle_event(
+            event,
+            modifiers,
+            &self.window,
+            fullscreen,
+            image_count,
+        );
 
-                // Drag Logic
-                // We calculate screen position to be robust against window moving/resizing (e.g. fullscreen toggle)
-                let Some(client_origin) = self.window.inner_position().ok() else {
-                    // Can't determine window position (e.g. Wayland); skip drag calculation
-                    self.cursor_pos =
-                        Some(winit::dpi::PhysicalPosition::new(position.x, position.y));
-                    return false;
-                };
-                let screen_pos_x = client_origin.x as f64 + position.x;
-                let screen_pos_y = client_origin.y as f64 + position.y;
-                let screen_pos = winit::dpi::PhysicalPosition::new(screen_pos_x, screen_pos_y);
+        // Sync cursor visibility state with window
+        if self.input_handler.cursor_visible {
+            self.window.set_cursor_visible(true);
+        }
 
-                if let Some(start_pos) = self.drag_start_cursor {
-                    let dx = screen_pos.x - start_pos.x;
-                    let dy = screen_pos.y - start_pos.y;
-                    let dist_sq = dx * dx + dy * dy;
+        if let Some(action) = action {
+            self.execute_input_action(action);
+        }
 
-                    if !self.is_dragging && dist_sq > 25.0 {
-                        // 5px threshold
-                        self.is_dragging = true;
-                    }
+        consumed
+    }
 
-                    if self.is_dragging {
-                        // Check if fullscreen
-                        if self.window.fullscreen().is_some() {
-                            self.window.set_fullscreen(None);
-                            // Update drag start to current screen pos so we don't jump if logic had lag,
-                            // though with screen coords it should be fine.
-                            // But exiting fullscreen might take a frame.
-                            self.drag_start_cursor = Some(screen_pos);
-                            return true;
-                        }
-
-                        if let Ok(outer_pos) = self.window.outer_position() {
-                            let new_x = outer_pos.x + dx as i32;
-                            let new_y = outer_pos.y + dy as i32;
-                            self.window
-                                .set_outer_position(winit::dpi::PhysicalPosition::new(
-                                    new_x, new_y,
-                                ));
-
-                            // IMPORTANT: Update start pos so we don't accumulate delta from original start
-                            // recursively if we keep adding dx to Window Pos?
-                            // Wait, if we use `start_pos` (constant during drag) and `dx` (growing),
-                            // then `new_pos = original_outer_pos + dx`.
-                            // We need `original_outer_pos` stored at start of drag?
-                            // OR we use incremental delta.
-                            // `dx` here is "Movement since START of drag".
-                            // `outer_pos` is CURRENT window pos.
-                            // If we add `dx` to `current`, we fly away exponentially.
-                            // We need `dx` since *last frame*?
-                            // `dx = screen_pos - last_screen_pos`.
-                            // We need to track `last_screen_pos`.
-                            // `drag_start_cursor` is currently treated as "Start of Drag".
-                            // Let's change usage: `drag_start_cursor` -> `last_drag_pos`.
-
-                            self.drag_start_cursor = Some(screen_pos);
-                        }
-                    }
-                } else if self.cursor_pos.is_some() {
-                    // Update cursor pos for potential click/drag start
-                    // We only start detailed tracking when button is pressed?
-                    // Actually we need to track this *before* press to have valid start?
-                    // No, press sets `cursor_pos`.
-                }
-                // Store current screen pos as "cursor_pos" for drag start initiation
-                self.cursor_pos = Some(screen_pos);
-                false
-            }
-            WindowEvent::MouseInput {
-                state: ElementState::Pressed,
-                button,
-                ..
-            } => {
-                self.last_cursor_move = Instant::now();
-                match button {
-                    MouseButton::Left => {
-                        // Double Click
-                        let now = Instant::now();
-                        if let Some(last) = self.last_click_time {
-                            if now.duration_since(last).as_millis() < 300 {
-                                let fullscreen = self.window.fullscreen().is_some();
-                                self.window.set_fullscreen(if fullscreen {
-                                    None
-                                } else {
-                                    Some(winit::window::Fullscreen::Borderless(None))
-                                });
-                                self.show_osd(
-                                    if fullscreen {
-                                        "Fullscreen: OFF"
-                                    } else {
-                                        "Fullscreen: ON"
-                                    }
-                                    .to_string(),
-                                );
-                                self.last_click_time = None;
-                                self.ignore_next_release = true; // Don't trigger 'next' on this release
-                                return true;
-                            }
-                        }
-                        self.last_click_time = Some(now);
-
-                        // Start tracking for Drag (or Click)
-                        if let Some(pos) = self.cursor_pos {
-                            // Initialize Drag Start with Screen Position
-                            self.drag_start_cursor = Some(pos);
-                        }
-
-                        self.is_dragging = false;
-                        self.ignore_next_release = false;
-
-                        true
-                    }
-                    MouseButton::Right => {
-                        self.prev_image();
-                        true
-                    }
-                    _ => false,
-                }
-            }
-            WindowEvent::MouseInput {
-                state: ElementState::Released,
-                button: MouseButton::Left,
-                ..
-            } => {
-                self.drag_start_cursor = None;
-                if self.is_dragging {
-                    self.is_dragging = false;
-                } else if !self.ignore_next_release {
+    fn execute_input_action(&mut self, action: InputAction) {
+        match action {
+            InputAction::NextImage { steps } => {
+                for _ in 0..steps {
                     self.next_image();
                 }
-                true
             }
-            WindowEvent::MouseWheel { delta, .. } => {
-                self.last_cursor_move = Instant::now();
-                let steps = if modifiers.shift_key() { 10 } else { 1 };
-                // Simple wheel handling: any movement up/down triggers next/prev
-                match delta {
-                    winit::event::MouseScrollDelta::LineDelta(_, y) => {
-                        if *y > 0.0 {
-                            for _ in 0..steps {
-                                self.prev_image();
-                            }
-                        } else if *y < 0.0 {
-                            for _ in 0..steps {
-                                self.next_image();
-                            }
-                        }
-                        true
-                    }
-                    winit::event::MouseScrollDelta::PixelDelta(pos) => {
-                        if pos.y > 0.0 {
-                            for _ in 0..steps {
-                                self.prev_image();
-                            }
-                        } else if pos.y < 0.0 {
-                            for _ in 0..steps {
-                                self.next_image();
-                            }
-                        }
-                        true
-                    }
+            InputAction::PrevImage { steps } => {
+                for _ in 0..steps {
+                    self.prev_image();
                 }
             }
-            WindowEvent::KeyboardInput {
-                event:
-                    KeyEvent {
-                        state: ElementState::Pressed,
-                        physical_key,
-                        logical_key: _,
-                        ..
-                    },
-                ..
-            } => {
-                self.last_cursor_move = Instant::now(); // Typing wakes cursor
-
-                // Check for keys that work with any modifiers or specific combinations
-                match physical_key {
-                    PhysicalKey::Code(KeyCode::ArrowRight) | PhysicalKey::Code(KeyCode::Space) => {
-                        let steps = if modifiers.shift_key() { 10 } else { 1 };
-                        for _ in 0..steps {
-                            self.next_image();
-                        }
-                        true
+            InputAction::JumpTo(index) => self.jump_to(index),
+            InputAction::TogglePause => {
+                self.slideshow.toggle_pause();
+                info!("Slideshow paused: {}", self.slideshow.paused);
+                self.show_osd(
+                    if self.slideshow.paused {
+                        "Paused"
+                    } else {
+                        "Resumed"
                     }
-                    PhysicalKey::Code(KeyCode::ArrowLeft) => {
-                        let steps = if modifiers.shift_key() { 10 } else { 1 };
-                        for _ in 0..steps {
-                            self.prev_image();
-                        }
-                        true
+                    .to_string(),
+                );
+            }
+            InputAction::ToggleFullscreen => {
+                let fullscreen = self.window.fullscreen().is_some();
+                self.window.set_fullscreen(if fullscreen {
+                    None
+                } else {
+                    Some(winit::window::Fullscreen::Borderless(None))
+                });
+                self.show_osd(
+                    if fullscreen {
+                        "Fullscreen: OFF"
+                    } else {
+                        "Fullscreen: ON"
                     }
-                    PhysicalKey::Code(KeyCode::Home) => {
-                        self.jump_to(0);
-                        true
+                    .to_string(),
+                );
+            }
+            InputAction::SetFullscreen(fullscreen) => {
+                self.window.set_fullscreen(if fullscreen {
+                    Some(winit::window::Fullscreen::Borderless(None))
+                } else {
+                    None
+                });
+                self.show_osd(
+                    if fullscreen {
+                        "Fullscreen: ON"
+                    } else {
+                        "Fullscreen: OFF"
                     }
-                    PhysicalKey::Code(KeyCode::End) => {
-                        let last = self.texture_manager.len().saturating_sub(1);
-                        self.jump_to(last);
-                        true
+                    .to_string(),
+                );
+            }
+            InputAction::ToggleDecorations => {
+                let decorated = self.window.is_decorated();
+                self.window.set_decorations(!decorated);
+                self.show_osd(
+                    if !decorated {
+                        "Decorations: ON"
+                    } else {
+                        "Decorations: OFF"
                     }
-                    PhysicalKey::Code(KeyCode::KeyP) => {
-                        self.slideshow.toggle_pause();
-                        info!("Slideshow paused: {}", self.slideshow.paused);
-                        self.show_osd(
-                            if self.slideshow.paused {
-                                "Paused"
-                            } else {
-                                "Resumed"
-                            }
-                            .to_string(),
-                        );
-                        true
+                    .to_string(),
+                );
+            }
+            InputAction::ToggleAlwaysOnTop => {
+                let always_on_top = !self.config.window.always_on_top;
+                self.config.window.always_on_top = always_on_top;
+                self.window.set_window_level(if always_on_top {
+                    winit::window::WindowLevel::AlwaysOnTop
+                } else {
+                    winit::window::WindowLevel::Normal
+                });
+                self.show_osd(
+                    if always_on_top {
+                        "Always On Top: ON"
+                    } else {
+                        "Always On Top: OFF"
                     }
-                    PhysicalKey::Code(KeyCode::KeyF) => {
-                        let fullscreen = self.window.fullscreen().is_some();
-                        self.window.set_fullscreen(if fullscreen {
-                            None
-                        } else {
-                            Some(winit::window::Fullscreen::Borderless(None))
-                        });
-                        self.show_osd(
-                            if fullscreen {
-                                "Fullscreen: OFF"
-                            } else {
-                                "Fullscreen: ON"
-                            }
-                            .to_string(),
-                        );
-                        true
-                    }
-                    PhysicalKey::Code(KeyCode::KeyD) => {
-                        let decorated = self.window.is_decorated();
-                        self.window.set_decorations(!decorated);
-                        self.show_osd(
-                            if !decorated {
-                                "Decorations: ON"
-                            } else {
-                                "Decorations: OFF"
-                            }
-                            .to_string(),
-                        );
-                        true
-                    }
-                    PhysicalKey::Code(KeyCode::KeyT) => {
-                        let always_on_top = !self.config.window.always_on_top;
-                        self.config.window.always_on_top = always_on_top;
-                        self.window.set_window_level(if always_on_top {
-                            winit::window::WindowLevel::AlwaysOnTop
-                        } else {
-                            winit::window::WindowLevel::Normal
-                        });
-                        self.show_osd(
-                            if always_on_top {
-                                "Always On Top: ON"
-                            } else {
-                                "Always On Top: OFF"
-                            }
-                            .to_string(),
-                        );
-                        true
-                    }
-                    PhysicalKey::Code(KeyCode::BracketLeft) => {
-                        let delta = if modifiers.shift_key() {
-                            TIMER_STEP_LARGE
-                        } else {
-                            self.timer_step(false)
-                        };
-                        self.adjust_timer(-delta);
-                        true
-                    }
-                    PhysicalKey::Code(KeyCode::BracketRight) => {
-                        let delta = if modifiers.shift_key() {
-                            TIMER_STEP_LARGE
-                        } else {
-                            self.timer_step(true)
-                        };
-                        self.adjust_timer(delta);
-                        true
-                    }
-                    PhysicalKey::Code(KeyCode::Backspace) => {
-                        self.reset_timer();
-                        true
-                    }
-                    PhysicalKey::Code(KeyCode::KeyS) => {
-                        self.screenshot_requested = true;
-                        true
-                    }
-                    // Color adjustments (mpv-like: 1/2=contrast, 3/4=brightness, 5/6=gamma, 7/8=saturation)
-                    PhysicalKey::Code(
-                        key @ (KeyCode::Digit1
-                        | KeyCode::Digit2
-                        | KeyCode::Digit3
-                        | KeyCode::Digit4
-                        | KeyCode::Digit5
-                        | KeyCode::Digit6
-                        | KeyCode::Digit7
-                        | KeyCode::Digit8),
-                    ) if !modifiers.alt_key()
-                        && !modifiers.shift_key()
-                        && !modifiers.control_key() =>
-                    {
-                        self.handle_color_key(*key);
-                        true
-                    }
-                    PhysicalKey::Code(KeyCode::KeyI) => {
-                        if modifiers.shift_key() {
-                            let visible = self.text_renderer.toggle_info_overlay();
-                            self.info_temp_expiry = None; // Clear temp when toggling persistent
-                            if !visible {
-                                self.text_renderer.set_info_text("");
-                            }
-                            self.show_osd(
-                                if visible { "Info: ON" } else { "Info: OFF" }.to_string(),
-                            );
-                        } else if !self.text_renderer.info_overlay_visible() {
-                            // Temporarily show info in top-left (same area as I persistent)
-                            let info = self.build_info_string();
-                            self.text_renderer.set_info_text(&info);
-                            self.info_temp_expiry =
-                                Some(Instant::now() + Duration::from_millis(1500));
-                        }
-                        true
-                    }
-                    PhysicalKey::Code(KeyCode::KeyO) => {
-                        if modifiers.shift_key() {
-                            self.show_filename_text = !self.show_filename_text;
-                            self.filename_bar_temp_expiry = None; // Clear temp when toggling persistent
-                            self.show_osd(
-                                if self.show_filename_text {
-                                    "Filename: ON"
-                                } else {
-                                    "Filename: OFF"
-                                }
-                                .to_string(),
-                            );
-                        } else if !self.show_filename_text {
-                            // Temporarily show filename bar (same bottom-left area as O)
-                            self.filename_bar_temp_expiry =
-                                Some(Instant::now() + Duration::from_millis(1500));
-                        }
-                        true
-                    }
-                    PhysicalKey::Code(KeyCode::KeyL) => {
-                        self.config.viewer.pause_at_last = !self.config.viewer.pause_at_last;
-                        let status = if self.config.viewer.pause_at_last {
-                            "Loop: OFF"
-                        } else {
-                            "Loop: ON"
-                        };
-                        info!("{}", status);
-                        self.show_osd(status.to_string());
-                        true
-                    }
-                    PhysicalKey::Code(KeyCode::KeyA) => {
-                        if self.config.viewer.fit_mode == "AmbientFit" {
-                            self.config.viewer.fit_mode = "Fit".to_string();
-                            self.show_osd("Fit: Normal".to_string());
-                        } else {
-                            self.config.viewer.fit_mode = "AmbientFit".to_string();
-                            self.show_osd("Fit: Ambient".to_string());
-                        }
-                        true
-                    }
-                    _ => false,
+                    .to_string(),
+                );
+            }
+            InputAction::AdjustTimer(mut delta) => {
+                // Recalculate delta for non-Shift keys
+                if delta.abs() == 1.0 {
+                    delta = if delta > 0.0 {
+                        self.timer_step(true)
+                    } else {
+                        -self.timer_step(false)
+                    };
+                }
+                self.adjust_timer(delta);
+            }
+            InputAction::ResetTimer => self.reset_timer(),
+            InputAction::Screenshot => self.screenshot_requested = true,
+            InputAction::ColorAdjust { key } => self.handle_color_key(key),
+            InputAction::ToggleInfoOverlay => {
+                let visible = self.text_renderer.toggle_info_overlay();
+                self.info_temp_expiry = None;
+                if !visible {
+                    self.text_renderer.set_info_text("");
+                }
+                self.show_osd(if visible { "Info: ON" } else { "Info: OFF" }.to_string());
+            }
+            InputAction::ShowInfoTemporary => {
+                if !self.text_renderer.info_overlay_visible() {
+                    let info = self.build_info_string();
+                    self.text_renderer.set_info_text(&info);
+                    self.info_temp_expiry = Some(Instant::now() + Duration::from_millis(1500));
                 }
             }
-            _ => false,
+            InputAction::ToggleFilenameDisplay => {
+                self.show_filename_text = !self.show_filename_text;
+                self.filename_bar_temp_expiry = None;
+                self.show_osd(
+                    if self.show_filename_text {
+                        "Filename: ON"
+                    } else {
+                        "Filename: OFF"
+                    }
+                    .to_string(),
+                );
+            }
+            InputAction::ShowFilenameTemporary => {
+                if !self.show_filename_text {
+                    self.filename_bar_temp_expiry =
+                        Some(Instant::now() + Duration::from_millis(1500));
+                }
+            }
+            InputAction::ToggleLoop => {
+                self.config.viewer.pause_at_last = !self.config.viewer.pause_at_last;
+                let status = if self.config.viewer.pause_at_last {
+                    "Loop: OFF"
+                } else {
+                    "Loop: ON"
+                };
+                info!("{}", status);
+                self.show_osd(status.to_string());
+            }
+            InputAction::ToggleFitMode => {
+                if self.config.viewer.fit_mode == "AmbientFit" {
+                    self.config.viewer.fit_mode = "Fit".to_string();
+                    self.show_osd("Fit: Normal".to_string());
+                } else {
+                    self.config.viewer.fit_mode = "AmbientFit".to_string();
+                    self.show_osd("Fit: Ambient".to_string());
+                }
+            }
+            InputAction::SetWindowPosition { x, y } => {
+                self.window
+                    .set_outer_position(winit::dpi::PhysicalPosition::new(x, y));
+            }
         }
     }
 
@@ -706,7 +492,6 @@ impl ApplicationState {
         }
     }
 
-    /// Timer step: 1s when <= 5s, 5s when > 5s (sequence: 0,1,2,3,4,5,10,15,...)
     fn timer_step(&self, increasing: bool) -> f32 {
         let current = self.slideshow.duration();
         if increasing && current < 5.0 || !increasing && current <= 5.0 {
@@ -792,10 +577,6 @@ impl ApplicationState {
         format!("{}\n{} {}\n{}", path, resolution, format, file_size)
     }
 
-    fn show_osd(&mut self, text: String) {
-        self.osd_message = Some((text, Instant::now() + Duration::from_millis(1500)));
-    }
-
     fn open_explorer(&mut self) {
         let Some(path) = self.texture_manager.current_path() else {
             self.show_osd("No image loaded".to_string());
@@ -872,9 +653,11 @@ impl ApplicationState {
 
     fn update(&mut self) {
         // Auto-hide cursor
-        if self.cursor_visible && self.last_cursor_move.elapsed().as_secs_f32() > 3.0 {
+        if self.input_handler.cursor_visible
+            && self.input_handler.last_cursor_move.elapsed().as_secs_f32() > 3.0
+        {
             self.window.set_cursor_visible(false);
-            self.cursor_visible = false;
+            self.input_handler.cursor_visible = false;
         }
 
         // Process drag & drop
@@ -1127,6 +910,10 @@ impl ApplicationState {
         output.present();
 
         Ok(())
+    }
+
+    fn show_osd(&mut self, text: String) {
+        self.osd_message = Some((text, Instant::now() + Duration::from_millis(1500)));
     }
 }
 
