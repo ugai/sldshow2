@@ -129,13 +129,13 @@ quests that are approved.
 
 ## 6. Post Quests to the Board
 
-For each approved quest, create a GitHub Issue:
+For each approved quest:
 
-```bash
-gh issue create \
-  --title "<type>: <concise description>" \
-  --label "agent:proposed,<labels>" \
-  --body "$(cat <<EOF
+1. Write the issue body to a temporary file (ensures correct UTF-8 encoding
+   and avoids shell escaping issues with heredocs on Windows):
+
+```markdown
+<!-- issue_body.md -->
 ## Summary
 
 <1-2 sentence description of what and why>
@@ -153,16 +153,33 @@ gh issue create \
 
 - Estimated files to change: <list of files>
 - Complexity: small | medium
-> Quest proposed by **$MODEL_NAME** (Guild Quest Receptionist)
-EOF
-)"
+
+---
+> Quest proposed by **<your model name>** (Guild Quest Receptionist)
 ```
+
+2. Create the issue using `--body-file`:
+
+```bash
+gh issue create \
+  --title "<type>: <concise description>" \
+  --label "agent:proposed,<labels>" \
+  --body-file issue_body.md
+```
+
+3. Delete the temporary file after each issue is created.
+
+**After posting the first quest**, verify it renders correctly on GitHub
+(`gh issue view <number> --web` or fetch the body via API). If encoding or
+formatting is broken, fix your approach before posting the rest.
 
 ### Title Format
 Use Conventional Commits: `feat:`, `fix:`, `refactor:`, `perf:`, `chore:`
 
 ### Labels
 Apply these labels as appropriate:
+- **Always**: `agent:proposed` — marks the issue as AI-generated. This is
+  required on every quest posted by this skill.
 - **Type**: `enhancement` or `bug`
 - **Phase**: `phase:1` (quick wins, foundation), `phase:2` (core enhancements),
   or `phase:3` (advanced/experimental)
@@ -206,5 +223,10 @@ Skipped: M ideas (duplicates or out of scope)
 - **English only** for quest titles and descriptions.
 - **Be specific** — reference file paths, function names, and line numbers
   where relevant.
+- **Attribution** — every quest body must end with the footer
+  `> Quest proposed by **<model>** (Guild Quest Receptionist)` where `<model>`
+  is your actual model name (e.g., "Gemini 2.5 Pro", "Claude Opus 4.6").
+  Write it directly into the body text — do not rely on shell variable
+  expansion.
 - **Respect the roadmap** — do not contradict or duplicate the guild's
   existing quest plans (open issues, phase labels).
