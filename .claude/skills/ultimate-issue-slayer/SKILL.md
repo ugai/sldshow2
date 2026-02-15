@@ -80,8 +80,13 @@ Pattern A.
 4. Claim the issue immediately:
    ```bash
    gh issue edit <N> --add-assignee "@me"
-   gh issue comment <N> --body "Starting work on this issue."
+   gh issue comment <N> --body "🤖 Starting work on this issue.
+
+   Agent: **<agent-name>** | Model: **<model-name>** | Tool: **<tool-name>**"
    ```
+   - `<agent-name>` — The agent definition name (e.g., `issue-slayer`).
+   - `<model-name>` — The actual model powering this session (e.g., `Claude Sonnet 4.5`, `Claude Opus 4.6`). Determined from your system prompt.
+   - `<tool-name>` — The client tool (e.g., `Claude Code`).
 5. If assignment fails (race condition), pick another issue.
 6. Now proceed with worktree creation (step 0.3) using the issue details.
 
