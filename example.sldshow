@@ -7,7 +7,7 @@ height = 720
 fullscreen = false
 always_on_top = false
 decorations = true  # Show window titlebar/borders
-resizable = false
+resizable = true
 monitor_index = 0   # Which monitor to display on (0 = primary)
 
 [viewer]
@@ -26,6 +26,9 @@ cache_extent = 5        # Number of images to preload (before/after current)
 max_texture_size = [1920, 1080]  # Max texture resolution for GPU upload
                                  # Lower = faster uploads, less memory
                                  # [0, 0] = use window size (may stutter at 4K+)
+fit_mode = "AmbientFit"                 # "Fit" = black bars, "AmbientFit" = blurred background
+                                 # Toggle at runtime with 'A' key
+ambient_blur = 5.0               # Mip LOD level for AmbientFit blur (0-10, higher = blurrier)
 
 [transition]
 time = 0.5              # Transition duration in seconds
