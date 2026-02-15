@@ -14,6 +14,7 @@ use winit::{
     window::WindowBuilder,
 };
 
+mod clipboard;
 mod config;
 mod drag_drop;
 mod error;
@@ -460,6 +461,24 @@ impl ApplicationState {
             InputAction::SetWindowPosition { x, y } => {
                 self.window
                     .set_outer_position(winit::dpi::PhysicalPosition::new(x, y));
+            }
+            InputAction::CopyImageToClipboard => {
+                if self.texture_manager.paths.is_empty() {
+                    self.show_osd("No Image Loaded".to_string());
+                } else {
+                    let current_path =
+                        &self.texture_manager.paths[self.texture_manager.current_index];
+                    match clipboard::copy_image_to_clipboard(current_path) {
+                        Ok(_) => {
+                            info!("Copied image to clipboard: {}", current_path);
+                            self.show_osd("Copied Image to Clipboard".to_string());
+                        }
+                        Err(e) => {
+                            error!("Failed to copy image to clipboard: {}", e);
+                            self.show_osd(format!("Copy Failed: {}", e));
+                        }
+                    }
+                }
             }
         }
     }

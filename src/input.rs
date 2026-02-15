@@ -32,6 +32,7 @@ pub enum InputAction {
     ToggleLoop,
     ToggleFitMode,
     SetWindowPosition { x: i32, y: i32 },
+    CopyImageToClipboard,
 }
 
 /// Input state tracker.
@@ -295,6 +296,11 @@ impl InputHandler {
             }
             PhysicalKey::Code(KeyCode::KeyL) => Some(InputAction::ToggleLoop),
             PhysicalKey::Code(KeyCode::KeyA) => Some(InputAction::ToggleFitMode),
+            PhysicalKey::Code(KeyCode::KeyC)
+                if modifiers.control_key() && modifiers.shift_key() =>
+            {
+                Some(InputAction::CopyImageToClipboard)
+            }
             _ => None,
         };
 

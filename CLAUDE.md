@@ -24,6 +24,7 @@ No unit tests — testing is manual only.
 | `text.rs` | glyphon text rendering |
 | `config.rs` | TOML configuration (serde) |
 | `slideshow.rs` | Auto-advance timer |
+| `clipboard.rs` | Clipboard operations (copy image data) |
 
 ## Conventions
 
