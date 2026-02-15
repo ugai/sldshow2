@@ -8,10 +8,10 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use wgpu::util::DeviceExt;
 use winit::{
-    event::{ElementState, Event, KeyEvent, WindowEvent},
-    event_loop::EventLoopBuilder,
+    application::ApplicationHandler,
+    event::{ElementState, KeyEvent, WindowEvent},
+    event_loop::{ActiveEventLoop, EventLoop},
     keyboard::{KeyCode, PhysicalKey},
-    window::WindowBuilder,
 };
 
 mod clipboard;
@@ -81,6 +81,9 @@ struct ApplicationState {
 
     // Drag & drop
     drag_drop: DragDropHandler,
+
+    // Input state
+    modifiers: winit::keyboard::ModifiersState,
 }
 
 struct ActiveTransition {
@@ -267,6 +270,7 @@ impl ApplicationState {
             screenshot_requested: false,
             screenshot: ScreenshotCapture::new(),
             drag_drop,
+            modifiers: winit::keyboard::ModifiersState::default(),
         };
 
         state.update_window_title();
@@ -936,6 +940,152 @@ impl ApplicationState {
     }
 }
 
+impl ApplicationHandler for ApplicationState {
+    fn resumed(&mut self, _event_loop: &ActiveEventLoop) {
+        // Window is already created before event loop starts, so nothing to do here
+    }
+
+    fn window_event(
+        &mut self,
+        event_loop: &ActiveEventLoop,
+        window_id: winit::window::WindowId,
+        event: WindowEvent,
+    ) {
+        if window_id != self.window.id() {
+            return;
+        }
+
+        // Update modifiers state
+        if let WindowEvent::ModifiersChanged(new_state) = event {
+            self.modifiers = new_state.state();
+            return;
+        }
+
+        // Try input handler first (extract modifiers to avoid borrow conflict)
+        let modifiers = self.modifiers;
+        if !self.input(&event, &modifiers) {
+            match event {
+                WindowEvent::CloseRequested
+                | WindowEvent::KeyboardInput {
+                    event:
+                        KeyEvent {
+                            state: ElementState::Pressed,
+                            physical_key:
+                                PhysicalKey::Code(KeyCode::Escape) | PhysicalKey::Code(KeyCode::KeyQ),
+                            ..
+                        },
+                    ..
+                } => event_loop.exit(),
+                WindowEvent::Resized(physical_size) => {
+                    self.resize(physical_size);
+                }
+                WindowEvent::RedrawRequested => {
+                    self.update();
+                    match self.render() {
+                        Ok(_) => {}
+                        Err(wgpu::SurfaceError::Lost) => self.resize(self.size),
+                        Err(wgpu::SurfaceError::OutOfMemory) => event_loop.exit(),
+                        Err(e) => error!("Render error: {:?}", e),
+                    }
+                }
+                // Handle Alt+Digit shortcuts for window resizing
+                WindowEvent::KeyboardInput {
+                    event:
+                        KeyEvent {
+                            state: ElementState::Pressed,
+                            physical_key: PhysicalKey::Code(KeyCode::Digit1),
+                            ..
+                        },
+                    ..
+                } => {
+                    if self.modifiers.alt_key() {
+                        let _ = self
+                            .window
+                            .request_inner_size(winit::dpi::LogicalSize::new(1280, 720));
+                        self.show_osd("Resize: 1280x720".to_string());
+                    }
+                }
+                WindowEvent::KeyboardInput {
+                    event:
+                        KeyEvent {
+                            state: ElementState::Pressed,
+                            physical_key: PhysicalKey::Code(KeyCode::Digit2),
+                            ..
+                        },
+                    ..
+                } => {
+                    if self.modifiers.alt_key() {
+                        let _ = self
+                            .window
+                            .request_inner_size(winit::dpi::LogicalSize::new(1920, 1080));
+                        self.show_osd("Resize: 1920x1080".to_string());
+                    }
+                }
+                WindowEvent::KeyboardInput {
+                    event:
+                        KeyEvent {
+                            state: ElementState::Pressed,
+                            physical_key: PhysicalKey::Code(KeyCode::Digit0),
+                            ..
+                        },
+                    ..
+                } => {
+                    if self.modifiers.alt_key() {
+                        let _ = self.window.request_inner_size(winit::dpi::LogicalSize::new(
+                            self.config.window.width,
+                            self.config.window.height,
+                        ));
+                        self.show_osd(format!(
+                            "Resize: {}x{}",
+                            self.config.window.width, self.config.window.height
+                        ));
+                    }
+                }
+                WindowEvent::KeyboardInput {
+                    event:
+                        KeyEvent {
+                            state: ElementState::Pressed,
+                            physical_key: PhysicalKey::Code(KeyCode::KeyC),
+                            ..
+                        },
+                    ..
+                } => {
+                    if self.modifiers.control_key() {
+                        if let Some(path) = self.texture_manager.current_path() {
+                            if let Ok(mut clipboard) = arboard::Clipboard::new() {
+                                if let Err(e) = clipboard.set_text(path.as_str()) {
+                                    error!("Failed to copy to clipboard: {}", e);
+                                } else {
+                                    info!("Copied path to clipboard: {}", path);
+                                    self.show_osd("Copied to Clipboard".to_string());
+                                }
+                            }
+                        }
+                    }
+                }
+                WindowEvent::KeyboardInput {
+                    event:
+                        KeyEvent {
+                            state: ElementState::Pressed,
+                            physical_key: PhysicalKey::Code(KeyCode::KeyE),
+                            ..
+                        },
+                    ..
+                } => {
+                    if self.modifiers.alt_key() {
+                        self.open_explorer();
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+
+    fn about_to_wait(&mut self, _event_loop: &ActiveEventLoop) {
+        self.window.request_redraw();
+    }
+}
+
 fn main() -> Result<()> {
     env_logger::init();
 
@@ -961,31 +1111,34 @@ fn main() -> Result<()> {
     let (drag_drop, drag_drop_tx) = DragDropHandler::new();
 
     let event_loop = {
-        let mut builder = EventLoopBuilder::new();
         #[cfg(windows)]
         {
             use winit::platform::windows::EventLoopBuilderExtWindows;
-            builder.with_msg_hook(drag_drop::build_msg_hook(drag_drop_tx));
+            EventLoop::builder()
+                .with_msg_hook(drag_drop::build_msg_hook(drag_drop_tx))
+                .build()
+                .unwrap()
         }
         #[cfg(not(windows))]
-        drop(drag_drop_tx); // suppress unused-variable on non-Windows
-        builder.build().unwrap()
+        {
+            drop(drag_drop_tx); // suppress unused-variable on non-Windows
+            EventLoop::new().unwrap()
+        }
     };
 
     let transparent = config.style.bg_color[3] < 255;
-    let window = Arc::new(
-        WindowBuilder::new()
-            .with_title("sldshow2")
-            .with_inner_size(winit::dpi::LogicalSize::new(
-                config.window.width,
-                config.window.height,
-            ))
-            .with_decorations(config.window.decorations)
-            .with_resizable(config.window.resizable)
-            .with_transparent(transparent)
-            .build(&event_loop)
-            .unwrap(),
-    );
+    let window_attributes = winit::window::Window::default_attributes()
+        .with_title("sldshow2")
+        .with_inner_size(winit::dpi::LogicalSize::new(
+            config.window.width,
+            config.window.height,
+        ))
+        .with_decorations(config.window.decorations)
+        .with_resizable(config.window.resizable)
+        .with_transparent(transparent);
+
+    #[allow(deprecated)]
+    let window = Arc::new(event_loop.create_window(window_attributes).unwrap());
 
     // Replace winit's OLE drag-and-drop with WM_DROPFILES
     #[cfg(windows)]
@@ -998,144 +1151,7 @@ fn main() -> Result<()> {
         drag_drop,
     ))?;
 
-    let mut modifiers = winit::keyboard::ModifiersState::default();
-
     event_loop
-        .run(move |event, target| match event {
-            Event::WindowEvent {
-                ref event,
-                window_id,
-            } if window_id == window.id() => {
-                // Update modifiers state
-                if let WindowEvent::ModifiersChanged(state) = event {
-                    modifiers = state.state();
-                }
-
-                if !state.input(event, &modifiers) {
-                    match event {
-                        WindowEvent::CloseRequested
-                        | WindowEvent::KeyboardInput {
-                            event:
-                                KeyEvent {
-                                    state: ElementState::Pressed,
-                                    physical_key:
-                                        PhysicalKey::Code(KeyCode::Escape)
-                                        | PhysicalKey::Code(KeyCode::KeyQ),
-                                    ..
-                                },
-                            ..
-                        } => target.exit(),
-                        WindowEvent::Resized(physical_size) => {
-                            state.resize(*physical_size);
-                        }
-                        WindowEvent::RedrawRequested => {
-                            state.update();
-                            match state.render() {
-                                Ok(_) => {}
-                                Err(wgpu::SurfaceError::Lost) => state.resize(state.size),
-                                Err(wgpu::SurfaceError::OutOfMemory) => target.exit(),
-                                Err(e) => error!("Render error: {:?}", e),
-                            }
-                        }
-                        // Handle modifiers for our mocked helper
-                        WindowEvent::KeyboardInput {
-                            event:
-                                KeyEvent {
-                                    state: ElementState::Pressed,
-                                    physical_key: PhysicalKey::Code(KeyCode::Digit1),
-                                    ..
-                                },
-                            ..
-                        } => {
-                            if modifiers.alt_key() {
-                                let _ = state
-                                    .window
-                                    .request_inner_size(winit::dpi::LogicalSize::new(1280, 720));
-                                state.show_osd("Resize: 1280x720".to_string());
-                            }
-                        }
-                        WindowEvent::KeyboardInput {
-                            event:
-                                KeyEvent {
-                                    state: ElementState::Pressed,
-                                    physical_key: PhysicalKey::Code(KeyCode::Digit2),
-                                    ..
-                                },
-                            ..
-                        } => {
-                            if modifiers.alt_key() {
-                                let _ = state
-                                    .window
-                                    .request_inner_size(winit::dpi::LogicalSize::new(1920, 1080));
-                                state.show_osd("Resize: 1920x1080".to_string());
-                            }
-                        }
-                        WindowEvent::KeyboardInput {
-                            event:
-                                KeyEvent {
-                                    state: ElementState::Pressed,
-                                    physical_key: PhysicalKey::Code(KeyCode::Digit0),
-                                    ..
-                                },
-                            ..
-                        } => {
-                            if modifiers.alt_key() {
-                                let _ =
-                                    state
-                                        .window
-                                        .request_inner_size(winit::dpi::LogicalSize::new(
-                                            state.config.window.width,
-                                            state.config.window.height,
-                                        ));
-                                state.show_osd(format!(
-                                    "Resize: {}x{}",
-                                    state.config.window.width, state.config.window.height
-                                ));
-                            }
-                        }
-                        WindowEvent::KeyboardInput {
-                            event:
-                                KeyEvent {
-                                    state: ElementState::Pressed,
-                                    physical_key: PhysicalKey::Code(KeyCode::KeyC),
-                                    ..
-                                },
-                            ..
-                        } => {
-                            if modifiers.control_key() {
-                                if let Some(path) = state.texture_manager.current_path() {
-                                    if let Ok(mut clipboard) = arboard::Clipboard::new() {
-                                        if let Err(e) = clipboard.set_text(path.as_str()) {
-                                            error!("Failed to copy to clipboard: {}", e);
-                                        } else {
-                                            info!("Copied path to clipboard: {}", path);
-                                            state.show_osd("Copied to Clipboard".to_string());
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                        WindowEvent::KeyboardInput {
-                            event:
-                                KeyEvent {
-                                    state: ElementState::Pressed,
-                                    physical_key: PhysicalKey::Code(KeyCode::KeyE),
-                                    ..
-                                },
-                            ..
-                        } => {
-                            if modifiers.alt_key() {
-                                state.open_explorer();
-                            }
-                        }
-                        _ => {}
-                    }
-                }
-            }
-            Event::AboutToWait => {
-                window.request_redraw();
-            }
-            _ => {}
-        })
+        .run_app(&mut state)
         .map_err(|e| anyhow::anyhow!("Event loop error: {}", e))
 }
