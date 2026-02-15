@@ -224,7 +224,12 @@ impl ApplicationState {
             contrast: 1.0,
             gamma: 1.0,
             saturation: 1.0,
-            _padding: [0.0; 2],
+            fit_mode: if config.viewer.fit_mode == "AmbientFit" {
+                1
+            } else {
+                0
+            },
+            ambient_blur: config.viewer.ambient_blur,
         };
 
         let uniform_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
@@ -653,6 +658,16 @@ impl ApplicationState {
                         self.show_osd(status.to_string());
                         true
                     }
+                    PhysicalKey::Code(KeyCode::KeyA) => {
+                        if self.config.viewer.fit_mode == "AmbientFit" {
+                            self.config.viewer.fit_mode = "Fit".to_string();
+                            self.show_osd("Fit: Normal".to_string());
+                        } else {
+                            self.config.viewer.fit_mode = "AmbientFit".to_string();
+                            self.show_osd("Fit: Ambient".to_string());
+                        }
+                        true
+                    }
                     _ => false,
                 }
             }
@@ -953,7 +968,12 @@ impl ApplicationState {
                 contrast: self.color_contrast,
                 gamma: self.color_gamma,
                 saturation: self.color_saturation,
-                _padding: [0.0; 2],
+                fit_mode: if self.config.viewer.fit_mode == "AmbientFit" {
+                    1
+                } else {
+                    0
+                },
+                ambient_blur: self.config.viewer.ambient_blur,
             };
 
             self.queue

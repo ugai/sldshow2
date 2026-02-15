@@ -30,10 +30,10 @@ pub struct TextureManager {
     pub max_texture_size: (u32, u32),
     pub cache_extent: usize,
 
-    // Async loading
+    // Async loading (sends mip chain: Vec[0]=base, Vec[1]=LOD1, ...)
     loading_tasks: HashSet<usize>,
-    tx: Sender<(usize, anyhow::Result<image::RgbaImage>)>,
-    rx: Receiver<(usize, anyhow::Result<image::RgbaImage>)>,
+    tx: Sender<(usize, anyhow::Result<Vec<image::RgbaImage>>)>,
+    rx: Receiver<(usize, anyhow::Result<Vec<image::RgbaImage>>)>,
 }
 
 impl TextureManager {
@@ -132,9 +132,9 @@ impl TextureManager {
         while let Ok((idx, result)) = self.rx.try_recv() {
             self.loading_tasks.remove(&idx);
             match result {
-                Ok(img) => {
-                    let width = img.width();
-                    let height = img.height();
+                Ok(mips) => {
+                    let width = mips[0].width();
+                    let height = mips[0].height();
 
                     let texture_size = wgpu::Extent3d {
                         width,
@@ -145,7 +145,7 @@ impl TextureManager {
                     let texture = device.create_texture(&wgpu::TextureDescriptor {
                         label: Some(&format!("Image Texture {}", idx)),
                         size: texture_size,
-                        mip_level_count: 1,
+                        mip_level_count: mips.len() as u32,
                         sample_count: 1,
                         dimension: wgpu::TextureDimension::D2,
                         format: wgpu::TextureFormat::Rgba8UnormSrgb,
@@ -153,21 +153,27 @@ impl TextureManager {
                         view_formats: &[],
                     });
 
-                    queue.write_texture(
-                        wgpu::TexelCopyTextureInfo {
-                            texture: &texture,
-                            mip_level: 0,
-                            origin: wgpu::Origin3d::ZERO,
-                            aspect: wgpu::TextureAspect::All,
-                        },
-                        &img,
-                        wgpu::TexelCopyBufferLayout {
-                            offset: 0,
-                            bytes_per_row: Some(4 * width),
-                            rows_per_image: Some(height),
-                        },
-                        texture_size,
-                    );
+                    for (level, mip) in mips.iter().enumerate() {
+                        queue.write_texture(
+                            wgpu::TexelCopyTextureInfo {
+                                texture: &texture,
+                                mip_level: level as u32,
+                                origin: wgpu::Origin3d::ZERO,
+                                aspect: wgpu::TextureAspect::All,
+                            },
+                            mip,
+                            wgpu::TexelCopyBufferLayout {
+                                offset: 0,
+                                bytes_per_row: Some(4 * mip.width()),
+                                rows_per_image: Some(mip.height()),
+                            },
+                            wgpu::Extent3d {
+                                width: mip.width(),
+                                height: mip.height(),
+                                depth_or_array_layers: 1,
+                            },
+                        );
+                    }
 
                     let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
 
@@ -180,7 +186,13 @@ impl TextureManager {
                             height,
                         },
                     );
-                    debug!("Uploaded image {} ({}x{})", idx, width, height);
+                    debug!(
+                        "Uploaded image {} ({}x{}, {} mips)",
+                        idx,
+                        width,
+                        height,
+                        mips.len()
+                    );
                 }
                 Err(e) => {
                     error!("Failed to load image {}: {}", idx, e);
@@ -229,7 +241,7 @@ impl TextureManager {
 
 // Standalone functions
 
-fn load_image_rgba(path: &Utf8Path, max_size: (u32, u32)) -> anyhow::Result<image::RgbaImage> {
+fn load_image_rgba(path: &Utf8Path, max_size: (u32, u32)) -> anyhow::Result<Vec<image::RgbaImage>> {
     let img = image::open(path.as_std_path())
         .map_err(|e| anyhow::anyhow!("Failed to open image: {}", e))?;
 
@@ -237,7 +249,30 @@ fn load_image_rgba(path: &Utf8Path, max_size: (u32, u32)) -> anyhow::Result<imag
     let img = apply_exif_rotation(img, path);
 
     let resized = resize_for_gpu(img, max_size.0, max_size.1);
-    Ok(resized.to_rgba8())
+    let base = resized.to_rgba8();
+
+    // Generate mipmap chain on CPU
+    let mip_count = mip_level_count(base.width(), base.height());
+    let mut mips = Vec::with_capacity(mip_count as usize);
+    mips.push(base);
+
+    for _ in 1..mip_count {
+        let prev = mips.last().unwrap();
+        let new_w = (prev.width() / 2).max(1);
+        let new_h = (prev.height() / 2).max(1);
+        mips.push(image::imageops::resize(
+            prev,
+            new_w,
+            new_h,
+            image::imageops::FilterType::Triangle,
+        ));
+    }
+
+    Ok(mips)
+}
+
+fn mip_level_count(width: u32, height: u32) -> u32 {
+    (width.max(height) as f32).log2().floor() as u32 + 1
 }
 
 fn apply_exif_rotation(img: image::DynamicImage, path: &Utf8Path) -> image::DynamicImage {
