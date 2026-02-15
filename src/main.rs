@@ -246,7 +246,7 @@ impl ApplicationState {
             None
         };
 
-        Ok(Self {
+        let state = Self {
             surface,
             device,
             queue,
@@ -280,7 +280,10 @@ impl ApplicationState {
             screenshot_requested: false,
             screenshot: ScreenshotCapture::new(),
             drag_drop,
-        })
+        };
+
+        state.update_window_title();
+        Ok(state)
     }
 
     fn resize(&mut self, new_size: winit::dpi::PhysicalSize<u32>) {
@@ -680,6 +683,7 @@ impl ApplicationState {
         if self.texture_manager.next(self.config.viewer.pause_at_last) {
             self.start_transition(old_index, self.texture_manager.current_index);
             self.slideshow.reset();
+            self.update_window_title();
         }
     }
 
@@ -688,6 +692,7 @@ impl ApplicationState {
         if self.texture_manager.previous() {
             self.start_transition(old_index, self.texture_manager.current_index);
             self.slideshow.reset();
+            self.update_window_title();
         }
     }
 
@@ -697,6 +702,7 @@ impl ApplicationState {
             self.texture_manager.jump_to(index);
             self.start_transition(old_index, self.texture_manager.current_index);
             self.slideshow.reset();
+            self.update_window_title();
         }
     }
 
@@ -837,6 +843,14 @@ impl ApplicationState {
         Ok(())
     }
 
+    fn update_window_title(&self) {
+        if let Some(path) = self.texture_manager.current_path() {
+            let filename = path.file_name().unwrap_or("Unknown");
+            self.window.set_title(&format!("{} - sldshow2", filename));
+        } else {
+            self.window.set_title("sldshow2");
+        }
+    }
     fn start_transition(&mut self, from_index: usize, to_index: usize) {
         let mode = if self.config.transition.random {
             TransitionPipeline::random_mode()
@@ -878,11 +892,13 @@ impl ApplicationState {
                     self.bind_group = None;
                     self.current_texture_index = if count > 0 { Some(0) } else { None };
                     self.slideshow.reset();
+                    self.update_window_title();
                     self.show_osd(format!("Loaded {} images", count));
                     info!("Drag & drop: loaded {} images", count);
                 }
                 Err(e) => {
                     warn!("Drag & drop scan failed: {}", e);
+                    self.update_window_title();
                     self.show_osd("No supported images found".to_string());
                 }
             }
