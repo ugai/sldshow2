@@ -918,7 +918,10 @@ impl ApplicationState {
 
         // Update filename bar (bottom-left) — persistent O or temporary o
         let show_bar = self.show_filename_text || self.filename_bar_temp_expiry.is_some();
-        if show_bar {
+
+        if self.texture_manager.len() == 0 {
+            self.text_renderer.set_text("No images found in path");
+        } else if show_bar {
             if let Some(path) = self.texture_manager.current_path() {
                 let filename = path.file_name().unwrap_or("Unknown");
                 let index = self.texture_manager.current_index + 1;
@@ -926,7 +929,8 @@ impl ApplicationState {
                 self.text_renderer
                     .set_text(&format!("{} [{}/{}]", filename, index, total));
             } else {
-                self.text_renderer.set_text("No images found");
+                // Should be unreachable if len > 0
+                self.text_renderer.set_text("");
             }
         } else {
             self.text_renderer.set_text("");
