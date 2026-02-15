@@ -20,6 +20,7 @@ mod drag_drop;
 mod error;
 mod image_loader;
 mod input;
+mod overlay;
 mod screenshot;
 mod text;
 mod timer;
@@ -29,6 +30,7 @@ use config::Config;
 use drag_drop::DragDropHandler;
 use image_loader::TextureManager;
 use input::{InputAction, InputHandler};
+use overlay::EguiOverlay;
 use screenshot::ScreenshotCapture;
 use text::TextRenderer;
 use timer::SlideshowTimer;
@@ -49,6 +51,7 @@ struct ApplicationState {
     slideshow: SlideshowTimer,
     text_renderer: TextRenderer,
     input_handler: InputHandler,
+    egui_overlay: EguiOverlay,
 
     // Rendering resources
     uniform_buffer: wgpu::Buffer,
@@ -207,6 +210,9 @@ impl ApplicationState {
 
         let slideshow = SlideshowTimer::new(config.viewer.timer);
 
+        // Initialize egui overlay
+        let egui_overlay = EguiOverlay::new(&device, config_format, window.clone());
+
         // Create uniform buffer
         let uniform = TransitionUniform {
             blend: 0.0,
@@ -255,6 +261,7 @@ impl ApplicationState {
             slideshow,
             text_renderer,
             input_handler: InputHandler::new(),
+            egui_overlay,
             uniform_buffer,
             bind_group: None,
             transition: None,
@@ -285,6 +292,7 @@ impl ApplicationState {
             self.surface.configure(&self.device, &self.surface_config);
             self.text_renderer
                 .resize(&self.queue, new_size.width, new_size.height);
+            self.egui_overlay.resize(new_size.width, new_size.height);
         }
     }
 
@@ -675,6 +683,10 @@ impl ApplicationState {
     }
 
     fn update(&mut self) {
+        // Begin egui frame
+        self.egui_overlay.begin_frame(&self.window);
+        self.egui_overlay.build_ui();
+
         // Auto-hide cursor
         if self.input_handler.cursor_visible
             && self.input_handler.last_cursor_move.elapsed().as_secs_f32() > 3.0
@@ -914,6 +926,43 @@ impl ApplicationState {
             }
         }
 
+        // Render egui overlay
+        let egui_output = self.egui_overlay.end_frame(&self.window);
+        let screen_descriptor = egui_wgpu::ScreenDescriptor {
+            size_in_pixels: [self.size.width, self.size.height],
+            pixels_per_point: self.window.scale_factor() as f32,
+        };
+
+        // Prepare egui render data (must happen before creating render pass)
+        let clipped_primitives = self.egui_overlay.prepare_render(
+            &self.device,
+            &self.queue,
+            &mut encoder,
+            &screen_descriptor,
+            egui_output,
+        );
+
+        // Render egui into a dedicated pass
+        {
+            let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("Egui Render Pass"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &view,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Load, // Preserve background
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
+            });
+
+            self.egui_overlay
+                .render(&mut render_pass, &clipped_primitives, &screen_descriptor);
+        }
+
         if self.screenshot_requested {
             self.screenshot_requested = false;
             match self.screenshot.capture(
@@ -961,9 +1010,12 @@ impl ApplicationHandler for ApplicationState {
             return;
         }
 
-        // Try input handler first (extract modifiers to avoid borrow conflict)
+        // Forward event to egui first
+        let egui_consumed = self.egui_overlay.handle_event(&self.window, &event);
+
+        // Try input handler only if egui didn't consume the event
         let modifiers = self.modifiers;
-        if !self.input(&event, &modifiers) {
+        if !egui_consumed && !self.input(&event, &modifiers) {
             match event {
                 WindowEvent::CloseRequested
                 | WindowEvent::KeyboardInput {
@@ -1074,6 +1126,27 @@ impl ApplicationHandler for ApplicationState {
                 } => {
                     if self.modifiers.alt_key() {
                         self.open_explorer();
+                    }
+                }
+                WindowEvent::KeyboardInput {
+                    event:
+                        KeyEvent {
+                            state: ElementState::Pressed,
+                            physical_key: PhysicalKey::Code(KeyCode::KeyG),
+                            ..
+                        },
+                    ..
+                } => {
+                    if self.modifiers.control_key() {
+                        let visible = self.egui_overlay.toggle_demo();
+                        self.show_osd(
+                            if visible {
+                                "egui Overlay: ON"
+                            } else {
+                                "egui Overlay: OFF"
+                            }
+                            .to_string(),
+                        );
                     }
                 }
                 _ => {}
