@@ -790,6 +790,53 @@ impl ApplicationState {
         self.osd_message = Some((text, Instant::now() + Duration::from_millis(1500)));
     }
 
+    fn open_explorer(&mut self) {
+        let Some(path) = self.texture_manager.current_path() else {
+            self.show_osd("No image loaded".to_string());
+            return;
+        };
+
+        let result = Self::spawn_explorer(path.as_std_path());
+
+        match result {
+            Ok(()) => self.show_osd("Opened in Explorer".to_string()),
+            Err(e) => {
+                error!("Failed to open explorer: {}", e);
+                self.show_osd("Failed to open explorer".to_string());
+            }
+        }
+    }
+
+    fn spawn_explorer(path: &std::path::Path) -> std::io::Result<()> {
+        #[cfg(windows)]
+        {
+            use std::os::windows::process::CommandExt;
+            // canonicalize gives an absolute path with backslashes;
+            // strip the \\?\ prefix that Windows canonicalize adds.
+            let abs = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
+            let abs_lossy = abs.to_string_lossy();
+            let clean = abs_lossy.strip_prefix(r"\\?\").unwrap_or(&abs_lossy);
+            info!("Opening explorer for: {}", clean);
+            // raw_arg avoids Rust's auto-quoting so explorer sees /select,<path> verbatim
+            std::process::Command::new("explorer")
+                .raw_arg(format!("/select,\"{}\"", clean))
+                .spawn()?;
+        }
+        #[cfg(target_os = "macos")]
+        {
+            std::process::Command::new("open")
+                .arg("-R")
+                .arg(path)
+                .spawn()?;
+        }
+        #[cfg(all(unix, not(target_os = "macos")))]
+        {
+            let dir = path.parent().unwrap_or(path);
+            std::process::Command::new("xdg-open").arg(dir).spawn()?;
+        }
+        Ok(())
+    }
+
     fn start_transition(&mut self, from_index: usize, to_index: usize) {
         let mode = if self.config.transition.random {
             TransitionPipeline::random_mode()
@@ -1240,6 +1287,19 @@ fn main() -> Result<()> {
                                         }
                                     }
                                 }
+                            }
+                        }
+                        WindowEvent::KeyboardInput {
+                            event:
+                                KeyEvent {
+                                    state: ElementState::Pressed,
+                                    physical_key: PhysicalKey::Code(KeyCode::KeyE),
+                                    ..
+                                },
+                            ..
+                        } => {
+                            if modifiers.alt_key() {
+                                state.open_explorer();
                             }
                         }
                         _ => {}
