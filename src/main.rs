@@ -810,8 +810,17 @@ impl ApplicationState {
     fn spawn_explorer(path: &std::path::Path) -> std::io::Result<()> {
         #[cfg(windows)]
         {
-            std::process::Command::new("explorer")
-                .arg(format!("/select,{}", path.display()))
+            // Use canonicalize to get an absolute path with backslashes,
+            // then strip the \\?\ prefix that Windows canonicalize adds.
+            let abs = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
+            let abs_str = abs
+                .to_str()
+                .unwrap_or_default()
+                .strip_prefix(r"\\?\")
+                .unwrap_or(abs.to_str().unwrap_or_default());
+            // explorer /select, requires raw command line (not individually quoted args)
+            std::process::Command::new("cmd")
+                .args(["/c", "explorer", &format!("/select,{}", abs_str)])
                 .spawn()?;
         }
         #[cfg(target_os = "macos")]
