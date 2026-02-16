@@ -22,7 +22,6 @@ mod image_loader;
 mod input;
 mod overlay;
 mod screenshot;
-mod text;
 mod timer;
 mod transition;
 
@@ -32,7 +31,6 @@ use image_loader::TextureManager;
 use input::{InputAction, InputHandler};
 use overlay::EguiOverlay;
 use screenshot::ScreenshotCapture;
-use text::TextRenderer;
 use timer::SlideshowTimer;
 use transition::{TransitionPipeline, TransitionUniform};
 
@@ -49,7 +47,6 @@ struct ApplicationState {
     texture_manager: TextureManager,
     pipeline: TransitionPipeline,
     slideshow: SlideshowTimer,
-    text_renderer: TextRenderer,
     input_handler: InputHandler,
     egui_overlay: EguiOverlay,
 
@@ -199,19 +196,13 @@ impl ApplicationState {
         }
 
         let pipeline = TransitionPipeline::new(&device, config_format, &config.viewer.filter_mode);
-        let mut text_renderer = TextRenderer::new(
-            &device,
-            &queue,
-            &surface_config,
-            config.style.font_family.as_deref(),
-        )?;
-        // Apply style config
-        text_renderer.set_style(config.style.font_size, config.style.text_color);
 
         let slideshow = SlideshowTimer::new(config.viewer.timer);
 
         // Initialize egui overlay
-        let egui_overlay = EguiOverlay::new(&device, config_format, window.clone());
+        let mut egui_overlay = EguiOverlay::new(&device, config_format, window.clone());
+        // Apply style config
+        egui_overlay.set_style(config.style.font_size, config.style.text_color);
 
         // Create uniform buffer
         let uniform = TransitionUniform {
@@ -259,7 +250,6 @@ impl ApplicationState {
             texture_manager,
             pipeline,
             slideshow,
-            text_renderer,
             input_handler: InputHandler::new(),
             egui_overlay,
             uniform_buffer,
@@ -290,8 +280,6 @@ impl ApplicationState {
             self.surface_config.width = new_size.width;
             self.surface_config.height = new_size.height;
             self.surface.configure(&self.device, &self.surface_config);
-            self.text_renderer
-                .resize(&self.queue, new_size.width, new_size.height);
             self.egui_overlay.resize(new_size.width, new_size.height);
         }
     }
@@ -419,17 +407,17 @@ impl ApplicationState {
             InputAction::Screenshot => self.screenshot_requested = true,
             InputAction::ColorAdjust { key } => self.handle_color_key(key),
             InputAction::ToggleInfoOverlay => {
-                let visible = self.text_renderer.toggle_info_overlay();
+                let visible = self.egui_overlay.toggle_info_overlay();
                 self.info_temp_expiry = None;
                 if !visible {
-                    self.text_renderer.set_info_text("");
+                    self.egui_overlay.set_info_text("");
                 }
                 self.show_osd(if visible { "Info: ON" } else { "Info: OFF" }.to_string());
             }
             InputAction::ShowInfoTemporary => {
-                if !self.text_renderer.info_overlay_visible() {
+                if !self.egui_overlay.info_overlay_visible() {
                     let info = self.build_info_string();
-                    self.text_renderer.set_info_text(&info);
+                    self.egui_overlay.set_info_text(&info);
                     self.info_temp_expiry = Some(Instant::now() + Duration::from_millis(1500));
                 }
             }
@@ -685,7 +673,8 @@ impl ApplicationState {
     fn update(&mut self) {
         // Begin egui frame
         self.egui_overlay.begin_frame(&self.window);
-        self.egui_overlay.build_ui();
+        self.egui_overlay
+            .build_ui(self.size.width as f32 / self.window.scale_factor() as f32);
 
         // Auto-hide cursor
         if self.input_handler.cursor_visible
@@ -754,42 +743,42 @@ impl ApplicationState {
         let show_bar = self.show_filename_text || self.filename_bar_temp_expiry.is_some();
 
         if self.texture_manager.len() == 0 {
-            self.text_renderer.set_text("No images found in path");
+            self.egui_overlay.set_text("No images found in path");
         } else if show_bar {
             if let Some(path) = self.texture_manager.current_path() {
                 let filename = path.file_name().unwrap_or("Unknown");
                 let index = self.texture_manager.current_index + 1;
                 let total = self.texture_manager.len();
-                self.text_renderer
+                self.egui_overlay
                     .set_text(&format!("{} [{}/{}]", filename, index, total));
             } else {
                 // Should be unreachable if len > 0
-                self.text_renderer.set_text("");
+                self.egui_overlay.set_text("");
             }
         } else {
-            self.text_renderer.set_text("");
+            self.egui_overlay.set_text("");
         }
 
         // OSD (top-right) — reactive feedback
         if let Some((ref text, expiry)) = self.osd_message {
             if now > expiry {
                 self.osd_message = None;
-                self.text_renderer.set_osd_text("");
+                self.egui_overlay.set_osd_text("");
             } else {
-                self.text_renderer.set_osd_text(text);
+                self.egui_overlay.set_osd_text(text);
             }
         } else {
-            self.text_renderer.set_osd_text("");
+            self.egui_overlay.set_osd_text("");
         }
 
         // Info overlay (top-left) — persistent I or temporary i
-        if self.text_renderer.info_overlay_visible() {
+        if self.egui_overlay.info_overlay_visible() {
             let info = self.build_info_string();
-            self.text_renderer.set_info_text(&info);
+            self.egui_overlay.set_info_text(&info);
         } else if self.info_temp_expiry.is_some() {
             // Content was already set by key handler; just keep it
         } else {
-            self.text_renderer.set_info_text("");
+            self.egui_overlay.set_info_text("");
         }
     }
 
@@ -900,30 +889,6 @@ impl ApplicationState {
                 occlusion_query_set: None,
                 timestamp_writes: None,
             });
-        }
-
-        {
-            let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("Text Render Pass"),
-                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: &view,
-                    resolve_target: None,
-                    ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Load,
-                        store: wgpu::StoreOp::Store,
-                    },
-                })],
-                depth_stencil_attachment: None,
-                occlusion_query_set: None,
-                timestamp_writes: None,
-            });
-
-            if let Err(e) = self
-                .text_renderer
-                .render(&self.device, &self.queue, &mut render_pass)
-            {
-                error!("Text render error: {}", e);
-            }
         }
 
         // Render egui overlay
@@ -1126,27 +1091,6 @@ impl ApplicationHandler for ApplicationState {
                 } => {
                     if self.modifiers.alt_key() {
                         self.open_explorer();
-                    }
-                }
-                WindowEvent::KeyboardInput {
-                    event:
-                        KeyEvent {
-                            state: ElementState::Pressed,
-                            physical_key: PhysicalKey::Code(KeyCode::KeyG),
-                            ..
-                        },
-                    ..
-                } => {
-                    if self.modifiers.control_key() {
-                        let visible = self.egui_overlay.toggle_demo();
-                        self.show_osd(
-                            if visible {
-                                "egui Overlay: ON"
-                            } else {
-                                "egui Overlay: OFF"
-                            }
-                            .to_string(),
-                        );
                     }
                 }
                 _ => {}
