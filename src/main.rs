@@ -20,6 +20,7 @@ mod drag_drop;
 mod error;
 mod image_loader;
 mod input;
+mod osc;
 mod overlay;
 mod screenshot;
 mod timer;
@@ -29,6 +30,7 @@ use config::Config;
 use drag_drop::DragDropHandler;
 use image_loader::TextureManager;
 use input::{InputAction, InputHandler};
+use osc::OscAction;
 use overlay::EguiOverlay;
 use screenshot::ScreenshotCapture;
 use timer::SlideshowTimer;
@@ -81,6 +83,9 @@ struct ApplicationState {
 
     // Drag & drop
     drag_drop: DragDropHandler,
+
+    // Shuffle state
+    shuffle_enabled: bool,
 
     // Input state
     modifiers: winit::keyboard::ModifiersState,
@@ -235,6 +240,8 @@ impl ApplicationState {
             None
         };
 
+        let shuffle_enabled = config.viewer.shuffle;
+
         let state = Self {
             surface,
             device,
@@ -263,6 +270,7 @@ impl ApplicationState {
             screenshot_requested: false,
             screenshot: ScreenshotCapture::new(),
             drag_drop,
+            shuffle_enabled,
             modifiers: winit::keyboard::ModifiersState::default(),
         };
 
@@ -291,6 +299,11 @@ impl ApplicationState {
             image_count,
         );
 
+        // Update OSC activity on cursor movement
+        if matches!(event, WindowEvent::CursorMoved { .. }) {
+            self.egui_overlay.update_osc_activity();
+        }
+
         // Sync cursor visibility state with window
         if self.input_handler.cursor_visible {
             self.window.set_cursor_visible(true);
@@ -301,6 +314,35 @@ impl ApplicationState {
         }
 
         consumed
+    }
+
+    fn execute_osc_action(&mut self, action: OscAction) {
+        match action {
+            OscAction::PlayPause => {
+                self.slideshow.toggle_pause();
+                info!("Slideshow paused: {}", self.slideshow.paused);
+                self.show_osd(
+                    if self.slideshow.paused {
+                        "Paused"
+                    } else {
+                        "Resumed"
+                    }
+                    .to_string(),
+                );
+            }
+            OscAction::Previous => self.prev_image(),
+            OscAction::Next => self.next_image(),
+            OscAction::ToggleShuffle => {
+                self.shuffle_enabled = !self.shuffle_enabled;
+                let status = if self.shuffle_enabled {
+                    "Shuffle: ON"
+                } else {
+                    "Shuffle: OFF"
+                };
+                info!("{}", status);
+                self.show_osd(status.to_string());
+            }
+        }
     }
 
     fn execute_input_action(&mut self, action: InputAction) {
@@ -671,9 +713,19 @@ impl ApplicationState {
     }
 
     fn update(&mut self) {
+        // Update OSC auto-hide logic
+        self.egui_overlay.update_osc();
+
         // Begin egui frame
         self.egui_overlay.begin_frame(&self.window);
-        self.egui_overlay.build_ui();
+        let osc_action = self
+            .egui_overlay
+            .build_ui(self.slideshow.paused, self.shuffle_enabled);
+
+        // Handle OSC button actions
+        if let Some(action) = osc_action {
+            self.execute_osc_action(action);
+        }
 
         // Auto-hide cursor
         if self.input_handler.cursor_visible
