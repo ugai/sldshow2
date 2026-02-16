@@ -195,7 +195,7 @@ impl ApplicationState {
             texture_manager.shuffle_paths();
         }
 
-        let pipeline = TransitionPipeline::new(&device, config_format, &config.viewer.filter_mode);
+        let pipeline = TransitionPipeline::new(&device, config_format, config.viewer.filter_mode);
 
         let slideshow = SlideshowTimer::new(config.viewer.timer);
 
