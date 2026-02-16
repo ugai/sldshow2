@@ -318,7 +318,10 @@ impl EguiOverlay {
 
     /// Handle window resize
     pub fn resize(&mut self, _width: u32, _height: u32) {
-        // egui_winit handles DPI scaling automatically
-        // Nothing specific needed here unless we store viewport size
+        // egui_winit handles DPI scaling automatically via State::take_egui_input()
+        // which queries the window's scale_factor() on each frame.
+        // ScaleFactorChanged events trigger a window resize, which updates the surface,
+        // and egui automatically adapts to the new scale factor on the next frame.
+        // No manual intervention needed here.
     }
 }
