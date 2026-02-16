@@ -1,6 +1,6 @@
-//! egui overlay rendering for on-screen UI
+//! egui overlay rendering for on-screen UI (filename bar, OSD, debug info)
 
-use egui::{Context, FontDefinitions};
+use egui::{Align2, Color32, Context, FontDefinitions, FontId, RichText};
 use egui_wgpu::Renderer;
 use egui_winit::State;
 use std::sync::Arc;
@@ -8,12 +8,25 @@ use wgpu::{Device, Queue, TextureFormat};
 use winit::event::WindowEvent;
 use winit::window::Window;
 
+/// Vertical margin from screen edge (in pixels)
+const MARGIN: f32 = 10.0;
+
 pub struct EguiOverlay {
     context: Context,
     state: State,
     renderer: Renderer,
-    /// Show demo overlay window
-    show_demo: bool,
+
+    // Text content for three display areas
+    filename_text: String,
+    osd_text: String,
+    info_text: String,
+
+    // Info overlay toggle state
+    show_info_overlay: bool,
+
+    // Style settings
+    font_size: f32,
+    text_color: Color32,
 }
 
 impl EguiOverlay {
@@ -40,8 +53,50 @@ impl EguiOverlay {
             context,
             state,
             renderer,
-            show_demo: true, // Visible by default for testing
+            filename_text: String::new(),
+            osd_text: String::new(),
+            info_text: String::new(),
+            show_info_overlay: false,
+            font_size: 20.0,
+            text_color: Color32::WHITE,
         }
+    }
+
+    /// Set text style (font size and color)
+    pub fn set_style(&mut self, font_size: f32, color_rgba: [u8; 4]) {
+        self.font_size = font_size;
+        self.text_color = Color32::from_rgba_unmultiplied(
+            color_rgba[0],
+            color_rgba[1],
+            color_rgba[2],
+            color_rgba[3],
+        );
+    }
+
+    /// Set filename bar text (bottom-left)
+    pub fn set_text(&mut self, text: &str) {
+        self.filename_text = text.to_string();
+    }
+
+    /// Set OSD text (top-right, reactive feedback)
+    pub fn set_osd_text(&mut self, text: &str) {
+        self.osd_text = text.to_string();
+    }
+
+    /// Set info overlay text (top-left, debug info)
+    pub fn set_info_text(&mut self, text: &str) {
+        self.info_text = text.to_string();
+    }
+
+    /// Toggle info overlay visibility
+    pub fn toggle_info_overlay(&mut self) -> bool {
+        self.show_info_overlay = !self.show_info_overlay;
+        self.show_info_overlay
+    }
+
+    /// Check if info overlay is visible
+    pub fn info_overlay_visible(&self) -> bool {
+        self.show_info_overlay
     }
 
     /// Forward winit events to egui
@@ -58,19 +113,64 @@ impl EguiOverlay {
     }
 
     /// Build UI - call after begin_frame()
-    pub fn build_ui(&mut self) {
-        if self.show_demo {
-            egui::Window::new("egui Integration")
-                .default_pos([10.0, 10.0])
-                .default_size([200.0, 100.0])
-                .show(&self.context, |ui| {
-                    ui.label("egui Integration Active");
-                    ui.separator();
-                    ui.label("Test overlay window");
+    pub fn build_ui(&mut self, screen_width: f32) {
+        let font_id = FontId::proportional(self.font_size);
+        let max_width = (screen_width - MARGIN * 2.0).max(100.0);
 
-                    if ui.button("Close Overlay").clicked() {
-                        self.show_demo = false;
-                    }
+        // Semi-transparent dark background for readability over images
+        let frame = egui::Frame::new()
+            .fill(Color32::from_black_alpha(180))
+            .inner_margin(egui::Margin::same(6))
+            .corner_radius(4.0);
+
+        // Left-side overlays: stack top-down in priority order (filename, then info)
+        let mut next_y = MARGIN;
+        let gap = 4.0; // gap between stacked overlays
+
+        if !self.filename_text.is_empty() {
+            let resp = egui::Area::new("filename_bar".into())
+                .fixed_pos([MARGIN, next_y])
+                .show(&self.context, |ui| {
+                    ui.set_max_width(max_width);
+                    frame.show(ui, |ui| {
+                        ui.label(
+                            RichText::new(&self.filename_text)
+                                .font(font_id.clone())
+                                .color(self.text_color),
+                        );
+                    });
+                });
+            next_y = resp.response.rect.bottom() + gap;
+        }
+
+        if !self.info_text.is_empty() {
+            egui::Area::new("info".into())
+                .fixed_pos([MARGIN, next_y])
+                .show(&self.context, |ui| {
+                    ui.set_max_width(max_width * 0.5);
+                    frame.show(ui, |ui| {
+                        ui.label(
+                            RichText::new(&self.info_text)
+                                .font(font_id.clone())
+                                .color(self.text_color),
+                        );
+                    });
+                });
+        }
+
+        // OSD (top-right, independent position)
+        if !self.osd_text.is_empty() {
+            egui::Area::new("osd".into())
+                .anchor(Align2::RIGHT_TOP, [-MARGIN, MARGIN])
+                .show(&self.context, |ui| {
+                    ui.set_max_width(max_width * 0.5);
+                    frame.show(ui, |ui| {
+                        ui.label(
+                            RichText::new(&self.osd_text)
+                                .font(font_id.clone())
+                                .color(self.text_color),
+                        );
+                    });
                 });
         }
     }
@@ -144,11 +244,5 @@ impl EguiOverlay {
     pub fn resize(&mut self, _width: u32, _height: u32) {
         // egui_winit handles DPI scaling automatically
         // Nothing specific needed here unless we store viewport size
-    }
-
-    /// Toggle demo overlay visibility
-    pub fn toggle_demo(&mut self) -> bool {
-        self.show_demo = !self.show_demo;
-        self.show_demo
     }
 }
