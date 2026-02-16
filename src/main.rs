@@ -480,6 +480,9 @@ impl ApplicationState {
                     }
                 }
             }
+            InputAction::ToggleHelpOverlay => {
+                self.egui_overlay.toggle_help_overlay();
+            }
         }
     }
 
@@ -982,13 +985,28 @@ impl ApplicationHandler for ApplicationState {
         let modifiers = self.modifiers;
         if !egui_consumed && !self.input(&event, &modifiers) {
             match event {
-                WindowEvent::CloseRequested
-                | WindowEvent::KeyboardInput {
+                WindowEvent::CloseRequested => event_loop.exit(),
+                WindowEvent::KeyboardInput {
                     event:
                         KeyEvent {
                             state: ElementState::Pressed,
-                            physical_key:
-                                PhysicalKey::Code(KeyCode::Escape) | PhysicalKey::Code(KeyCode::KeyQ),
+                            physical_key: PhysicalKey::Code(KeyCode::Escape),
+                            ..
+                        },
+                    ..
+                } => {
+                    // Close help overlay if visible, otherwise exit
+                    if self.egui_overlay.help_overlay_visible() {
+                        self.egui_overlay.toggle_help_overlay();
+                    } else {
+                        event_loop.exit();
+                    }
+                }
+                WindowEvent::KeyboardInput {
+                    event:
+                        KeyEvent {
+                            state: ElementState::Pressed,
+                            physical_key: PhysicalKey::Code(KeyCode::KeyQ),
                             ..
                         },
                     ..
