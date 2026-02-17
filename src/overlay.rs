@@ -22,6 +22,7 @@ pub struct EguiOverlay {
     filename_text: String,
     osd_text: String,
     info_text: String,
+    center_error_text: String,
 
     // Info overlay toggle state
     show_info_overlay: bool,
@@ -64,6 +65,7 @@ impl EguiOverlay {
             filename_text: String::new(),
             osd_text: String::new(),
             info_text: String::new(),
+            center_error_text: String::new(),
             show_info_overlay: false,
             show_help_overlay: false,
             osc: OnScreenController::new(),
@@ -96,6 +98,16 @@ impl EguiOverlay {
     /// Set info overlay text (top-left, debug info)
     pub fn set_info_text(&mut self, text: &str) {
         self.info_text = text.to_string();
+    }
+
+    /// Set center error text
+    pub fn set_center_error(&mut self, text: &str) {
+        self.center_error_text = text.to_string();
+    }
+
+    /// Clear center error text
+    pub fn clear_center_error(&mut self) {
+        self.center_error_text.clear();
     }
 
     /// Toggle info overlay visibility
@@ -157,6 +169,22 @@ impl EguiOverlay {
             .fill(Color32::from_black_alpha(180))
             .inner_margin(egui::Margin::same(6))
             .corner_radius(4.0);
+
+        // Center error text (highest priority)
+        if !self.center_error_text.is_empty() {
+            egui::Area::new("center_error".into())
+                .anchor(Align2::CENTER_CENTER, [0.0, 0.0])
+                .show(&self.context, |ui| {
+                    ui.set_max_width(max_width * 0.8);
+                    frame.show(ui, |ui| {
+                        ui.label(
+                            RichText::new(&self.center_error_text)
+                                .font(FontId::proportional(self.font_size * 1.5))
+                                .color(Color32::from_rgb(255, 100, 100)),
+                        );
+                    });
+                });
+        }
 
         // Left-side overlays: stack top-down in priority order (filename, then info)
         let mut next_y = MARGIN;

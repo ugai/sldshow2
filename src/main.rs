@@ -783,6 +783,21 @@ impl ApplicationState {
             self.info_temp_expiry = None;
         }
 
+        // Check for load errors
+        if self.texture_manager.len() > 0 {
+            if let Some(error_msg) = self
+                .texture_manager
+                .get_error(self.texture_manager.current_index)
+            {
+                self.egui_overlay
+                    .set_center_error(&format!("Failed to load:\n{}", error_msg));
+            } else {
+                self.egui_overlay.clear_center_error();
+            }
+        } else {
+            self.egui_overlay.clear_center_error();
+        }
+
         // Update filename bar (bottom-left) — persistent O or temporary o
         let show_bar = self.show_filename_text || self.filename_bar_temp_expiry.is_some();
 
