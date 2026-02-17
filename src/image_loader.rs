@@ -314,7 +314,7 @@ fn mip_level_count(width: u32, height: u32) -> u32 {
     (width.max(height) as f32).log2().floor() as u32 + 1
 }
 
-fn apply_exif_rotation(img: image::DynamicImage, path: &Utf8Path) -> image::DynamicImage {
+pub fn apply_exif_rotation(img: image::DynamicImage, path: &Utf8Path) -> image::DynamicImage {
     use std::fs::File;
     use std::io::BufReader;
 

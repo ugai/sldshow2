@@ -6,11 +6,13 @@
 //! This module provides infrastructure for the future gallery view (issue #45).
 //! Currently unused but ready for integration.
 
-use camino::Utf8Path;
+use camino::{Utf8Path, Utf8PathBuf};
 use image::{GenericImageView, RgbaImage};
 use log::{debug, warn};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::mpsc::{Receiver, Sender, channel};
+
+use crate::image_loader::apply_exif_rotation;
 
 /// Fixed thumbnail dimensions (square, aspect-preserving)
 const THUMBNAIL_SIZE: u32 = 256;
@@ -30,6 +32,8 @@ pub struct ThumbnailManager {
 
     /// Async generation tracking
     loading_tasks: HashSet<usize>,
+    /// Queue of requests waiting for a free concurrent slot
+    pending_queue: VecDeque<(usize, Utf8PathBuf)>,
     tx: Sender<(usize, anyhow::Result<RgbaImage>)>,
     rx: Receiver<(usize, anyhow::Result<RgbaImage>)>,
 }
@@ -38,12 +42,14 @@ pub struct ThumbnailManager {
 impl ThumbnailManager {
     /// Create a new thumbnail manager with bounded cache size.
     pub fn new(max_cache_size: usize) -> Self {
+        assert!(max_cache_size > 0, "max_cache_size must be greater than 0");
         let (tx, rx) = channel();
         Self {
             cache: HashMap::new(),
             lru_order: VecDeque::new(),
             max_cache_size,
             loading_tasks: HashSet::new(),
+            pending_queue: VecDeque::new(),
             tx,
             rx,
         }
@@ -52,25 +58,33 @@ impl ThumbnailManager {
     /// Request thumbnail generation for a specific index.
     /// Returns immediately; call `update()` to process completed thumbnails.
     pub fn request_thumbnail(&mut self, index: usize, path: &Utf8Path) {
-        // Already cached or loading
-        if self.cache.contains_key(&index) || self.loading_tasks.contains(&index) {
+        // Already cached or loading or pending
+        if self.cache.contains_key(&index)
+            || self.loading_tasks.contains(&index)
+            || self.pending_queue.iter().any(|(i, _)| *i == index)
+        {
             return;
         }
 
-        // Enforce concurrency limit
+        // Enforce concurrency limit — queue if at capacity
         if self.loading_tasks.len() >= MAX_CONCURRENT_GENERATION {
+            self.pending_queue.push_back((index, path.to_owned()));
             return;
         }
 
+        self.spawn_generation(index, path.to_owned());
+    }
+
+    /// Spawn a thumbnail generation task on a background thread.
+    fn spawn_generation(&mut self, index: usize, path: Utf8PathBuf) {
         let tx = self.tx.clone();
-        let path_owned = path.to_owned();
 
         self.loading_tasks.insert(index);
 
         std::thread::spawn(move || {
-            let result = generate_thumbnail(&path_owned);
+            let result = generate_thumbnail(&path);
             if tx.send((index, result)).is_err() {
-                warn!("Failed to send thumbnail {} (receiver dropped)", path_owned);
+                warn!("Failed to send thumbnail {} (receiver dropped)", path);
             }
         });
     }
@@ -83,6 +97,9 @@ impl ThumbnailManager {
 
             match result {
                 Ok(thumbnail) => {
+                    // Remove from lru_order if already present (re-generation case)
+                    self.lru_order.retain(|&i| i != index);
+
                     // Evict LRU entry if cache is full
                     if self.cache.len() >= self.max_cache_size {
                         if let Some(evict_index) = self.lru_order.pop_front() {
@@ -94,10 +111,25 @@ impl ThumbnailManager {
                     self.cache.insert(index, thumbnail);
                     self.lru_order.push_back(index);
                     debug!("Cached thumbnail {}", index);
+                    debug_assert_eq!(self.cache.len(), self.lru_order.len());
                 }
                 Err(e) => {
                     warn!("Failed to generate thumbnail {}: {}", index, e);
                 }
+            }
+        }
+
+        // Drain pending queue to start new tasks up to the concurrency limit
+        while self.loading_tasks.len() < MAX_CONCURRENT_GENERATION {
+            match self.pending_queue.pop_front() {
+                Some((index, path)) => {
+                    // Skip if already cached or already loading in the meantime
+                    if self.cache.contains_key(&index) || self.loading_tasks.contains(&index) {
+                        continue;
+                    }
+                    self.spawn_generation(index, path);
+                }
+                None => break,
             }
         }
     }
@@ -109,6 +141,7 @@ impl ThumbnailManager {
             // Move to back of LRU queue (most recently used)
             self.lru_order.retain(|&i| i != index);
             self.lru_order.push_back(index);
+            debug_assert_eq!(self.cache.len(), self.lru_order.len());
         }
         self.cache.get(&index)
     }
@@ -118,8 +151,12 @@ impl ThumbnailManager {
         self.cache.clear();
         self.lru_order.clear();
         self.loading_tasks.clear();
-        // Drain any in-flight results to prevent stale thumbnails
-        while self.rx.try_recv().is_ok() {}
+        self.pending_queue.clear();
+        // Recreate channel so old threads' tx handles are orphaned;
+        // their sends will silently fail without leaking loading_tasks.
+        let (tx, rx) = channel();
+        self.tx = tx;
+        self.rx = rx;
     }
 
     /// Returns the number of cached thumbnails.
@@ -140,7 +177,7 @@ fn generate_thumbnail(path: &Utf8Path) -> anyhow::Result<RgbaImage> {
     let img = image::open(path.as_std_path())
         .map_err(|e| anyhow::anyhow!("Failed to open image: {}", e))?;
 
-    // Apply EXIF rotation (reuse logic from image_loader)
+    // Apply EXIF rotation (shared with image_loader)
     let img = apply_exif_rotation(img, path);
 
     // Resize to fit within 256x256, preserving aspect ratio
@@ -167,40 +204,6 @@ fn generate_thumbnail(path: &Utf8Path) -> anyhow::Result<RgbaImage> {
     Ok(thumbnail)
 }
 
-/// Apply EXIF rotation to an image.
-/// Duplicated from image_loader.rs to keep thumbnail module self-contained.
-#[allow(dead_code)]
-fn apply_exif_rotation(img: image::DynamicImage, path: &Utf8Path) -> image::DynamicImage {
-    use std::fs::File;
-    use std::io::BufReader;
-
-    let file = match File::open(path.as_std_path()) {
-        Ok(f) => f,
-        Err(_) => return img,
-    };
-
-    let mut reader = BufReader::new(&file);
-    let exifreader = exif::Reader::new();
-    let exif = match exifreader.read_from_container(&mut reader) {
-        Ok(exif) => exif,
-        Err(_) => return img,
-    };
-
-    match exif.get_field(exif::Tag::Orientation, exif::In::PRIMARY) {
-        Some(field) => match field.value.get_uint(0) {
-            Some(2) => img.fliph(),
-            Some(3) => img.rotate180(),
-            Some(4) => img.flipv(),
-            Some(5) => img.rotate90().fliph(),
-            Some(6) => img.rotate90(),
-            Some(7) => img.rotate270().fliph(),
-            Some(8) => img.rotate270(),
-            _ => img,
-        },
-        None => img,
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -223,5 +226,11 @@ mod tests {
 
         assert_eq!(manager.cache_size(), 0);
         assert_eq!(manager.pending_count(), 0);
+    }
+
+    #[test]
+    #[should_panic(expected = "max_cache_size must be greater than 0")]
+    fn test_thumbnail_manager_zero_cache_size() {
+        ThumbnailManager::new(0);
     }
 }
