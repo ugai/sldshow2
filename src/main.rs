@@ -329,6 +329,8 @@ impl ApplicationState {
             OscAction::Next => self.next_image(),
             OscAction::ToggleShuffle => {
                 self.shuffle_enabled = !self.shuffle_enabled;
+                // Sync config so checkbox updates
+                self.config.viewer.shuffle = self.shuffle_enabled;
                 self.texture_manager
                     .set_shuffle_enabled(self.shuffle_enabled);
                 self.bind_group = None;
@@ -339,6 +341,9 @@ impl ApplicationState {
                 };
                 info!("{}", status);
                 self.show_osd(status.to_string());
+            }
+            OscAction::OpenSettings => {
+                self.egui_overlay.toggle_settings();
             }
         }
     }
@@ -718,12 +723,46 @@ impl ApplicationState {
         self.egui_overlay.begin_frame(&self.window);
         let osc_action = self
             .egui_overlay
-            .build_ui(self.slideshow.paused, self.shuffle_enabled);
+            .build_ui(&mut self.config, self.slideshow.paused);
 
         // Handle OSC button actions
         if let Some(action) = osc_action {
             self.execute_osc_action(action);
         }
+
+        // --- Sync state from Config (Settings Panel) ---
+
+        // 1. Sync Timer
+        self.slideshow.set_duration(self.config.viewer.timer);
+
+        // 2. Sync Shuffle
+        if self.config.viewer.shuffle != self.shuffle_enabled {
+            self.shuffle_enabled = self.config.viewer.shuffle;
+            self.texture_manager
+                .set_shuffle_enabled(self.shuffle_enabled);
+            self.bind_group = None;
+            // No OSD here to avoid spamming when dragging, but could add if separate change detection
+        }
+
+        // 3. Sync Window Fullscreen
+        let is_fullscreen = self.window.fullscreen().is_some();
+        if self.config.window.fullscreen != is_fullscreen {
+            self.window
+                .set_fullscreen(if self.config.window.fullscreen {
+                    Some(winit::window::Fullscreen::Borderless(None))
+                } else {
+                    None
+                });
+        }
+
+        // 4. Sync Window Always On Top
+        // We set this every frame to ensure it stays in sync with config
+        self.window
+            .set_window_level(if self.config.window.always_on_top {
+                winit::window::WindowLevel::AlwaysOnTop
+            } else {
+                winit::window::WindowLevel::Normal
+            });
 
         // Auto-hide cursor
         if self.input_handler.cursor_visible
