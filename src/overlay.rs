@@ -222,7 +222,13 @@ impl EguiOverlay {
 
     /// Build UI - call after begin_frame()
     /// Returns any action triggered by UI interaction
-    pub fn build_ui(&mut self, config: &mut Config, paused: bool) -> Option<OverlayAction> {
+    pub fn build_ui(
+        &mut self,
+        config: &mut Config,
+        paused: bool,
+        current_index: usize,
+        total_images: usize,
+    ) -> Option<OverlayAction> {
         let font_id = FontId::proportional(self.font_size);
         // egui's screen_rect() returns logical coordinates (already DPI-scaled),
         // so no manual conversion from physical pixels is needed.
@@ -483,10 +489,13 @@ impl EguiOverlay {
         }
 
         // Render OSC (On-Screen Controller) and capture any action
-        if let Some(osc_action) = self
-            .osc
-            .render(&self.context, paused, config.viewer.shuffle)
-        {
+        if let Some(osc_action) = self.osc.render(
+            &self.context,
+            paused,
+            config.viewer.shuffle,
+            current_index,
+            total_images,
+        ) {
             action = Some(OverlayAction::Osc(osc_action));
         }
 

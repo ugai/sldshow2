@@ -331,6 +331,9 @@ impl ApplicationState {
             OscAction::OpenSettings => {
                 self.egui_overlay.toggle_settings();
             }
+            OscAction::Seek(index) => {
+                self.jump_to(index);
+            }
         }
     }
 
@@ -712,9 +715,12 @@ impl ApplicationState {
 
         // Begin egui frame
         self.egui_overlay.begin_frame(&self.window);
-        let overlay_action = self
-            .egui_overlay
-            .build_ui(&mut self.config, self.slideshow.paused);
+        let overlay_action = self.egui_overlay.build_ui(
+            &mut self.config,
+            self.slideshow.paused,
+            self.texture_manager.current_index,
+            self.texture_manager.len(),
+        );
 
         // Handle Overlay actions (Settings & OSC)
         if let Some(action) = overlay_action {
