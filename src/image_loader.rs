@@ -80,6 +80,9 @@ impl TextureManager {
 
         let current_path = self.paths[self.current_index].clone();
 
+        // Preserve current texture if loaded
+        let current_texture = self.textures.remove(&self.current_index);
+
         if enabled {
             // Shuffle paths and remap current_index
             self.shuffle_paths();
@@ -95,11 +98,16 @@ impl TextureManager {
             .position(|p| p == &current_path)
             .unwrap_or(0);
 
-        // Invalidate texture cache since indices changed
+        // Invalidate texture cache since indices changed, but keep current
         self.textures.clear();
         self.loading_tasks.clear();
         self.errors.clear();
         while self.rx.try_recv().is_ok() {}
+
+        // Restore preserved texture at new index
+        if let Some(texture) = current_texture {
+            self.textures.insert(new_index, texture);
+        }
 
         self.current_index = new_index;
         new_index

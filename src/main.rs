@@ -329,8 +329,12 @@ impl ApplicationState {
             OscAction::Next => self.next_image(),
             OscAction::ToggleShuffle => {
                 self.shuffle_enabled = !self.shuffle_enabled;
-                self.texture_manager
+                // Sync config so checkbox updates
+                self.config.viewer.shuffle = self.shuffle_enabled;
+                let new_index = self
+                    .texture_manager
                     .set_shuffle_enabled(self.shuffle_enabled);
+                self.current_texture_index = Some(new_index);
                 self.bind_group = None;
                 let status = if self.shuffle_enabled {
                     "Shuffle: ON"
@@ -339,6 +343,9 @@ impl ApplicationState {
                 };
                 info!("{}", status);
                 self.show_osd(status.to_string());
+            }
+            OscAction::OpenSettings => {
+                self.egui_overlay.toggle_settings();
             }
         }
     }
@@ -370,13 +377,15 @@ impl ApplicationState {
             }
             InputAction::ToggleFullscreen => {
                 let fullscreen = self.window.fullscreen().is_some();
-                self.window.set_fullscreen(if fullscreen {
-                    None
-                } else {
+                let new_fullscreen = !fullscreen;
+                self.config.window.fullscreen = new_fullscreen;
+                self.window.set_fullscreen(if new_fullscreen {
                     Some(winit::window::Fullscreen::Borderless(None))
+                } else {
+                    None
                 });
                 self.show_osd(
-                    if fullscreen {
+                    if !new_fullscreen {
                         "Fullscreen: OFF"
                     } else {
                         "Fullscreen: ON"
@@ -385,6 +394,7 @@ impl ApplicationState {
                 );
             }
             InputAction::SetFullscreen(fullscreen) => {
+                self.config.window.fullscreen = fullscreen;
                 self.window.set_fullscreen(if fullscreen {
                     Some(winit::window::Fullscreen::Borderless(None))
                 } else {
@@ -563,6 +573,7 @@ impl ApplicationState {
     fn adjust_timer(&mut self, delta: f32) {
         let new_timer = (self.slideshow.duration() + delta).round().max(0.0);
         self.slideshow.set_duration(new_timer);
+        self.config.viewer.timer = new_timer; // Sync to config
         if new_timer <= 0.0 {
             info!("Slideshow paused (timer: 0)");
             self.show_osd("Timer: 0.0s (Paused)".to_string());
@@ -573,8 +584,9 @@ impl ApplicationState {
     }
 
     fn reset_timer(&mut self) {
-        let default = self.config.viewer.timer;
+        let default = 3.0; // Hardcoded default since config tracks current
         self.slideshow.set_duration(default);
+        self.config.viewer.timer = default; // Sync to config
         info!("Slideshow timer reset to: {:.1}s", default);
         self.show_osd(format!("Timer Reset: {:.1}s", default));
     }
@@ -716,13 +728,54 @@ impl ApplicationState {
 
         // Begin egui frame
         self.egui_overlay.begin_frame(&self.window);
-        let osc_action = self
+        let overlay_action = self
             .egui_overlay
-            .build_ui(self.slideshow.paused, self.shuffle_enabled);
+            .build_ui(&mut self.config, self.slideshow.paused);
 
-        // Handle OSC button actions
-        if let Some(action) = osc_action {
-            self.execute_osc_action(action);
+        // Handle Overlay actions (Settings & OSC)
+        if let Some(action) = overlay_action {
+            use crate::overlay::OverlayAction;
+            match action {
+                OverlayAction::Osc(osc_action) => self.execute_osc_action(osc_action),
+                OverlayAction::SetTimer(timer) => {
+                    self.slideshow.set_duration(timer);
+                    self.show_osd(format!("Timer: {:.1}s", timer));
+                }
+                OverlayAction::ToggleShuffle(enabled) => {
+                    self.shuffle_enabled = enabled;
+                    let new_index = self
+                        .texture_manager
+                        .set_shuffle_enabled(self.shuffle_enabled);
+                    self.current_texture_index = Some(new_index);
+                    self.bind_group = None;
+                }
+                OverlayAction::SetPauseAtLast(_) => {
+                    // Config already updated, just accessed by slideshow next frame
+                }
+                OverlayAction::SetTransitionTime(_) => {
+                    // Config already updated
+                }
+                OverlayAction::ToggleRandomTransition(_) => {
+                    // Config already updated
+                }
+                OverlayAction::SetFitMode(_) | OverlayAction::SetAmbientBlur(_) => {
+                    // Config updated, will be picked up by render uniforms next frame
+                }
+                OverlayAction::ToggleAlwaysOnTop(always_on_top) => {
+                    self.window.set_window_level(if always_on_top {
+                        winit::window::WindowLevel::AlwaysOnTop
+                    } else {
+                        winit::window::WindowLevel::Normal
+                    });
+                }
+                OverlayAction::ToggleFullscreen(fullscreen) => {
+                    self.window.set_fullscreen(if fullscreen {
+                        Some(winit::window::Fullscreen::Borderless(None))
+                    } else {
+                        None
+                    });
+                }
+            }
         }
 
         // Auto-hide cursor
