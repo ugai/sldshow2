@@ -1,4 +1,4 @@
-# CLAUDE.md
+# GEMINI.md
 
 sldshow2: Rust slideshow viewer with WGSL transition effects (winit + wgpu). See [CONTRIBUTING.md](CONTRIBUTING.md) for full development workflow.
 
@@ -27,6 +27,9 @@ For the full Module Map and Architecture details, see **[docs/ARCHITECTURE.md](d
 
 ## AI Agent Rules
 
-- **Co-authorship trailer**: `Co-Authored-By: {model} (Claude Code) <noreply@anthropic.com>`
-
-@docs/AGENTS.md
+- **Co-authorship trailer** — format: `Co-Authored-By: {model} ({tool}) <email>`. Use the actual model name:
+  - Gemini CLI: `Co-Authored-By: {model} (Gemini CLI) <176961590+gemini-code-assist[bot]@users.noreply.github.com>`
+  - Antigravity: `Co-Authored-By: {model} (Antigravity) <176961590+gemini-code-assist[bot]@users.noreply.github.com>`
+- **Do not** create git tags or releases unless explicitly instructed.
+- **New features**: Extract to dedicated modules (e.g., `src/drag_drop.rs`). Keep `main.rs` and `app.rs` diffs minimal.
+- **Conflict-prone files**: `app.rs`, `main.rs`, `Cargo.toml`, `config.rs` — keep changes small and localized.
