@@ -673,8 +673,7 @@ impl ApplicationState {
     fn update(&mut self) {
         // Begin egui frame
         self.egui_overlay.begin_frame(&self.window);
-        self.egui_overlay
-            .build_ui(self.size.width as f32 / self.window.scale_factor() as f32);
+        self.egui_overlay.build_ui();
 
         // Auto-hide cursor
         if self.input_handler.cursor_visible

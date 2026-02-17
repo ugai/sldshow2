@@ -128,8 +128,11 @@ impl EguiOverlay {
     }
 
     /// Build UI - call after begin_frame()
-    pub fn build_ui(&mut self, screen_width: f32) {
+    pub fn build_ui(&mut self) {
         let font_id = FontId::proportional(self.font_size);
+        // egui's screen_rect() returns logical coordinates (already DPI-scaled),
+        // so no manual conversion from physical pixels is needed.
+        let screen_width = self.context.screen_rect().width();
         let max_width = (screen_width - MARGIN * 2.0).max(100.0);
 
         // Semi-transparent dark background for readability over images
