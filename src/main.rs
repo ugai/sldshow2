@@ -318,22 +318,14 @@ impl ApplicationState {
 
     fn execute_osc_action(&mut self, action: OscAction) {
         match action {
-            OscAction::PlayPause => {
-                self.slideshow.toggle_pause();
-                info!("Slideshow paused: {}", self.slideshow.paused);
-                self.show_osd(
-                    if self.slideshow.paused {
-                        "Paused"
-                    } else {
-                        "Resumed"
-                    }
-                    .to_string(),
-                );
-            }
+            OscAction::PlayPause => self.execute_input_action(InputAction::TogglePause),
             OscAction::Previous => self.prev_image(),
             OscAction::Next => self.next_image(),
             OscAction::ToggleShuffle => {
                 self.shuffle_enabled = !self.shuffle_enabled;
+                self.texture_manager
+                    .set_shuffle_enabled(self.shuffle_enabled);
+                self.bind_group = None;
                 let status = if self.shuffle_enabled {
                     "Shuffle: ON"
                 } else {
@@ -740,7 +732,7 @@ impl ApplicationState {
             match image_loader::scan_image_paths(&dropped_paths, self.config.viewer.scan_subfolders)
             {
                 Ok(mut new_paths) => {
-                    if self.config.viewer.shuffle {
+                    if self.shuffle_enabled {
                         use rand::seq::SliceRandom;
                         new_paths.shuffle(&mut rand::rng());
                     }
