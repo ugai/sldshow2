@@ -30,6 +30,9 @@ pub struct TextureManager {
     pub max_texture_size: (u32, u32),
     pub cache_extent: usize,
 
+    // Original sort order for restoring when shuffle is turned off
+    original_paths: Vec<Utf8PathBuf>,
+
     // Async loading (sends mip chain: Vec[0]=base, Vec[1]=LOD1, ...)
     loading_tasks: HashSet<usize>,
     tx: Sender<(usize, anyhow::Result<Vec<image::RgbaImage>>)>,
@@ -45,6 +48,7 @@ impl TextureManager {
             textures: HashMap::new(),
             max_texture_size,
             cache_extent,
+            original_paths: Vec::new(),
             loading_tasks: HashSet::new(),
             tx,
             rx,
@@ -53,6 +57,7 @@ impl TextureManager {
 
     pub fn scan_paths(&mut self, input_paths: &[Utf8PathBuf], scan_subfolders: bool) -> Result<()> {
         let sorted_paths = scan_image_paths(input_paths, scan_subfolders)?;
+        self.original_paths = sorted_paths.clone();
         self.paths = sorted_paths;
         info!("Scanned {} images", self.paths.len());
         Ok(())
@@ -62,6 +67,39 @@ impl TextureManager {
         use rand::seq::SliceRandom;
         let mut rng = rand::rng();
         self.paths.shuffle(&mut rng);
+    }
+
+    /// Toggle shuffle on/off, reordering paths accordingly.
+    /// Returns the new index that points to the same image as before.
+    pub fn set_shuffle_enabled(&mut self, enabled: bool) -> usize {
+        if self.paths.is_empty() {
+            return 0;
+        }
+
+        let current_path = self.paths[self.current_index].clone();
+
+        if enabled {
+            // Shuffle paths and remap current_index
+            self.shuffle_paths();
+        } else {
+            // Restore original sorted order
+            self.paths = self.original_paths.clone();
+        }
+
+        // Find the current image in the reordered list
+        let new_index = self
+            .paths
+            .iter()
+            .position(|p| p == &current_path)
+            .unwrap_or(0);
+
+        // Invalidate texture cache since indices changed
+        self.textures.clear();
+        self.loading_tasks.clear();
+        while self.rx.try_recv().is_ok() {}
+
+        self.current_index = new_index;
+        new_index
     }
 
     pub fn next(&mut self, pause_at_last: bool) -> bool {
@@ -99,6 +137,7 @@ impl TextureManager {
 
     /// Replace the entire image list, clearing all cached textures and pending loads.
     pub fn replace_paths(&mut self, new_paths: Vec<Utf8PathBuf>) {
+        self.original_paths = new_paths.clone();
         self.paths = new_paths;
         self.textures.clear();
         self.loading_tasks.clear();

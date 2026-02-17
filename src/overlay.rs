@@ -8,6 +8,8 @@ use wgpu::{Device, Queue, TextureFormat};
 use winit::event::WindowEvent;
 use winit::window::Window;
 
+use crate::osc::{OnScreenController, OscAction};
+
 /// Vertical margin from screen edge (in pixels)
 const MARGIN: f32 = 10.0;
 
@@ -26,6 +28,9 @@ pub struct EguiOverlay {
 
     // Help overlay toggle state
     show_help_overlay: bool,
+
+    // On-Screen Controller
+    osc: OnScreenController,
 
     // Style settings
     font_size: f32,
@@ -61,6 +66,7 @@ impl EguiOverlay {
             info_text: String::new(),
             show_info_overlay: false,
             show_help_overlay: false,
+            osc: OnScreenController::new(),
             font_size: 20.0,
             text_color: Color32::WHITE,
         }
@@ -114,6 +120,16 @@ impl EguiOverlay {
         self.show_help_overlay
     }
 
+    /// Update OSC activity (call on mouse movement)
+    pub fn update_osc_activity(&mut self) {
+        self.osc.update_activity();
+    }
+
+    /// Update OSC state (auto-hide logic)
+    pub fn update_osc(&mut self) {
+        self.osc.update();
+    }
+
     /// Forward winit events to egui
     /// Returns true if egui consumed the event
     pub fn handle_event(&mut self, window: &Window, event: &WindowEvent) -> bool {
@@ -128,7 +144,8 @@ impl EguiOverlay {
     }
 
     /// Build UI - call after begin_frame()
-    pub fn build_ui(&mut self) {
+    /// Returns any OSC action triggered by button clicks
+    pub fn build_ui(&mut self, paused: bool, shuffle: bool) -> Option<OscAction> {
         let font_id = FontId::proportional(self.font_size);
         // egui's screen_rect() returns logical coordinates (already DPI-scaled),
         // so no manual conversion from physical pixels is needed.
@@ -252,6 +269,9 @@ impl EguiOverlay {
                     );
                 });
         }
+
+        // Render OSC (On-Screen Controller) and capture any action
+        self.osc.render(&self.context, paused, shuffle)
     }
 
     /// End frame and prepare render data
