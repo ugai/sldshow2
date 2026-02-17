@@ -102,13 +102,13 @@ Pattern A.
 
 ## 3. Implementation
 
-- Prefer new modules under `src/`; keep `main.rs` changes minimal.
+- Prefer new modules under `src/`; keep `main.rs` and `app.rs` changes minimal.
 - Follow the project's Conventional Commits format and coding standards
   defined in `CLAUDE.md` and `CONTRIBUTING.md`.
 - For co-author trailers in commit messages, refer to the **AI Co-Authorship**
   section in `CLAUDE.md` and use the appropriate trailer for the current agent.
 - **Team Note**: When working in Pattern B, minimize changes to conflict-prone
-  files (`main.rs`, `Cargo.toml`, `config.rs`). Extract new functionality into
+  files (`app.rs`, `main.rs`, `Cargo.toml`, `config.rs`). Extract new functionality into
   dedicated modules. Keep diffs to shared files small and localized.
 
 ### Documentation & Example Updates
