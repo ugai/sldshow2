@@ -26,7 +26,8 @@ cache_extent = 5        # Number of images to preload (before/after current)
 max_texture_size = [1920, 1080]  # Max texture resolution for GPU upload
                                  # Lower = faster uploads, less memory
                                  # [0, 0] = use window size (may stutter at 4K+)
-fit_mode = "AmbientFit"                 # "Fit" = black bars, "AmbientFit" = blurred background
+filter_mode = "linear"           # Texture filtering: "linear" (smooth) or "nearest" (pixelated)
+fit_mode = "AmbientFit"          # "Fit" = black bars, "AmbientFit" = blurred background
                                  # Toggle at runtime with 'A' key
 ambient_blur = 5.0               # Mip LOD level for AmbientFit blur (0-10, higher = blurrier)
 

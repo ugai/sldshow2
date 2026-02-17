@@ -195,7 +195,7 @@ impl ApplicationState {
             texture_manager.shuffle_paths();
         }
 
-        let pipeline = TransitionPipeline::new(&device, config_format, &config.viewer.filter_mode);
+        let pipeline = TransitionPipeline::new(&device, config_format, config.viewer.filter_mode);
 
         let slideshow = SlideshowTimer::new(config.viewer.timer);
 
@@ -217,11 +217,7 @@ impl ApplicationState {
             contrast: 1.0,
             gamma: 1.0,
             saturation: 1.0,
-            fit_mode: if config.viewer.fit_mode == "AmbientFit" {
-                1
-            } else {
-                0
-            },
+            fit_mode: config.viewer.fit_mode.to_uniform_value(),
             ambient_blur: config.viewer.ambient_blur,
         };
 
@@ -450,13 +446,14 @@ impl ApplicationState {
                 self.show_osd(status.to_string());
             }
             InputAction::ToggleFitMode => {
-                if self.config.viewer.fit_mode == "AmbientFit" {
-                    self.config.viewer.fit_mode = "Fit".to_string();
-                    self.show_osd("Fit: Normal".to_string());
-                } else {
-                    self.config.viewer.fit_mode = "AmbientFit".to_string();
-                    self.show_osd("Fit: Ambient".to_string());
-                }
+                self.config.viewer.fit_mode.toggle();
+                self.show_osd(
+                    match self.config.viewer.fit_mode {
+                        config::FitMode::Fit => "Fit: Normal",
+                        config::FitMode::AmbientFit => "Fit: Ambient",
+                    }
+                    .to_string(),
+                );
             }
             InputAction::SetWindowPosition { x, y } => {
                 self.window
@@ -845,11 +842,7 @@ impl ApplicationState {
                 contrast: self.color_contrast,
                 gamma: self.color_gamma,
                 saturation: self.color_saturation,
-                fit_mode: if self.config.viewer.fit_mode == "AmbientFit" {
-                    1
-                } else {
-                    0
-                },
+                fit_mode: self.config.viewer.fit_mode.to_uniform_value(),
                 ambient_blur: self.config.viewer.ambient_blur,
             };
 

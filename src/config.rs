@@ -5,6 +5,56 @@ use camino::{Utf8Path, Utf8PathBuf};
 use serde::{Deserialize, Serialize};
 use validator::Validate;
 
+/// Texture filtering mode
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum FilterMode {
+    /// Nearest-neighbor filtering (pixelated, sharp)
+    Nearest,
+    /// Linear filtering (smooth, blurred)
+    #[default]
+    Linear,
+}
+
+impl FilterMode {
+    /// Convert to wgpu FilterMode
+    pub fn to_wgpu(self) -> wgpu::FilterMode {
+        match self {
+            FilterMode::Nearest => wgpu::FilterMode::Nearest,
+            FilterMode::Linear => wgpu::FilterMode::Linear,
+        }
+    }
+}
+
+/// Display fit mode
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "PascalCase")]
+pub enum FitMode {
+    /// Fit image with black bars
+    #[default]
+    Fit,
+    /// Fill letterbox with blurred background
+    AmbientFit,
+}
+
+impl FitMode {
+    /// Convert to shader uniform value
+    pub fn to_uniform_value(self) -> i32 {
+        match self {
+            FitMode::Fit => 0,
+            FitMode::AmbientFit => 1,
+        }
+    }
+
+    /// Toggle between Fit and AmbientFit
+    pub fn toggle(&mut self) {
+        *self = match *self {
+            FitMode::Fit => FitMode::AmbientFit,
+            FitMode::AmbientFit => FitMode::Fit,
+        };
+    }
+}
+
 /// Application configuration
 #[derive(Debug, Clone, Serialize, Deserialize, Default, Validate)]
 pub struct Config {
@@ -68,9 +118,9 @@ pub struct ViewerConfig {
     /// Lower values = faster uploads but lower quality. [1920, 1080] is a good balance.
     /// Set to [0, 0] to use window dimensions (may cause frame spikes at 4K+).
     pub max_texture_size: [u32; 2],
-    pub filter_mode: String,
-    /// Display mode: "Fit" (black bars) or "AmbientFit" (blurred background fills letterbox)
-    pub fit_mode: String,
+    pub filter_mode: FilterMode,
+    /// Display mode: Fit (black bars) or AmbientFit (blurred background fills letterbox)
+    pub fit_mode: FitMode,
     /// Mip LOD level for ambient fit blur (higher = blurrier, default 5.0)
     #[validate(range(min = 0.0, max = 10.0))]
     pub ambient_blur: f32,
@@ -87,8 +137,8 @@ impl Default for ViewerConfig {
             cache_extent: 5,
             hot_reload: true,
             max_texture_size: [1920, 1080],
-            filter_mode: "Linear".to_string(),
-            fit_mode: "Fit".to_string(),
+            filter_mode: FilterMode::Linear,
+            fit_mode: FitMode::Fit,
             ambient_blur: 5.0,
         }
     }

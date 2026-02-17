@@ -1,5 +1,6 @@
 //! WGPU render pipeline for image transitions with 20 WGSL shader effects.
 
+use crate::config::FilterMode;
 use bytemuck::{Pod, Zeroable};
 use std::borrow::Cow;
 
@@ -33,7 +34,11 @@ pub struct TransitionPipeline {
 }
 
 impl TransitionPipeline {
-    pub fn new(device: &wgpu::Device, format: wgpu::TextureFormat, filter_mode: &str) -> Self {
+    pub fn new(
+        device: &wgpu::Device,
+        format: wgpu::TextureFormat,
+        filter_mode: FilterMode,
+    ) -> Self {
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("Transition Shader"),
             source: wgpu::ShaderSource::Wgsl(Cow::Borrowed(include_str!(
@@ -127,10 +132,7 @@ impl TransitionPipeline {
             cache: None,
         });
 
-        let filter = match filter_mode {
-            "Nearest" => wgpu::FilterMode::Nearest,
-            _ => wgpu::FilterMode::Linear,
-        };
+        let filter = filter_mode.to_wgpu();
 
         let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
             label: Some("Transition Sampler"),
