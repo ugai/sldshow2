@@ -14,6 +14,20 @@ use crate::osc::{OnScreenController, OscAction};
 /// Vertical margin from screen edge (in pixels)
 const MARGIN: f32 = 10.0;
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum OverlayAction {
+    Osc(OscAction),
+    SetTimer(f32),
+    ToggleShuffle(bool),
+    SetPauseAtLast(bool),
+    SetTransitionTime(f32),
+    ToggleRandomTransition(bool),
+    SetFitMode(FitMode),
+    SetAmbientBlur(f32),
+    ToggleAlwaysOnTop(bool),
+    ToggleFullscreen(bool),
+}
+
 pub struct EguiOverlay {
     context: Context,
     state: State,
@@ -207,8 +221,8 @@ impl EguiOverlay {
     }
 
     /// Build UI - call after begin_frame()
-    /// Returns any OSC action triggered by button clicks
-    pub fn build_ui(&mut self, config: &mut Config, paused: bool) -> Option<OscAction> {
+    /// Returns any action triggered by UI interaction
+    pub fn build_ui(&mut self, config: &mut Config, paused: bool) -> Option<OverlayAction> {
         let font_id = FontId::proportional(self.font_size);
         // egui's screen_rect() returns logical coordinates (already DPI-scaled),
         // so no manual conversion from physical pixels is needed.
@@ -220,6 +234,9 @@ impl EguiOverlay {
             .fill(Color32::from_black_alpha(180))
             .inner_margin(egui::Margin::same(6))
             .corner_radius(4.0);
+
+        // Use a local variable to collect actions, though we typically only have one per frame
+        let mut action = None;
 
         // Center error text (highest priority)
         if !self.center_error_text.is_empty() {
@@ -362,60 +379,118 @@ impl EguiOverlay {
                     ui.heading("Playback");
                     ui.horizontal(|ui| {
                         ui.label("Timer (sec):");
-                        ui.add(
-                            egui::DragValue::new(&mut config.viewer.timer)
-                                .speed(0.1)
-                                .range(0.0..=3600.0),
-                        );
+                        if ui
+                            .add(
+                                egui::DragValue::new(&mut config.viewer.timer)
+                                    .speed(0.1)
+                                    .range(0.0..=3600.0),
+                            )
+                            .changed()
+                        {
+                            action = Some(OverlayAction::SetTimer(config.viewer.timer));
+                        }
                     });
-                    ui.checkbox(&mut config.viewer.shuffle, "Shuffle");
-                    ui.checkbox(&mut config.viewer.pause_at_last, "Stop at end (No Loop)");
+                    if ui.checkbox(&mut config.viewer.shuffle, "Shuffle").changed() {
+                        action = Some(OverlayAction::ToggleShuffle(config.viewer.shuffle));
+                    }
+                    if ui
+                        .checkbox(&mut config.viewer.pause_at_last, "Stop at end (No Loop)")
+                        .changed()
+                    {
+                        action = Some(OverlayAction::SetPauseAtLast(config.viewer.pause_at_last));
+                    }
 
                     ui.separator();
                     ui.heading("Transition");
                     ui.horizontal(|ui| {
                         ui.label("Duration (sec):");
-                        ui.add(
-                            egui::DragValue::new(&mut config.transition.time)
-                                .speed(0.05)
-                                .range(0.0..=5.0),
-                        );
+                        if ui
+                            .add(
+                                egui::DragValue::new(&mut config.transition.time)
+                                    .speed(0.05)
+                                    .range(0.0..=5.0),
+                            )
+                            .changed()
+                        {
+                            action = Some(OverlayAction::SetTransitionTime(config.transition.time));
+                        }
                     });
-                    ui.checkbox(&mut config.transition.random, "Random Transitions");
+                    if ui
+                        .checkbox(&mut config.transition.random, "Random Transitions")
+                        .changed()
+                    {
+                        action = Some(OverlayAction::ToggleRandomTransition(
+                            config.transition.random,
+                        ));
+                    }
                     // TODO: Mode dropdown if not random
 
                     ui.separator();
                     ui.heading("Display");
                     ui.horizontal(|ui| {
                         ui.label("Fit Mode:");
-                        ui.selectable_value(&mut config.viewer.fit_mode, FitMode::Fit, "Fit");
-                        ui.selectable_value(
-                            &mut config.viewer.fit_mode,
-                            FitMode::AmbientFit,
-                            "Ambient",
-                        );
+                        if ui
+                            .selectable_value(&mut config.viewer.fit_mode, FitMode::Fit, "Fit")
+                            .changed()
+                        {
+                            action = Some(OverlayAction::SetFitMode(FitMode::Fit));
+                        }
+                        if ui
+                            .selectable_value(
+                                &mut config.viewer.fit_mode,
+                                FitMode::AmbientFit,
+                                "Ambient",
+                            )
+                            .changed()
+                        {
+                            action = Some(OverlayAction::SetFitMode(FitMode::AmbientFit));
+                        }
                     });
                     if config.viewer.fit_mode == FitMode::AmbientFit {
                         ui.horizontal(|ui| {
                             ui.label("Ambient Blur:");
-                            ui.add(
-                                egui::DragValue::new(&mut config.viewer.ambient_blur)
-                                    .speed(0.1)
-                                    .range(0.0..=10.0),
-                            );
+                            if ui
+                                .add(
+                                    egui::DragValue::new(&mut config.viewer.ambient_blur)
+                                        .speed(0.1)
+                                        .range(0.0..=10.0),
+                                )
+                                .changed()
+                            {
+                                action =
+                                    Some(OverlayAction::SetAmbientBlur(config.viewer.ambient_blur));
+                            }
                         });
                     }
 
                     ui.separator();
                     ui.heading("Window");
-                    ui.checkbox(&mut config.window.always_on_top, "Always on Top");
-                    ui.checkbox(&mut config.window.fullscreen, "Fullscreen");
+                    if ui
+                        .checkbox(&mut config.window.always_on_top, "Always on Top")
+                        .changed()
+                    {
+                        action = Some(OverlayAction::ToggleAlwaysOnTop(
+                            config.window.always_on_top,
+                        ));
+                    }
+                    if ui
+                        .checkbox(&mut config.window.fullscreen, "Fullscreen")
+                        .changed()
+                    {
+                        action = Some(OverlayAction::ToggleFullscreen(config.window.fullscreen));
+                    }
                 });
         }
 
         // Render OSC (On-Screen Controller) and capture any action
-        self.osc
+        if let Some(osc_action) = self
+            .osc
             .render(&self.context, paused, config.viewer.shuffle)
+        {
+            action = Some(OverlayAction::Osc(osc_action));
+        }
+
+        action
     }
 
     /// End frame and prepare render data
