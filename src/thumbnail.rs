@@ -168,6 +168,11 @@ impl ThumbnailManager {
     pub fn pending_count(&self) -> usize {
         self.loading_tasks.len()
     }
+
+    /// Return a list of all currently cached thumbnail indices.
+    pub fn get_cached_indices(&self) -> Vec<usize> {
+        self.cache.keys().cloned().collect()
+    }
 }
 
 /// Generate a 256x256 thumbnail from an image file.
