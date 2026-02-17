@@ -375,13 +375,15 @@ impl ApplicationState {
             }
             InputAction::ToggleFullscreen => {
                 let fullscreen = self.window.fullscreen().is_some();
-                self.window.set_fullscreen(if fullscreen {
-                    None
-                } else {
+                let new_fullscreen = !fullscreen;
+                self.config.window.fullscreen = new_fullscreen;
+                self.window.set_fullscreen(if new_fullscreen {
                     Some(winit::window::Fullscreen::Borderless(None))
+                } else {
+                    None
                 });
                 self.show_osd(
-                    if fullscreen {
+                    if !new_fullscreen {
                         "Fullscreen: OFF"
                     } else {
                         "Fullscreen: ON"
@@ -390,6 +392,7 @@ impl ApplicationState {
                 );
             }
             InputAction::SetFullscreen(fullscreen) => {
+                self.config.window.fullscreen = fullscreen;
                 self.window.set_fullscreen(if fullscreen {
                     Some(winit::window::Fullscreen::Borderless(None))
                 } else {
