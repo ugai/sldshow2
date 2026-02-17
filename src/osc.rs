@@ -28,6 +28,7 @@ pub enum OscAction {
     Previous,
     Next,
     ToggleShuffle,
+    OpenSettings,
 }
 
 impl OnScreenController {
@@ -80,6 +81,13 @@ impl OnScreenController {
                     ui.horizontal(|ui| {
                         ui.spacing_mut().item_spacing.x = 12.0;
 
+                        // Settings button (leftmost)
+                        if self.render_icon_button(ui, "⚙") {
+                            action = Some(OscAction::OpenSettings);
+                        }
+
+                        ui.add_space(8.0);
+
                         // Previous button
                         if self.render_button(ui, "◀ Prev", false) {
                             action = Some(OscAction::Previous);
@@ -110,6 +118,15 @@ impl OnScreenController {
         self.hovering = area_response.response.hovered();
 
         action
+    }
+
+    /// Render a small icon button
+    fn render_icon_button(&self, ui: &mut egui::Ui, text: &str) -> bool {
+        let button = egui::Button::new(RichText::new(text).size(20.0).color(Color32::WHITE))
+            .fill(Color32::TRANSPARENT)
+            .min_size(Vec2::new(32.0, 32.0));
+
+        ui.add(button).clicked()
     }
 
     /// Render a standard button
