@@ -4,7 +4,7 @@ High-performance slideshow image viewer with custom WGSL transitions, built with
 
 ## Features
 
-- **20 different transition effects** with custom WGSL shaders
+- **Multiple transition effects** with custom WGSL shaders
 - **Embedded assets** (shaders) for standalone distribution
 - **Async image loading** for non-blocking startup and navigation
 - **Frameless window support** for clean presentation
@@ -99,7 +99,7 @@ Default config location: `~/.sldshow`
 
 ## Transition Effects
 
-20 different effects (mode 0-19):
+Available effects:
 
 - 0-1: Crossfade variations
 - 2-9: Roll (from various directions)
@@ -111,8 +111,8 @@ Default config location: `~/.sldshow`
 ## Development
 
 - **Contributing**: See [CONTRIBUTING.md](CONTRIBUTING.md) for setup, workflow, and coding standards.
-- **Architecture**: See [CLAUDE.md](CLAUDE.md) for detailed architecture documentation and AI agent guidelines.
-- **AI Agent Automation**: Issues labeled `agent:ready` are picked up and slain by AI agents. See [CONTRIBUTING.md](CONTRIBUTING.md#ai-agent-workflow) for details.
+- **Architecture**: See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for detailed architecture documentation.
+- **AI Agent Automation**: Issues labeled `agent:ready` are picked up and slain by AI agents. See [docs/AGENTS.md](docs/AGENTS.md) for details.
 
 ## Troubleshooting
 
