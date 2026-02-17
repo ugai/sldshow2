@@ -1,6 +1,6 @@
 //! egui overlay rendering for on-screen UI (filename bar, OSD, debug info)
 
-use egui::{Align2, Color32, Context, FontDefinitions, FontId, RichText};
+use egui::{Align2, Color32, Context, FontData, FontDefinitions, FontFamily, FontId, RichText};
 use egui_wgpu::Renderer;
 use egui_winit::State;
 use std::sync::Arc;
@@ -39,11 +39,45 @@ pub struct EguiOverlay {
 }
 
 impl EguiOverlay {
-    pub fn new(device: &Device, surface_format: TextureFormat, window: Arc<Window>) -> Self {
+    pub fn new(
+        device: &Device,
+        surface_format: TextureFormat,
+        window: Arc<Window>,
+        font_family_name: Option<String>,
+    ) -> Self {
         let context = Context::default();
 
-        // Configure fonts (use default for now)
-        context.set_fonts(FontDefinitions::default());
+        // Configure fonts
+        let mut fonts = FontDefinitions::default();
+
+        if let Some(family_name) = font_family_name {
+            use font_loader::system_fonts;
+            let property = system_fonts::FontPropertyBuilder::new()
+                .family(&family_name)
+                .build();
+            if let Some((font_data, _)) = system_fonts::get(&property) {
+                log::info!("Loaded system font: {}", family_name);
+                fonts.font_data.insert(
+                    "system_font".to_owned(),
+                    FontData::from_owned(font_data).into(),
+                );
+                // Set as highest priority for Proportional and Monospace
+                fonts
+                    .families
+                    .get_mut(&FontFamily::Proportional)
+                    .unwrap()
+                    .insert(0, "system_font".to_owned());
+                fonts
+                    .families
+                    .get_mut(&FontFamily::Monospace)
+                    .unwrap()
+                    .insert(0, "system_font".to_owned());
+            } else {
+                log::warn!("Failed to load system font: {}", family_name);
+            }
+        }
+
+        context.set_fonts(fonts);
 
         // Create egui_winit state
         let state = State::new(

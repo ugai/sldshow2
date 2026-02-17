@@ -206,7 +206,12 @@ impl ApplicationState {
         let slideshow = SlideshowTimer::new(config.viewer.timer);
 
         // Initialize egui overlay
-        let mut egui_overlay = EguiOverlay::new(&device, config_format, window.clone());
+        let mut egui_overlay = EguiOverlay::new(
+            &device,
+            config_format,
+            window.clone(),
+            config.style.font_family.clone(),
+        );
         // Apply style config
         egui_overlay.set_style(config.style.font_size, config.style.text_color);
 
