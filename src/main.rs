@@ -673,8 +673,7 @@ impl ApplicationState {
     fn update(&mut self) {
         // Begin egui frame
         self.egui_overlay.begin_frame(&self.window);
-        self.egui_overlay
-            .build_ui(self.size.width as f32 / self.window.scale_factor() as f32);
+        self.egui_overlay.build_ui();
 
         // Auto-hide cursor
         if self.input_handler.cursor_visible
@@ -1006,6 +1005,15 @@ impl ApplicationHandler for ApplicationState {
                 } => event_loop.exit(),
                 WindowEvent::Resized(physical_size) => {
                     self.resize(physical_size);
+                }
+                WindowEvent::ScaleFactorChanged {
+                    scale_factor,
+                    inner_size_writer: _,
+                } => {
+                    info!("Scale factor changed to: {}", scale_factor);
+                    // winit will automatically resize the window according to the new scale factor.
+                    // We don't need to use inner_size_writer unless we want to override the OS default.
+                    // The automatic resize will trigger a WindowEvent::Resized, which handles the actual resize.
                 }
                 WindowEvent::RedrawRequested => {
                     self.update();
