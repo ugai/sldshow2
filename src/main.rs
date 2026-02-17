@@ -23,6 +23,7 @@ mod input;
 mod osc;
 mod overlay;
 mod screenshot;
+mod thumbnail;
 mod timer;
 mod transition;
 

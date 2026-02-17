@@ -21,6 +21,7 @@ No unit tests — testing is manual only.
 | `input.rs` | Input event handling (keyboard, mouse, cursor) |
 | `transition.rs` | wgpu render pipeline, 20 WGSL transition effects |
 | `image_loader.rs` | Async texture loading (rayon + channels) |
+| `thumbnail.rs` | Thumbnail generation and LRU caching |
 | `overlay.rs` | egui overlay for on-screen UI (filename bar, OSD, debug info) |
 | `config.rs` | TOML configuration (serde) |
 | `timer.rs` | Auto-advance timer |
