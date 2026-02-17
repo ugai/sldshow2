@@ -35,6 +35,7 @@ pub struct TextureManager {
 
     // Async loading (sends mip chain: Vec[0]=base, Vec[1]=LOD1, ...)
     loading_tasks: HashSet<usize>,
+    errors: HashMap<usize, String>,
     tx: Sender<(usize, anyhow::Result<Vec<image::RgbaImage>>)>,
     rx: Receiver<(usize, anyhow::Result<Vec<image::RgbaImage>>)>,
 }
@@ -50,6 +51,7 @@ impl TextureManager {
             cache_extent,
             original_paths: Vec::new(),
             loading_tasks: HashSet::new(),
+            errors: HashMap::new(),
             tx,
             rx,
         }
@@ -96,6 +98,7 @@ impl TextureManager {
         // Invalidate texture cache since indices changed
         self.textures.clear();
         self.loading_tasks.clear();
+        self.errors.clear();
         while self.rx.try_recv().is_ok() {}
 
         self.current_index = new_index;
@@ -141,6 +144,7 @@ impl TextureManager {
         self.paths = new_paths;
         self.textures.clear();
         self.loading_tasks.clear();
+        self.errors.clear();
         self.current_index = 0;
         // Drain any in-flight results so stale images aren't uploaded later
         while self.rx.try_recv().is_ok() {}
@@ -160,6 +164,10 @@ impl TextureManager {
 
     pub fn get_texture(&self, index: usize) -> Option<&LoadedTexture> {
         self.textures.get(&index)
+    }
+
+    pub fn get_error(&self, index: usize) -> Option<&String> {
+        self.errors.get(&index)
     }
 
     pub fn update(&mut self, device: &wgpu::Device, queue: &wgpu::Queue) {
@@ -235,6 +243,7 @@ impl TextureManager {
                 }
                 Err(e) => {
                     error!("Failed to load image {}: {}", idx, e);
+                    self.errors.insert(idx, e.to_string());
                 }
             }
         }
@@ -251,11 +260,15 @@ impl TextureManager {
         }
 
         self.textures.retain(|idx, _| needed_indices.contains(idx));
+        self.errors.retain(|idx, _| needed_indices.contains(idx));
         self.loading_tasks
             .retain(|idx| needed_indices.contains(idx));
 
         for idx in needed_indices {
-            if !self.textures.contains_key(&idx) && !self.loading_tasks.contains(&idx) {
+            if !self.textures.contains_key(&idx)
+                && !self.errors.contains_key(&idx)
+                && !self.loading_tasks.contains(&idx)
+            {
                 if self.loading_tasks.len() >= MAX_CONCURRENT_TASKS {
                     break;
                 }
