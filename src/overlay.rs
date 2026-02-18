@@ -626,7 +626,10 @@ impl EguiOverlay {
             let item_size = egui::vec2(thumbnail_size, thumbnail_size);
             let cell_size = item_size + egui::vec2(padding, padding);
 
-            let width = ui.available_width();
+            // Scrollbar width is usually 12.0, but let's be safe.
+            // If we cant find the field, we'll estimate.
+            let scroll_bar_width = 16.0;
+            let width = ui.available_width() - scroll_bar_width - padding * 2.0;
             let cols = (width / cell_size.x).floor() as usize;
             let cols = cols.max(1);
             let count = texture_manager.len();
@@ -673,10 +676,7 @@ impl EguiOverlay {
                                     });
                                 handle.id()
                             } else {
-                                // Placeholder (could be a loading icon or empty space)
-                                // For now, we'll just skip texture and render a button with text?
-                                // Actually, better to render a placeholder rectangle
-                                egui::TextureId::default() // Invalid ID, usually separate handling
+                                egui::TextureId::default()
                             };
 
                             // Determine if we have a valid texture
@@ -684,9 +684,12 @@ impl EguiOverlay {
 
                             let btn_size = item_size;
                             let resp = if has_texture {
-                                ui.add(egui::ImageButton::new((texture_id, btn_size)))
+                                ui.add_sized(
+                                    btn_size,
+                                    egui::ImageButton::new((texture_id, btn_size)).frame(false),
+                                )
                             } else {
-                                ui.add(egui::Button::new("Loading...").min_size(btn_size))
+                                ui.add_sized(btn_size, egui::Button::new("Loading...").frame(true))
                             };
 
                             if resp.clicked() {
