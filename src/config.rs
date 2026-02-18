@@ -180,10 +180,10 @@ pub struct StyleConfig {
 impl Default for StyleConfig {
     fn default() -> Self {
         Self {
-            bg_color: [0, 0, 0, 255],
+            bg_color: [10, 10, 10, 255], // Dark gray background
             show_image_path: false,
             show_controls: true,
-            font_family: None,
+            font_family: Some("Inter".to_string()),
             text_color: [255, 255, 255, 255],
             font_size: 20.0,
         }
