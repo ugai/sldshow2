@@ -159,6 +159,12 @@ impl ThumbnailManager {
         self.rx = rx;
     }
 
+    /// Clear only the pending queue.
+    /// Used to reset priorities when the requested set changes (e.g. rapid scrolling).
+    pub fn clear_pending(&mut self) {
+        self.pending_queue.clear();
+    }
+
     /// Returns the number of cached thumbnails.
     pub fn cache_size(&self) -> usize {
         self.cache.len()
@@ -167,6 +173,11 @@ impl ThumbnailManager {
     /// Returns the number of thumbnails currently being generated.
     pub fn pending_count(&self) -> usize {
         self.loading_tasks.len()
+    }
+
+    /// Return a list of all currently cached thumbnail indices.
+    pub fn get_cached_indices(&self) -> Vec<usize> {
+        self.cache.keys().cloned().collect()
     }
 }
 

@@ -10,6 +10,8 @@ use winit::window::Window;
 
 use crate::config::{Config, FitMode};
 use crate::osc::{OnScreenController, OscAction};
+use crate::thumbnail::ThumbnailManager;
+use std::collections::HashMap;
 
 /// Vertical margin from screen edge (in pixels)
 const MARGIN: f32 = 10.0;
@@ -26,6 +28,7 @@ pub enum OverlayAction {
     SetAmbientBlur(f32),
     ToggleAlwaysOnTop(bool),
     ToggleFullscreen(bool),
+    JumpTo(usize),
 }
 
 pub struct EguiOverlay {
@@ -54,6 +57,10 @@ pub struct EguiOverlay {
     // Style settings
     font_size: f32,
     text_color: Color32,
+
+    // Gallery state
+    show_gallery: bool,
+    gallery_textures: HashMap<usize, egui::TextureHandle>,
 }
 
 impl EguiOverlay {
@@ -124,6 +131,8 @@ impl EguiOverlay {
             osc: OnScreenController::new(),
             font_size: 20.0,
             text_color: Color32::WHITE,
+            show_gallery: false,
+            gallery_textures: HashMap::new(),
         }
     }
 
@@ -197,6 +206,18 @@ impl EguiOverlay {
         self.show_settings
     }
 
+    /// Toggle gallery visibility
+    pub fn toggle_gallery(&mut self) {
+        self.show_gallery = !self.show_gallery;
+    }
+
+    fn cleanup_gallery_textures(&mut self, thumbnail_manager: &ThumbnailManager) {
+        let cached_indices: std::collections::HashSet<_> =
+            thumbnail_manager.get_cached_indices().into_iter().collect();
+        self.gallery_textures
+            .retain(|k, _| cached_indices.contains(k));
+    }
+
     /// Update OSC activity (call on mouse movement)
     pub fn update_osc_activity(&mut self) {
         self.osc.update_activity();
@@ -226,9 +247,18 @@ impl EguiOverlay {
         &mut self,
         config: &mut Config,
         paused: bool,
-        current_index: usize,
-        total_images: usize,
+        texture_manager: &crate::image_loader::TextureManager,
+        thumbnail_manager: &mut ThumbnailManager,
     ) -> Option<OverlayAction> {
+        let current_index = texture_manager.current_index;
+        let total_images = texture_manager.len();
+
+        // Cleanup evicted textures
+        self.cleanup_gallery_textures(thumbnail_manager);
+
+        if self.show_gallery {
+            return self.render_gallery(&self.context.clone(), texture_manager, thumbnail_manager);
+        }
         let font_id = FontId::proportional(self.font_size);
         // egui's screen_rect() returns logical coordinates (already DPI-scaled),
         // so no manual conversion from physical pixels is needed.
@@ -574,5 +604,109 @@ impl EguiOverlay {
         // ScaleFactorChanged events trigger a window resize, which updates the surface,
         // and egui automatically adapts to the new scale factor on the next frame.
         // No manual intervention needed here.
+    }
+
+    fn render_gallery(
+        &mut self,
+        ctx: &Context,
+        texture_manager: &crate::image_loader::TextureManager,
+        thumbnail_manager: &mut ThumbnailManager,
+    ) -> Option<OverlayAction> {
+        // Reset pending queue to ensure we only prioritize currently visible items
+        thumbnail_manager.clear_pending();
+
+        let mut action = None;
+
+        egui::CentralPanel::default().show(ctx, |ui| {
+            ui.heading("Gallery");
+            ui.separator();
+
+            let thumbnail_size = 256.0;
+            let padding = 8.0;
+            let item_size = egui::vec2(thumbnail_size, thumbnail_size);
+            let cell_size = item_size + egui::vec2(padding, padding);
+
+            // Scrollbar width is usually 12.0, but let's be safe.
+            // If we cant find the field, we'll estimate.
+            let scroll_bar_width = 16.0;
+            let width = ui.available_width() - scroll_bar_width - padding * 2.0;
+            let cols = (width / cell_size.x).floor() as usize;
+            let cols = cols.max(1);
+            let count = texture_manager.len();
+            let rows = count.div_ceil(cols);
+
+            egui::ScrollArea::vertical().show_rows(ui, cell_size.y, rows, |ui, row_range| {
+                ui.style_mut().spacing.item_spacing = egui::vec2(padding, padding);
+
+                for row in row_range {
+                    ui.horizontal(|ui| {
+                        for col in 0..cols {
+                            let index = row * cols + col;
+                            if index >= count {
+                                break;
+                            }
+
+                            // Get path for thumbnail generation
+                            if let Some(path) = texture_manager.paths.get(index) {
+                                // Request thumbnail if not present
+                                if thumbnail_manager.get_thumbnail(index).is_none() {
+                                    thumbnail_manager.request_thumbnail(index, path);
+                                }
+                            }
+
+                            // Retrieve texture
+                            let texture_id = if let Some(img) =
+                                thumbnail_manager.get_thumbnail(index)
+                            {
+                                // Create or get TextureHandle
+                                let handle =
+                                    self.gallery_textures.entry(index).or_insert_with(|| {
+                                        // Convert RgbaImage to ColorImage
+                                        let size = [img.width() as usize, img.height() as usize];
+                                        let pixels = img.as_flat_samples();
+                                        let color_image = egui::ColorImage::from_rgba_unmultiplied(
+                                            size,
+                                            pixels.as_slice(),
+                                        );
+                                        ctx.load_texture(
+                                            format!("thumb_{}", index),
+                                            color_image,
+                                            egui::TextureOptions::LINEAR,
+                                        )
+                                    });
+                                handle.id()
+                            } else {
+                                egui::TextureId::default()
+                            };
+
+                            // Determine if we have a valid texture
+                            let has_texture = self.gallery_textures.contains_key(&index);
+
+                            let btn_size = item_size;
+                            let resp = if has_texture {
+                                ui.add_sized(
+                                    btn_size,
+                                    egui::ImageButton::new((texture_id, btn_size)).frame(false),
+                                )
+                            } else {
+                                ui.add_sized(btn_size, egui::Button::new("Loading...").frame(true))
+                            };
+
+                            if resp.clicked() {
+                                action = Some(OverlayAction::JumpTo(index));
+                                self.show_gallery = false;
+                            }
+                        }
+                    });
+                }
+            });
+        });
+
+        // Close on Escape
+        if ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
+            self.show_gallery = false;
+        }
+
+        action
     }
 }
