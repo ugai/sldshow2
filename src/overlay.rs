@@ -606,6 +606,9 @@ impl EguiOverlay {
         texture_manager: &crate::image_loader::TextureManager,
         thumbnail_manager: &mut ThumbnailManager,
     ) -> Option<OverlayAction> {
+        // Reset pending queue to ensure we only prioritize currently visible items
+        thumbnail_manager.clear_pending();
+
         let mut action = None;
 
         egui::CentralPanel::default().show(ctx, |ui| {
