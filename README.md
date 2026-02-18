@@ -1,6 +1,6 @@
 # sldshow2
 
-High-performance slideshow image viewer with custom WGSL transitions, built with Rust, winit, and wgpu.
+High-performance slideshow image viewer with custom [WGSL](https://www.w3.org/TR/WGSL/) transitions, built with Rust, [winit](https://github.com/rust-windowing/winit), [wgpu](https://github.com/gfx-rs/wgpu), and [egui](https://github.com/emilk/egui).
 
 ## Features
 
