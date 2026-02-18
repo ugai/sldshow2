@@ -250,6 +250,9 @@ impl EguiOverlay {
         texture_manager: &crate::image_loader::TextureManager,
         thumbnail_manager: &mut ThumbnailManager,
     ) -> Option<OverlayAction> {
+        let current_index = texture_manager.current_index;
+        let total_images = texture_manager.len();
+
         // Cleanup evicted textures
         self.cleanup_gallery_textures(thumbnail_manager);
 
@@ -516,10 +519,13 @@ impl EguiOverlay {
         }
 
         // Render OSC (On-Screen Controller) and capture any action
-        if let Some(osc_action) = self
-            .osc
-            .render(&self.context, paused, config.viewer.shuffle)
-        {
+        if let Some(osc_action) = self.osc.render(
+            &self.context,
+            paused,
+            config.viewer.shuffle,
+            current_index,
+            total_images,
+        ) {
             action = Some(OverlayAction::Osc(osc_action));
         }
 

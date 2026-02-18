@@ -336,6 +336,9 @@ impl ApplicationState {
             OscAction::OpenSettings => {
                 self.egui_overlay.toggle_settings();
             }
+            OscAction::Seek(index) => {
+                self.jump_to(index);
+            }
         }
     }
 
