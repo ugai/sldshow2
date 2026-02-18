@@ -18,6 +18,7 @@ use crate::input::{InputAction, InputHandler};
 use crate::osc::OscAction;
 use crate::overlay::EguiOverlay;
 use crate::screenshot::ScreenshotCapture;
+use crate::thumbnail::ThumbnailManager;
 use crate::timer::SlideshowTimer;
 use crate::transition::{TransitionPipeline, TransitionUniform};
 
@@ -32,6 +33,7 @@ pub struct ApplicationState {
 
     // Subsystems
     texture_manager: TextureManager,
+    thumbnail_manager: ThumbnailManager,
     pipeline: TransitionPipeline,
     slideshow: SlideshowTimer,
     input_handler: InputHandler,
@@ -185,6 +187,8 @@ impl ApplicationState {
             texture_manager.shuffle_paths();
         }
 
+        let thumbnail_manager = ThumbnailManager::new(200);
+
         let pipeline = TransitionPipeline::new(&device, config_format, config.viewer.filter_mode);
 
         let slideshow = SlideshowTimer::new(config.viewer.timer);
@@ -241,6 +245,7 @@ impl ApplicationState {
             size,
             window,
             texture_manager,
+            thumbnail_manager,
             pipeline,
             slideshow,
             input_handler: InputHandler::new(),
@@ -517,6 +522,9 @@ impl ApplicationState {
             InputAction::ToggleHelpOverlay => {
                 self.egui_overlay.toggle_help_overlay();
             }
+            InputAction::ToggleGallery => {
+                self.egui_overlay.toggle_gallery();
+            }
         }
     }
 
@@ -718,8 +726,8 @@ impl ApplicationState {
         let overlay_action = self.egui_overlay.build_ui(
             &mut self.config,
             self.slideshow.paused,
-            self.texture_manager.current_index,
-            self.texture_manager.len(),
+            &self.texture_manager,
+            &mut self.thumbnail_manager,
         );
 
         // Handle Overlay actions (Settings & OSC)
@@ -765,6 +773,9 @@ impl ApplicationState {
                         None
                     });
                 }
+                OverlayAction::JumpTo(index) => {
+                    self.jump_to(index);
+                }
             }
         }
 
@@ -804,6 +815,7 @@ impl ApplicationState {
         }
 
         self.texture_manager.update(&self.device, &self.queue);
+        self.thumbnail_manager.update();
 
         // Check if transition finished (must run before auto-advance to avoid
         // a one-frame gap where the destination is shown without a transition)

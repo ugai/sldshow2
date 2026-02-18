@@ -34,6 +34,7 @@ pub enum InputAction {
     SetWindowPosition { x: i32, y: i32 },
     CopyImageToClipboard,
     ToggleHelpOverlay,
+    ToggleGallery,
 }
 
 /// Input state tracker.
@@ -305,6 +306,7 @@ impl InputHandler {
             PhysicalKey::Code(KeyCode::Slash) if modifiers.shift_key() => {
                 Some(InputAction::ToggleHelpOverlay)
             }
+            PhysicalKey::Code(KeyCode::KeyG) => Some(InputAction::ToggleGallery),
             _ => None,
         };
 
