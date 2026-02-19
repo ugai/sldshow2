@@ -2,24 +2,17 @@
 //!
 //! Provides interactive buttons for play/pause, navigation, and shuffle.
 
-use egui::{Align2, Color32, Context, RichText, Stroke, Vec2};
+use egui::{Align2, Color32, Context, FontId, Stroke, Vec2};
 use std::time::{Duration, Instant};
+
+// Import Phosphor icons
+use egui_phosphor::regular as Icon;
 
 /// Auto-hide timeout in seconds
 const OSC_TIMEOUT: f32 = 2.0;
 
 /// Minimum vertical margin from bottom edge
-const OSC_BOTTOM_MARGIN: f32 = 20.0;
-
-/// OSC state and rendering
-pub struct OnScreenController {
-    /// Last mouse activity time
-    last_activity: Instant,
-    /// Whether OSC is currently visible
-    visible: bool,
-    /// Whether mouse is hovering over OSC
-    hovering: bool,
-}
+const OSC_BOTTOM_MARGIN: f32 = 50.0;
 
 /// Actions triggered by OSC button clicks
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -32,24 +25,35 @@ pub enum OscAction {
     Seek(usize),
 }
 
-impl OnScreenController {
+/// OSC state and rendering
+pub struct Osc {
+    /// Last mouse activity time
+    pub last_interaction: Instant,
+    /// Whether OSC is currently visible
+    pub visible: bool,
+    /// Whether mouse is hovering over OSC
+    pub hovering: bool,
+}
+
+impl Osc {
     pub fn new() -> Self {
         Self {
-            last_activity: Instant::now(),
+            last_interaction: Instant::now(),
             visible: true,
             hovering: false,
         }
     }
 
     /// Update activity timer (call on mouse movement)
-    pub fn update_activity(&mut self) {
-        self.last_activity = Instant::now();
+    pub fn update_interaction(&mut self) {
+        self.last_interaction = Instant::now();
         self.visible = true;
     }
 
     /// Update visibility based on timeout
-    pub fn update(&mut self) {
-        if !self.hovering && self.last_activity.elapsed() > Duration::from_secs_f32(OSC_TIMEOUT) {
+    pub fn check_autohide(&mut self) {
+        if !self.hovering && self.last_interaction.elapsed() > Duration::from_secs_f32(OSC_TIMEOUT)
+        {
             self.visible = false;
         }
     }
@@ -75,15 +79,15 @@ impl OnScreenController {
             .show(ctx, |ui| {
                 // Semi-transparent dark background
                 let frame = egui::Frame::new()
-                    .fill(Color32::from_black_alpha(200))
+                    .fill(Color32::from_black_alpha(220)) // Slightly darker for contrast
                     .inner_margin(egui::Margin {
-                        left: 16,
-                        right: 16,
-                        top: 10,
-                        bottom: 10,
+                        left: 20,
+                        right: 20,
+                        top: 12,
+                        bottom: 12,
                     })
-                    .corner_radius(8.0)
-                    .stroke(Stroke::new(1.0, Color32::from_white_alpha(40)));
+                    .corner_radius(12.0)
+                    .stroke(Stroke::new(1.0, Color32::from_white_alpha(30)));
 
                 frame.show(ui, |ui| {
                     ui.vertical(|ui| {
@@ -94,40 +98,41 @@ impl OnScreenController {
                             {
                                 action = Some(OscAction::Seek(seek_index));
                             }
-                            ui.add_space(8.0);
+                            ui.add_space(10.0);
                         }
 
                         // Buttons
                         ui.horizontal(|ui| {
-                            ui.spacing_mut().item_spacing.x = 12.0;
+                            let item_height = 32.0;
+                            ui.spacing_mut().item_spacing.x = 16.0;
 
                             // Settings button (leftmost)
-                            if self.render_icon_button(ui, "⚙") {
+                            if self.icon_button(ui, item_height, Icon::GEAR, false) {
                                 action = Some(OscAction::OpenSettings);
                             }
 
                             ui.add_space(8.0);
 
                             // Previous button
-                            if self.render_button(ui, "◀ Prev", false) {
+                            if self.icon_button(ui, item_height, Icon::CARET_LEFT, false) {
                                 action = Some(OscAction::Previous);
                             }
 
                             // Play/Pause button (highlighted)
-                            let play_pause_text = if paused { "▶ Play" } else { "⏸ Pause" };
-                            if self.render_button(ui, play_pause_text, true) {
+                            let play_icon = if paused { Icon::PLAY } else { Icon::PAUSE };
+                            if self.icon_button(ui, item_height, play_icon, true) {
                                 action = Some(OscAction::PlayPause);
                             }
 
                             // Next button
-                            if self.render_button(ui, "Next ▶", false) {
+                            if self.icon_button(ui, item_height, Icon::CARET_RIGHT, false) {
                                 action = Some(OscAction::Next);
                             }
 
                             ui.add_space(8.0);
 
                             // Shuffle toggle (with visual state)
-                            if self.render_toggle_button(ui, "🔀 Shuffle", shuffle) {
+                            if self.icon_button(ui, item_height, Icon::SHUFFLE, shuffle) {
                                 action = Some(OscAction::ToggleShuffle);
                             }
                         });
@@ -141,43 +146,41 @@ impl OnScreenController {
         action
     }
 
-    /// Render a small icon button
-    fn render_icon_button(&self, ui: &mut egui::Ui, text: &str) -> bool {
-        let button = egui::Button::new(RichText::new(text).size(20.0).color(Color32::WHITE))
-            .fill(Color32::TRANSPARENT)
-            .min_size(Vec2::new(32.0, 32.0));
+    /// Render a flexible icon button using custom painting
+    fn icon_button(&self, ui: &mut egui::Ui, height: f32, icon: &str, active: bool) -> bool {
+        let (rect, response) = ui.allocate_exact_size(Vec2::splat(height), egui::Sense::click());
 
-        ui.add(button).clicked()
-    }
-
-    /// Render a standard button
-    fn render_button(&self, ui: &mut egui::Ui, text: &str, primary: bool) -> bool {
-        let button = if primary {
-            egui::Button::new(RichText::new(text).size(16.0).color(Color32::WHITE))
-                .fill(Color32::from_rgb(60, 120, 200))
-                .min_size(Vec2::new(90.0, 32.0))
+        // Hover animation
+        let visuals = ui.style().interact(&response);
+        let bg_color = if active {
+            Color32::from_rgb(60, 160, 100)
+        } else if response.hovered() {
+            Color32::from_white_alpha(40)
         } else {
-            egui::Button::new(RichText::new(text).size(16.0).color(Color32::WHITE))
-                .fill(Color32::from_rgb(50, 50, 50))
-                .min_size(Vec2::new(90.0, 32.0))
+            Color32::TRANSPARENT
         };
 
-        ui.add(button).clicked()
-    }
+        if bg_color != Color32::TRANSPARENT {
+            ui.painter().rect_filled(rect, 8.0, bg_color);
+        }
 
-    /// Render a toggle button (with active state styling)
-    fn render_toggle_button(&self, ui: &mut egui::Ui, text: &str, active: bool) -> bool {
-        let fill_color = if active {
-            Color32::from_rgb(60, 150, 60) // Green when active
+        // Icon painting
+        let size = height * 0.7; // Icon size relative to button
+        let color = if active {
+            Color32::WHITE
         } else {
-            Color32::from_rgb(50, 50, 50) // Gray when inactive
+            visuals.text_color()
         };
 
-        let button = egui::Button::new(RichText::new(text).size(16.0).color(Color32::WHITE))
-            .fill(fill_color)
-            .min_size(Vec2::new(110.0, 32.0));
+        ui.painter().text(
+            rect.center(),
+            Align2::CENTER_CENTER,
+            icon,
+            FontId::proportional(size),
+            color,
+        );
 
-        ui.add(button).clicked()
+        response.clicked()
     }
 
     /// Render video-style timeline scrub bar
@@ -251,7 +254,7 @@ impl OnScreenController {
     #[allow(dead_code)]
     pub fn show(&mut self) {
         self.visible = true;
-        self.last_activity = Instant::now();
+        self.last_interaction = Instant::now();
     }
 
     /// Force OSC to hide

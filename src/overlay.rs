@@ -9,7 +9,7 @@ use winit::event::WindowEvent;
 use winit::window::Window;
 
 use crate::config::{Config, FitMode};
-use crate::osc::{OnScreenController, OscAction};
+use crate::osc::{Osc, OscAction};
 use crate::thumbnail::ThumbnailManager;
 use std::collections::HashMap;
 
@@ -52,7 +52,7 @@ pub struct EguiOverlay {
     show_settings: bool,
 
     // On-Screen Controller
-    osc: OnScreenController,
+    osc: Osc,
 
     // Style settings
     font_size: f32,
@@ -74,32 +74,65 @@ impl EguiOverlay {
 
         // Configure fonts
         let mut fonts = FontDefinitions::default();
+        egui_phosphor::add_to_fonts(&mut fonts, egui_phosphor::Variant::Regular);
 
         if let Some(family_name) = font_family_name {
-            use font_loader::system_fonts;
-            let property = system_fonts::FontPropertyBuilder::new()
-                .family(&family_name)
-                .build();
-            if let Some((font_data, _)) = system_fonts::get(&property) {
-                log::info!("Loaded system font: {}", family_name);
+            if family_name == "Inter" {
+                // Load embedded Inter font
+                log::info!("Loading embedded Inter font");
                 fonts.font_data.insert(
-                    "system_font".to_owned(),
-                    FontData::from_owned(font_data).into(),
+                    "Inter".to_owned(),
+                    FontData::from_static(include_bytes!("../assets/fonts/Inter-Medium.otf"))
+                        .into(),
                 );
-                // Set as highest priority for Proportional and Monospace
                 fonts
                     .families
                     .get_mut(&FontFamily::Proportional)
                     .unwrap()
-                    .insert(0, "system_font".to_owned());
+                    .insert(0, "Inter".to_owned());
                 fonts
                     .families
                     .get_mut(&FontFamily::Monospace)
                     .unwrap()
-                    .insert(0, "system_font".to_owned());
+                    .insert(0, "Inter".to_owned());
             } else {
-                log::warn!("Failed to load system font: {}", family_name);
+                use font_loader::system_fonts;
+                let property = system_fonts::FontPropertyBuilder::new()
+                    .family(&family_name)
+                    .build();
+                if let Some((font_data, _)) = system_fonts::get(&property) {
+                    log::info!("Loaded system font: {}", family_name);
+                    fonts.font_data.insert(
+                        "system_font".to_owned(),
+                        FontData::from_owned(font_data).into(),
+                    );
+                    // Set as highest priority for Proportional and Monospace
+                    fonts
+                        .families
+                        .get_mut(&FontFamily::Proportional)
+                        .unwrap()
+                        .insert(0, "system_font".to_owned());
+                    fonts
+                        .families
+                        .get_mut(&FontFamily::Monospace)
+                        .unwrap()
+                        .insert(0, "system_font".to_owned());
+                } else {
+                    log::warn!("Failed to load system font: {}", family_name);
+                }
             }
+        } else {
+            // Fallback to embedded Inter if no font specified
+            log::info!("No font specified, loading embedded Inter font");
+            fonts.font_data.insert(
+                "Inter".to_owned(),
+                FontData::from_static(include_bytes!("../assets/fonts/Inter-Medium.otf")).into(),
+            );
+            fonts
+                .families
+                .get_mut(&FontFamily::Proportional)
+                .unwrap()
+                .insert(0, "Inter".to_owned());
         }
 
         context.set_fonts(fonts);
@@ -128,7 +161,7 @@ impl EguiOverlay {
             show_info_overlay: false,
             show_help_overlay: false,
             show_settings: false,
-            osc: OnScreenController::new(),
+            osc: Osc::new(),
             font_size: 20.0,
             text_color: Color32::WHITE,
             show_gallery: false,
@@ -137,13 +170,13 @@ impl EguiOverlay {
     }
 
     /// Set text style (font size and color)
-    pub fn set_style(&mut self, font_size: f32, color_rgba: [u8; 4]) {
+    pub fn set_style(&mut self, font_size: f32, text_color: [u8; 4]) {
         self.font_size = font_size;
         self.text_color = Color32::from_rgba_unmultiplied(
-            color_rgba[0],
-            color_rgba[1],
-            color_rgba[2],
-            color_rgba[3],
+            text_color[0],
+            text_color[1],
+            text_color[2],
+            text_color[3],
         );
     }
 
@@ -220,12 +253,12 @@ impl EguiOverlay {
 
     /// Update OSC activity (call on mouse movement)
     pub fn update_osc_activity(&mut self) {
-        self.osc.update_activity();
+        self.osc.update_interaction();
     }
 
     /// Update OSC state (auto-hide logic)
     pub fn update_osc(&mut self) {
-        self.osc.update();
+        self.osc.check_autohide();
     }
 
     /// Forward winit events to egui
@@ -267,9 +300,9 @@ impl EguiOverlay {
 
         // Semi-transparent dark background for readability over images
         let frame = egui::Frame::new()
-            .fill(Color32::from_black_alpha(180))
-            .inner_margin(egui::Margin::same(6))
-            .corner_radius(4.0);
+            .fill(Color32::from_black_alpha(160))
+            .inner_margin(egui::Margin::same(12))
+            .corner_radius(8.0);
 
         // Use a local variable to collect actions, though we typically only have one per frame
         let mut action = None;
