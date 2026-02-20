@@ -19,7 +19,7 @@ use crate::osc::OscAction;
 use crate::overlay::EguiOverlay;
 use crate::screenshot::ScreenshotCapture;
 use crate::thumbnail::ThumbnailManager;
-use crate::timer::SlideshowTimer;
+use crate::timer::{SequenceTimer, SlideshowTimer};
 use crate::transition::{TransitionPipeline, TransitionUniform};
 
 pub struct ApplicationState {
@@ -36,6 +36,7 @@ pub struct ApplicationState {
     thumbnail_manager: ThumbnailManager,
     pipeline: TransitionPipeline,
     slideshow: SlideshowTimer,
+    sequence_timer: SequenceTimer,
     input_handler: InputHandler,
     egui_overlay: EguiOverlay,
 
@@ -168,8 +169,17 @@ impl ApplicationState {
         surface.configure(&device, &surface_config);
 
         // Initialize Subsystems
+        let cache_extent = if config.viewer.playback_mode == config::PlaybackMode::Sequence {
+            config
+                .viewer
+                .cache_extent
+                .max(config.viewer.sequence_fps as usize)
+        } else {
+            config.viewer.cache_extent
+        };
+
         let mut texture_manager = TextureManager::new(
-            config.viewer.cache_extent,
+            cache_extent,
             (
                 config.viewer.max_texture_size[0],
                 config.viewer.max_texture_size[1],
@@ -192,6 +202,7 @@ impl ApplicationState {
         let pipeline = TransitionPipeline::new(&device, config_format, config.viewer.filter_mode);
 
         let slideshow = SlideshowTimer::new(config.viewer.timer);
+        let sequence_timer = SequenceTimer::new(config.viewer.sequence_fps);
 
         // Initialize egui overlay
         let mut egui_overlay = EguiOverlay::new(
@@ -248,6 +259,7 @@ impl ApplicationState {
             thumbnail_manager,
             pipeline,
             slideshow,
+            sequence_timer,
             input_handler: InputHandler::new(),
             egui_overlay,
             uniform_buffer,
@@ -356,16 +368,29 @@ impl ApplicationState {
             }
             InputAction::JumpTo(index) => self.jump_to(index),
             InputAction::TogglePause => {
-                self.slideshow.toggle_pause();
-                info!("Slideshow paused: {}", self.slideshow.paused);
-                self.show_osd(
-                    if self.slideshow.paused {
-                        "Paused"
-                    } else {
-                        "Resumed"
-                    }
-                    .to_string(),
-                );
+                if self.config.viewer.playback_mode == config::PlaybackMode::Sequence {
+                    self.sequence_timer.toggle_pause();
+                    info!("Sequence paused: {}", self.sequence_timer.paused);
+                    self.show_osd(
+                        if self.sequence_timer.paused {
+                            "Paused"
+                        } else {
+                            "Resumed"
+                        }
+                        .to_string(),
+                    );
+                } else {
+                    self.slideshow.toggle_pause();
+                    info!("Slideshow paused: {}", self.slideshow.paused);
+                    self.show_osd(
+                        if self.slideshow.paused {
+                            "Paused"
+                        } else {
+                            "Resumed"
+                        }
+                        .to_string(),
+                    );
+                }
             }
             InputAction::ToggleFullscreen => {
                 let fullscreen = self.window.fullscreen().is_some();
@@ -531,8 +556,15 @@ impl ApplicationState {
     fn next_image(&mut self) {
         let old_index = self.texture_manager.current_index;
         if self.texture_manager.next(self.config.viewer.pause_at_last) {
-            self.start_transition(old_index, self.texture_manager.current_index);
+            if self.config.viewer.playback_mode == config::PlaybackMode::Sequence {
+                self.current_texture_index = Some(self.texture_manager.current_index);
+                self.transition = None;
+                self.bind_group = None;
+            } else {
+                self.start_transition(old_index, self.texture_manager.current_index);
+            }
             self.slideshow.reset();
+            self.sequence_timer.reset();
             self.update_window_title();
         }
     }
@@ -540,8 +572,15 @@ impl ApplicationState {
     fn prev_image(&mut self) {
         let old_index = self.texture_manager.current_index;
         if self.texture_manager.previous() {
-            self.start_transition(old_index, self.texture_manager.current_index);
+            if self.config.viewer.playback_mode == config::PlaybackMode::Sequence {
+                self.current_texture_index = Some(self.texture_manager.current_index);
+                self.transition = None;
+                self.bind_group = None;
+            } else {
+                self.start_transition(old_index, self.texture_manager.current_index);
+            }
             self.slideshow.reset();
+            self.sequence_timer.reset();
             self.update_window_title();
         }
     }
@@ -550,8 +589,15 @@ impl ApplicationState {
         let old_index = self.texture_manager.current_index;
         if index < self.texture_manager.len() && index != old_index {
             self.texture_manager.jump_to(index);
-            self.start_transition(old_index, self.texture_manager.current_index);
+            if self.config.viewer.playback_mode == config::PlaybackMode::Sequence {
+                self.current_texture_index = Some(self.texture_manager.current_index);
+                self.transition = None;
+                self.bind_group = None;
+            } else {
+                self.start_transition(old_index, self.texture_manager.current_index);
+            }
             self.slideshow.reset();
+            self.sequence_timer.reset();
             self.update_window_title();
         }
     }
@@ -827,11 +873,17 @@ impl ApplicationState {
             }
         }
 
-        if self.transition.is_none()
-            && !self.texture_manager.paths.is_empty()
-            && self.slideshow.update()
-        {
-            self.next_image();
+        if self.transition.is_none() && !self.texture_manager.paths.is_empty() {
+            if self.config.viewer.playback_mode == config::PlaybackMode::Sequence {
+                let frames_to_advance = self.sequence_timer.update();
+                if frames_to_advance > 0 {
+                    for _ in 0..frames_to_advance {
+                        self.next_image();
+                    }
+                }
+            } else if self.slideshow.update() {
+                self.next_image();
+            }
         }
 
         // Expire temporary timers

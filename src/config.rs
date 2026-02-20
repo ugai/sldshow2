@@ -100,6 +100,15 @@ impl Default for WindowConfig {
     }
 }
 
+/// Playback mode
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "PascalCase")]
+pub enum PlaybackMode {
+    #[default]
+    Slideshow,
+    Sequence,
+}
+
 /// Viewer configuration
 #[derive(Debug, Clone, Serialize, Deserialize, Validate)]
 #[serde(default)]
@@ -112,6 +121,9 @@ pub struct ViewerConfig {
     pub pause_at_last: bool,
     #[validate(range(min = 1, max = 100))]
     pub cache_extent: usize,
+    pub playback_mode: PlaybackMode,
+    #[validate(range(min = 1.0, max = 240.0))]
+    pub sequence_fps: f32,
     pub hot_reload: bool,
     /// Maximum texture size [width, height] for GPU upload.
     /// Images larger than this are downscaled before GPU upload to reduce frame spikes.
@@ -135,6 +147,8 @@ impl Default for ViewerConfig {
             shuffle: true,
             pause_at_last: false,
             cache_extent: 5,
+            playback_mode: PlaybackMode::Slideshow,
+            sequence_fps: 24.0,
             hot_reload: true,
             max_texture_size: [1920, 1080],
             filter_mode: FilterMode::Linear,
