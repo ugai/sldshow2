@@ -10,7 +10,7 @@ use std::path::Path;
 use std::sync::mpsc::{Receiver, Sender, channel};
 
 /// Maximum number of concurrent loading tasks
-const MAX_CONCURRENT_TASKS: usize = 2;
+const MAX_CONCURRENT_TASKS: usize = 4;
 
 /// Maximum directory recursion depth to prevent infinite loops
 const MAX_SCAN_DEPTH: usize = 128;
@@ -302,14 +302,29 @@ impl TextureManager {
 // Standalone functions
 
 fn load_image_rgba(path: &Utf8Path, max_size: (u32, u32)) -> anyhow::Result<Vec<image::RgbaImage>> {
-    let img = image::open(path.as_std_path())
+    let mut img = image::open(path.as_std_path())
         .map_err(|e| anyhow::anyhow!("Failed to open image: {}", e))?;
+
+    // If it's EXR (linear HDR), we need to tonemap or convert to sRGB locally
+    // since our WGPU format is Rgba8UnormSrgb and expects sRGB input values.
+    if path.extension().unwrap_or("").eq_ignore_ascii_case("exr") {
+        // Simple linear to sRGB approximation for EXR
+        let mut rgba32f = img.into_rgba32f();
+        for pixel in rgba32f.pixels_mut() {
+            // Apply gamma 2.2 for basic sRGB viewing (pixel.powf(1.0/2.2))
+            pixel[0] = pixel[0].max(0.0).powf(1.0 / 2.2);
+            pixel[1] = pixel[1].max(0.0).powf(1.0 / 2.2);
+            pixel[2] = pixel[2].max(0.0).powf(1.0 / 2.2);
+            // Alpha remains linear
+        }
+        img = image::DynamicImage::ImageRgba32F(rgba32f);
+    }
 
     // Apply EXIF rotation
     let img = apply_exif_rotation(img, path);
 
     let resized = resize_for_gpu(img, max_size.0, max_size.1);
-    let base = resized.to_rgba8();
+    let base = resized.into_rgba8();
 
     // Generate mipmap chain on CPU
     let mip_count = mip_level_count(base.width(), base.height());
