@@ -608,7 +608,7 @@ impl ApplicationState {
     }
 
     fn timer_step(&self, increasing: bool) -> f32 {
-        let current = self.slideshow.duration();
+        let current = self.slideshow.interval_secs();
         if increasing && current < 5.0 || !increasing && current <= 5.0 {
             1.0
         } else {
@@ -617,7 +617,7 @@ impl ApplicationState {
     }
 
     fn adjust_timer(&mut self, delta: f32) {
-        let new_timer = (self.slideshow.duration() + delta).round().max(0.0);
+        let new_timer = (self.slideshow.interval_secs() + delta).round().max(0.0);
         self.slideshow.set_duration(new_timer);
         self.config.viewer.timer = new_timer; // Sync to config
         if new_timer <= 0.0 {
