@@ -66,6 +66,10 @@ fn main() -> Result<()> {
     };
 
     let transparent = config.style.bg_color[3] < 255;
+    let fullscreen = config
+        .window
+        .fullscreen
+        .then_some(winit::window::Fullscreen::Borderless(None));
     let window_attributes = winit::window::Window::default_attributes()
         .with_title("sldshow2")
         .with_inner_size(winit::dpi::LogicalSize::new(
@@ -80,6 +84,7 @@ fn main() -> Result<()> {
         } else {
             winit::window::WindowLevel::Normal
         });
+        .with_fullscreen(fullscreen);
 
     #[allow(deprecated)]
     let window = Arc::new(event_loop.create_window(window_attributes).unwrap());
