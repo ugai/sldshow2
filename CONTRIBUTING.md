@@ -77,6 +77,16 @@ Multiple contributors may work on separate issues simultaneously. To minimize me
 - Pushing a tag like `v0.2.0` triggers the release workflow, which builds a Windows binary and creates a GitHub Release.
 - The tag must match the version in `Cargo.toml` — the CI verifies this.
 
+## Labels
+
+Issues use three label categories:
+
+| Category | Labels | Notes |
+| :--- | :--- | :--- |
+| **Priority** | `priority:p0` `priority:p1` `priority:p2` `priority:p3` | No label = `p2` (normal). Color-coded by severity |
+| **Agent** | `agent:ready` `agent:proposed` | See [docs/AGENTS.md](docs/AGENTS.md) |
+| **Type** | `bug` `enhancement` `refactor` `documentation` `good first issue` `help wanted` … | Standard GitHub types |
+
 ## AI Agent Workflow
 
 This project supports autonomous AI agent development using the `ultimate-issue-slayer` skill.

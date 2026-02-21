@@ -22,7 +22,7 @@ Run a complete Issue → PR flow inside an isolated git worktree.
 **Priority** — When multiple eligible issues exist, prefer in this order:
 
 1. `bug` over `enhancement`
-2. `phase:1` > `phase:2` > `phase:3`
+2. `priority:p0` > `priority:p1` > `priority:p2` > `priority:p3` (no label = `p2`)
 3. Lower issue number first
 
 **Prohibitions**:

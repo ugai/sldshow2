@@ -2,10 +2,19 @@
 
 `sldshow2` supports autonomous development using AI Agents (like adding a co-pilot to your team). This document defines the rules of engagement.
 
-## The `agent:ready` Label
+## Labels
+
+### `agent:ready`
 
 Issues must have the **`agent:ready`** label before an AI agent can pick them up.
 This is an opt-in guardrail — maintainers explicitly approve issues for autonomous implementation by adding this label.
+
+### `agent:proposed`
+
+Issues with **`agent:proposed`** were opened by the `guild-quest-receptionist` skill.
+They are **not yet approved** for autonomous implementation. Agents must wait until a maintainer adds `agent:ready` before picking them up.
+
+> **Note**: `agent:proposed` is an origin label, not a status. It stays on the issue even after `agent:ready` is added, so you can always filter AI-proposed issues with `--label agent:proposed`.
 
 ### Eligibility Criteria
 An agent may only work on an issue if **ALL** of the following are true:
@@ -17,7 +26,7 @@ An agent may only work on an issue if **ALL** of the following are true:
 ### Priority
 When multiple eligible issues exist, agents favor:
 1.  `bug` > `enhancement`
-2.  `phase:1` > `phase:2` > `phase:3`
+2.  `priority:p0` > `priority:p1` > `priority:p2` > `priority:p3` (no label = `p2`)
 3.  Lowest issue number
 
 ## Execution Patterns
