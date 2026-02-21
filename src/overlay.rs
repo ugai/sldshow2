@@ -77,25 +77,7 @@ impl EguiOverlay {
         egui_phosphor::add_to_fonts(&mut fonts, egui_phosphor::Variant::Regular);
 
         if let Some(family_name) = font_family_name {
-            if family_name == "Inter" {
-                // Load embedded Inter font
-                log::info!("Loading embedded Inter font");
-                fonts.font_data.insert(
-                    "Inter".to_owned(),
-                    FontData::from_static(include_bytes!("../assets/fonts/Inter-Medium.otf"))
-                        .into(),
-                );
-                fonts
-                    .families
-                    .get_mut(&FontFamily::Proportional)
-                    .unwrap()
-                    .insert(0, "Inter".to_owned());
-                fonts
-                    .families
-                    .get_mut(&FontFamily::Monospace)
-                    .unwrap()
-                    .insert(0, "Inter".to_owned());
-            } else {
+            if family_name != "Inter" && family_name != "default" {
                 use font_loader::system_fonts;
                 let property = system_fonts::FontPropertyBuilder::new()
                     .family(&family_name)
@@ -106,7 +88,6 @@ impl EguiOverlay {
                         "system_font".to_owned(),
                         FontData::from_owned(font_data).into(),
                     );
-                    // Set as highest priority for Proportional and Monospace
                     fonts
                         .families
                         .get_mut(&FontFamily::Proportional)
@@ -121,21 +102,22 @@ impl EguiOverlay {
                     log::warn!("Failed to load system font: {}", family_name);
                 }
             }
-        } else {
-            // Fallback to embedded Inter if no font specified
-            log::info!("No font specified, loading embedded Inter font");
-            fonts.font_data.insert(
-                "Inter".to_owned(),
-                FontData::from_static(include_bytes!("../assets/fonts/Inter-Medium.otf")).into(),
-            );
-            fonts
-                .families
-                .get_mut(&FontFamily::Proportional)
-                .unwrap()
-                .insert(0, "Inter".to_owned());
         }
 
         context.set_fonts(fonts);
+
+        // Enhance rendering crispness on scaled displays (like 1.25x or 1.5x)
+        let mut options = egui::Options::default();
+        options.tessellation_options.feathering = true;
+        // Text should be pixel-aligned for maximum crispness
+        context.options_mut(|o| *o = options);
+
+        // Adjust widget spacing and alignments
+        let mut style = egui::Style::default();
+        style.spacing.item_spacing = egui::vec2(8.0, 8.0);
+        style.spacing.window_margin = egui::Margin::same(12);
+
+        context.set_style(style);
 
         // Create egui_winit state
         let state = State::new(
@@ -379,59 +361,63 @@ impl EguiOverlay {
             egui::Window::new("Keyboard Shortcuts")
                 .anchor(Align2::CENTER_CENTER, [0.0, 0.0])
                 .collapsible(false)
-                .resizable(false)
+                .resizable(true)
                 .show(&self.context, |ui| {
-                    ui.set_min_width(500.0);
+                    egui::ScrollArea::vertical()
+                        .max_height(ui.available_height() - 20.0)
+                        .show(ui, |ui| {
+                            ui.set_min_width(350.0);
 
-                    ui.heading("Navigation");
-                    ui.label("Space / Right       Next image");
-                    ui.label("Left               Previous image");
-                    ui.label("Shift+Left/Right   Skip 10 images");
-                    ui.label("Home / End         Jump to first/last image");
-                    ui.label("Mouse Wheel        Next/previous image");
-                    ui.label("Shift + Wheel      Skip 10 images");
-                    ui.label("Left Click         Next image");
-                    ui.label("Right Click        Previous image");
-                    ui.label("Double Click       Toggle fullscreen");
-                    ui.label("Drag Window        Move window position");
+                            ui.heading("Navigation");
+                            ui.label("Space / Right       Next image");
+                            ui.label("Left               Previous image");
+                            ui.label("Shift+Left/Right   Skip 10 images");
+                            ui.label("Home / End         Jump to first/last image");
+                            ui.label("Mouse Wheel        Next/previous image");
+                            ui.label("Shift + Wheel      Skip 10 images");
+                            ui.label("Left Click         Next image");
+                            ui.label("Right Click        Previous image");
+                            ui.label("Double Click       Toggle fullscreen");
+                            ui.label("Drag Window        Move window position");
 
-                    ui.add_space(10.0);
-                    ui.heading("Playback");
-                    ui.label("P                  Pause/resume slideshow");
-                    ui.label("[ / ]              Adjust timer (-/+ 1s)");
-                    ui.label("Shift + [ / ]      Adjust timer (-/+ 60s)");
-                    ui.label("Backspace          Reset timer to default");
-                    ui.label("L                  Toggle loop mode");
+                            ui.add_space(4.0);
+                            ui.heading("Playback");
+                            ui.label("P                  Pause/resume slideshow");
+                            ui.label("[ / ]              Adjust timer (-/+ 1s)");
+                            ui.label("Shift + [ / ]      Adjust timer (-/+ 60s)");
+                            ui.label("Backspace          Reset timer to default");
+                            ui.label("L                  Toggle loop mode");
 
-                    ui.add_space(10.0);
-                    ui.heading("Display");
-                    ui.label("F                  Toggle fullscreen");
-                    ui.label("D                  Toggle window decorations");
-                    ui.label("T                  Toggle always on top");
-                    ui.label("A                  Toggle fit mode (Normal/Ambient)");
-                    ui.label("I / Shift+I        Show info temporarily / toggle");
-                    ui.label("O / Shift+O        Show filename temporarily / toggle");
+                            ui.add_space(4.0);
+                            ui.heading("Display");
+                            ui.label("F                  Toggle fullscreen");
+                            ui.label("D                  Toggle window decorations");
+                            ui.label("T                  Toggle always on top");
+                            ui.label("A                  Toggle fit mode (Normal/Ambient)");
+                            ui.label("I / Shift+I        Show info temporarily / toggle");
+                            ui.label("O / Shift+O        Show filename temporarily / toggle");
 
-                    ui.add_space(10.0);
-                    ui.heading("Color Adjustments");
-                    ui.label("1 / 2              Brightness -/+");
-                    ui.label("3 / 4              Contrast -/+");
-                    ui.label("5 / 6              Gamma -/+");
-                    ui.label("7 / 8              Saturation -/+");
+                            ui.add_space(4.0);
+                            ui.heading("Color Adjustments");
+                            ui.label("1 / 2              Brightness -/+");
+                            ui.label("3 / 4              Contrast -/+");
+                            ui.label("5 / 6              Gamma -/+");
+                            ui.label("7 / 8              Saturation -/+");
 
-                    ui.add_space(10.0);
-                    ui.heading("Actions");
-                    ui.label("S                  Take screenshot");
-                    ui.label("Ctrl+Shift+C       Copy image to clipboard");
-                    ui.label("?                  Toggle this help");
-                    ui.label("Escape             Close this help");
+                            ui.add_space(4.0);
+                            ui.heading("Actions");
+                            ui.label("S                  Take screenshot");
+                            ui.label("Ctrl+Shift+C       Copy image to clipboard");
+                            ui.label("?                  Toggle this help");
+                            ui.label("Escape             Close this help");
 
-                    ui.add_space(10.0);
-                    ui.label(
-                        RichText::new("Press ? or Escape to close")
-                            .italics()
-                            .color(Color32::GRAY),
-                    );
+                            ui.add_space(8.0);
+                            ui.label(
+                                RichText::new("Press ? or Escape to close")
+                                    .italics()
+                                    .color(Color32::GRAY),
+                            );
+                        });
                 });
         }
 
