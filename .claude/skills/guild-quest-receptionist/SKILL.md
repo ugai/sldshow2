@@ -181,8 +181,8 @@ Apply these labels as appropriate:
 - **Always**: `agent:proposed` — marks the issue as AI-generated. This is
   required on every quest posted by this skill.
 - **Type**: `enhancement` or `bug`
-- **Phase**: `phase:1` (quick wins, foundation), `phase:2` (core enhancements),
-  or `phase:3` (advanced/experimental)
+- **Priority** (optional): `priority:p0` (critical), `priority:p1` (high),
+  `priority:p2` (normal), or `priority:p3` (low). Omit if unsure — no label = `p2`
 - **Do NOT add `agent:ready`** — the guild master (maintainer) reviews and
   approves quests for Slayer pickup by adding this label personally.
 
@@ -205,8 +205,8 @@ After posting all quests, output a summary:
 
 | # | Title | Labels | Perspective |
 |---|-------|--------|-------------|
-| 80 | feat: ... | enhancement, phase:1 | UX |
-| 81 | fix: ... | bug, phase:1 | Robustness |
+| 80 | feat: ... | enhancement, priority:p2 | UX |
+| 81 | fix: ... | bug, priority:p1 | Robustness |
 ...
 
 Total: N quests posted
@@ -229,4 +229,4 @@ Skipped: M ideas (duplicates or out of scope)
   Write it directly into the body text — do not rely on shell variable
   expansion.
 - **Respect the roadmap** — do not contradict or duplicate the guild's
-  existing quest plans (open issues, phase labels).
+  existing quest plans (open issues, priority labels).
