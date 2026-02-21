@@ -29,6 +29,21 @@ When multiple eligible issues exist, agents favor:
 2.  `priority:p0` > `priority:p1` > `priority:p2` > `priority:p3` (no label = `p2`)
 3.  Lowest issue number
 
+## Recommended Workflow
+
+```
+issue-ranger          Scout the codebase → post agent:proposed issues
+      ↓
+  (human)             Review and add agent:ready label
+      ↓
+issue-raid-commander  Analyze ready queue → detect conflicts → output sprint plan
+      ↓
+issue-slayer × N      Implement in parallel worktrees → open PRs
+```
+
+Run `issue-raid-commander` before spawning a slayer team to avoid merge conflicts.
+For single-issue work, skip it and go straight to `issue-slayer`.
+
 ## Execution Patterns
 
 We use two primary patterns for agent work, both utilizing isolated `git worktree`s to avoid messing with your main branch.
@@ -74,6 +89,14 @@ One issue. One PR. Every time.
 Ranges the codebase from six vantage points, gathers intel from abroad,
 and posts well-scoped issues on the board. Never fights. Never codes.
 Only scouts, only reports.
+</td>
+</tr>
+<tr>
+<td align="center" width="50%">
+<strong><code>issue-raid-commander</code></strong> — <em>Battlefield Awareness Without Intervention.</em><br>
+Reads the ready queue, detects merge conflicts before they happen, and
+hands the team lead a sprint plan. Never touches code. Never spawns agents.
+Only assesses, only commands.
 </td>
 </tr>
 </table>
