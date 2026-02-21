@@ -77,6 +77,9 @@ pub struct ApplicationState {
 
     // Input state
     modifiers: winit::keyboard::ModifiersState,
+
+    // Timer reset target — stores the config's original timer value
+    initial_timer: f32,
 }
 
 struct ActiveTransition {
@@ -246,6 +249,7 @@ impl ApplicationState {
         };
 
         let shuffle_enabled = config.viewer.shuffle;
+        let initial_timer = config.viewer.timer;
 
         let state = Self {
             surface,
@@ -279,6 +283,7 @@ impl ApplicationState {
             drag_drop,
             shuffle_enabled,
             modifiers: winit::keyboard::ModifiersState::default(),
+            initial_timer,
         };
 
         state.update_window_title();
@@ -625,7 +630,7 @@ impl ApplicationState {
     }
 
     fn reset_timer(&mut self) {
-        let default = 3.0; // Hardcoded default since config tracks current
+        let default = self.initial_timer;
         self.slideshow.set_duration(default);
         self.config.viewer.timer = default; // Sync to config
         info!("Slideshow timer reset to: {:.1}s", default);
