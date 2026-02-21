@@ -83,7 +83,7 @@ fn main() -> Result<()> {
             winit::window::WindowLevel::AlwaysOnTop
         } else {
             winit::window::WindowLevel::Normal
-        });
+        })
         .with_fullscreen(fullscreen);
 
     #[allow(deprecated)]
