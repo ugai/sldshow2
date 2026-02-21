@@ -89,7 +89,7 @@ Issues use three label categories:
 
 ## AI Agent Workflow
 
-This project supports autonomous AI agent development using the `ultimate-issue-slayer` skill.
+This project supports autonomous AI agent development using the `issue-slayer` skill.
 
 For detailed instructions on Agent execution patterns, eligibility, and rules, see **[docs/AGENTS.md](docs/AGENTS.md)**.
 
