@@ -29,6 +29,11 @@ Present the issue list and request user approval before posting anything.
 
 Write the issue body to `issue_body_<N>.md`, then delete it after each issue.
 
+If possible, use your native file-write tool to write the body — it handles
+encoding and escaping more reliably than shell commands.
+
+If no native tool is available, fall back to shell commands:
+
 **PowerShell (Windows)**:
 ```powershell
 # Write

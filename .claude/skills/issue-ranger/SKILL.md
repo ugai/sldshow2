@@ -84,11 +84,10 @@ wait for approval. Only post approved issues.
 
 For each approved issue:
 
-1. Write the body to a uniquely named temp file (`issue_body_<N>.md`)
+1. Write the body to a uniquely named temp file (`issue_body_<N>.md`) —
+   use your native file-write tool if available, otherwise see [ENV.md](ENV.md)
 2. Create the issue via `gh issue create --body-file issue_body_<N>.md`
 3. Delete the temp file immediately — even on failure
-
-See [ENV.md](ENV.md) for the correct write/delete commands for your shell.
 
 On `gh issue create` failure: log the error, skip the issue, report in the
 final summary. Do not retry.
