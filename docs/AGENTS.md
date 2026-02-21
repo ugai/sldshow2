@@ -11,7 +11,7 @@ This is an opt-in guardrail — maintainers explicitly approve issues for autono
 
 ### `agent:proposed`
 
-Issues with **`agent:proposed`** were opened by the `guild-quest-receptionist` skill.
+Issues with **`agent:proposed`** were opened by the `issue-ranger` skill.
 They are **not yet approved** for autonomous implementation. Agents must wait until a maintainer adds `agent:ready` before picking them up.
 
 > **Note**: `agent:proposed` is an origin label, not a status. It stays on the issue even after `agent:ready` is added, so you can always filter AI-proposed issues with `--label agent:proposed`.
@@ -56,6 +56,14 @@ We use two primary patterns for agent work, both utilizing isolated `git worktre
 
 ## Skills
 
-The agent behaviors are defined in `.claude/skills/`:
--   `ultimate-issue-slayer`: The primary coding skill. Handles the full Issue -> PR lifecycle.
--   `guild-quest-receptionist`: A planning skill. Reviews the codebase to propose *new* issues (quests).
+The guild's agents are defined in `.claude/skills/`:
+
+- **`issue-slayer`** — *The Blade That Closes Issues.*
+  Picks up `agent:ready` issues, implements in an isolated worktree, and
+  delivers pull requests. Does not theorize. Does not over-engineer.
+  One issue. One PR. Every time.
+
+- **`issue-ranger`** — *Eyes of the Guild.*
+  Ranges the codebase from six vantage points, gathers intel from abroad,
+  and posts well-scoped issues on the board. Never fights. Never codes.
+  Only scouts, only reports.
