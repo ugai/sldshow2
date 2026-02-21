@@ -21,6 +21,7 @@ Desktop.ini
 
 # Debug output
 debug_screenshots/
+sldshow-shot*.png
 
 # Temporary files
 nul
