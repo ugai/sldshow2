@@ -466,14 +466,20 @@ fn scan_directory_recursive_parallel(
         .flat_map_iter(|entry| {
             let path = entry.path();
             if path.is_file() && is_supported_image(&path) {
-                match Utf8PathBuf::try_from(path) {
+                match Utf8PathBuf::try_from(path.clone()) {
                     Ok(utf8_path) => vec![utf8_path].into_iter(),
-                    Err(_) => vec![].into_iter(),
+                    Err(_) => {
+                        warn!("skipping non-UTF-8 path: {:?}", path);
+                        vec![].into_iter()
+                    }
                 }
             } else if path.is_dir() && recursive {
                 match scan_directory_recursive_parallel(&path, recursive, depth + 1) {
                     Ok(subdir_paths) => subdir_paths.into_iter(),
-                    Err(_) => vec![].into_iter(),
+                    Err(e) => {
+                        warn!("failed to scan directory {:?}: {}", path, e);
+                        vec![].into_iter()
+                    }
                 }
             } else {
                 vec![].into_iter()
