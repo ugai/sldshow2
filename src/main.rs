@@ -79,6 +79,11 @@ fn main() -> Result<()> {
         .with_decorations(config.window.decorations)
         .with_resizable(config.window.resizable)
         .with_transparent(transparent)
+        .with_window_level(if config.window.always_on_top {
+            winit::window::WindowLevel::AlwaysOnTop
+        } else {
+            winit::window::WindowLevel::Normal
+        })
         .with_fullscreen(fullscreen);
 
     #[allow(deprecated)]
