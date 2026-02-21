@@ -62,14 +62,14 @@ invoked as an autonomous agent via the Task tool.
 <table>
 <tr>
 <td align="center" width="50%">
-<img src="assets/portrait-agent-slayer.png" width="300"><br>
+<img src="docs/assets/portrait-agent-slayer.png" width="300"><br>
 <strong><code>issue-slayer</code></strong> — <em>The Blade That Closes Issues.</em><br>
 Picks up <code>agent:ready</code> issues, implements in an isolated worktree, and
 delivers pull requests. Does not theorize. Does not over-engineer.
 One issue. One PR. Every time.
 </td>
 <td align="center" width="50%">
-<img src="assets/portrait-agent-ranger.png" width="300"><br>
+<img src="docs/assets/portrait-agent-ranger.png" width="300"><br>
 <strong><code>issue-ranger</code></strong> — <em>Eyes of the Guild.</em><br>
 Ranges the codebase from six vantage points, gathers intel from abroad,
 and posts well-scoped issues on the board. Never fights. Never codes.
