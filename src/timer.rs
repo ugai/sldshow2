@@ -54,12 +54,9 @@ impl SlideshowTimer {
         }
     }
 
-    pub fn duration(&self) -> f32 {
-        if self.paused {
-            0.0
-        } else {
-            self.interval.as_secs_f32()
-        }
+    /// Returns the configured interval in seconds regardless of pause state.
+    pub fn interval_secs(&self) -> f32 {
+        self.interval.as_secs_f32()
     }
 }
 
