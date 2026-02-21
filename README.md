@@ -112,7 +112,7 @@ Available effects:
 
 - **Contributing**: See [CONTRIBUTING.md](CONTRIBUTING.md) for setup, workflow, and coding standards.
 - **Architecture**: See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for detailed architecture documentation.
-- **AI Agent Automation**: Issues labeled `agent:ready` are picked up and slain by AI agents. See [docs/AGENTS.md](docs/AGENTS.md) for details.
+- **AI Agent Automation**: Issues labeled `agent:ready` are picked up and slain by AI agents. See [AGENTS.md](AGENTS.md) for details.
 
 ## Troubleshooting
 

@@ -29,4 +29,4 @@ For the full Module Map and Architecture details, see **[docs/ARCHITECTURE.md](d
 
 - **Co-authorship trailer**: `Co-Authored-By: {model} (Claude Code) <noreply@anthropic.com>`
 
-@docs/AGENTS.md
+@AGENTS.md

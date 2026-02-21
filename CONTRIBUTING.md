@@ -84,14 +84,14 @@ Issues use three label categories:
 | Category | Labels | Notes |
 | :--- | :--- | :--- |
 | **Priority** | `priority:p0` `priority:p1` `priority:p2` `priority:p3` | No label = `p2` (normal). Color-coded by severity |
-| **Agent** | `agent:ready` `agent:proposed` | See [docs/AGENTS.md](docs/AGENTS.md) |
+| **Agent** | `agent:ready` `agent:proposed` | See [AGENTS.md](AGENTS.md) |
 | **Type** | `bug` `enhancement` `refactor` `documentation` `good first issue` `help wanted` … | Standard GitHub types |
 
 ## AI Agent Workflow
 
 This project supports autonomous AI agent development using the `issue-slayer` skill.
 
-For detailed instructions on Agent execution patterns, eligibility, and rules, see **[docs/AGENTS.md](docs/AGENTS.md)**.
+For detailed instructions on Agent execution patterns, eligibility, and rules, see **[AGENTS.md](AGENTS.md)**.
 
 ## Project Board
 Active issues and roadmap are tracked on the [GitHub Project](https://github.com/users/ugai/projects/1).
