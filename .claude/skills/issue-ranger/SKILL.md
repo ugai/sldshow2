@@ -1,10 +1,10 @@
 ---
 name: issue-ranger
 description: >
-  Scouts the sldshow2 codebase for bugs, improvement opportunities, and missing
-  features, then posts well-scoped GitHub Issues for Issue Slayers to pick up.
-  Use when asked to find new issues, propose quests, scout the codebase, or
-  populate the issue board. Does NOT add the agent:ready label.
+  Scouts the codebase for bugs, improvement opportunities, and missing features,
+  then posts well-scoped GitHub Issues for Issue Slayers to pick up. Use when
+  asked to find new issues, propose quests, scout the codebase, or populate the
+  issue board. Does NOT add the agent:ready label.
 ---
 
 # Issue Ranger
@@ -29,8 +29,7 @@ posting anything.
 **Pattern B (Team Member)**: Send the issue list to the Team Lead for approval
 before posting. See [APPROVAL.md](APPROVAL.md) for the message format.
 
-Detection: spawned with team context or assigned via task assignment mechanism
-→ Pattern B. Otherwise → Pattern A.
+Detection: see [ENV.md](ENV.md) for how to detect team context in your tool.
 
 See [ENV.md](ENV.md) for tool-specific commands.
 

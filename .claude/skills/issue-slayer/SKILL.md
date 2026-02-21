@@ -18,8 +18,7 @@ code. User drives cleanup decisions.
 **Pattern B (Team Member)**: Send plans to the Team Lead for approval before
 writing code. Cleanup requires Lead instruction.
 
-Detection: spawned with `team_name` or assigned via task assignment mechanism
-→ Pattern B. Otherwise → Pattern A.
+Detection: see [ENV.md](ENV.md) for how to detect team context in your tool.
 
 See [ENV.md](ENV.md) for tool-specific and shell-specific commands.
 
