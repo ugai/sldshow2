@@ -44,6 +44,10 @@ issue-slayer × N      Implement in parallel worktrees → open PRs
 Run `issue-raid-commander` before spawning a slayer team to avoid merge conflicts.
 For single-issue work, skip it and go straight to `issue-slayer`.
 
+**Full pipeline shortcut**: `dispatching-guild-expedition` runs the entire
+workflow above in one command — Rangers × 4, user approval gate, Commander,
+then Slayers × N in parallel.
+
 ## Execution Patterns
 
 We use two primary patterns for agent work, both utilizing isolated `git worktree`s to avoid messing with your main branch.
@@ -99,6 +103,12 @@ Reads the ready queue, detects merge conflicts before they happen, and
 hands the team lead a sprint plan.
 Once fought on the front lines. Now stands behind them.
 Never spawns agents. Only assesses. Never intervenes.
+</td>
+<td align="center" width="50%">
+<strong><code>dispatching-guild-expedition</code></strong> — <em>One Command. Full Sprint.</em><br>
+Orchestrates the entire pipeline: Rangers × 4 scout in parallel, the user
+approves issues at the gate, Raid Commander maps the battlefield, then
+Slayers × N charge in parallel. From empty board to open PRs.
 </td>
 </tr>
 </table>
