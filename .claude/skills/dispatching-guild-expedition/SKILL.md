@@ -84,3 +84,5 @@ Spawn `issue-slayer` agents based on the Raid Commander's sprint plan:
 All Slayers run in **Pattern B** (Team Member mode). Coordinate merge order
 per the Raid Commander's analysis. When all Slayers have opened their PRs,
 shut down the team and report the sprint summary.
+
+Suggest using `verify-sprint` to batch-verify and squash-merge the opened PRs.
