@@ -1268,12 +1268,18 @@ impl ApplicationHandler for ApplicationState {
                 } => {
                     if self.modifiers.control_key() {
                         if let Some(path) = self.texture_manager.current_path() {
-                            if let Ok(mut clipboard) = arboard::Clipboard::new() {
-                                if let Err(e) = clipboard.set_text(path.as_str()) {
-                                    error!("Failed to copy to clipboard: {}", e);
-                                } else {
-                                    info!("Copied path to clipboard: {}", path);
-                                    self.show_osd("Copied to Clipboard".to_string());
+                            match arboard::Clipboard::new() {
+                                Ok(mut clipboard) => {
+                                    if let Err(e) = clipboard.set_text(path.as_str()) {
+                                        error!("Failed to copy to clipboard: {}", e);
+                                    } else {
+                                        info!("Copied path to clipboard: {}", path);
+                                        self.show_osd("Copied to Clipboard".to_string());
+                                    }
+                                }
+                                Err(e) => {
+                                    error!("Failed to initialize clipboard: {}", e);
+                                    self.show_osd("Clipboard Unavailable".to_string());
                                 }
                             }
                         }
