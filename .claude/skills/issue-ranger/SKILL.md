@@ -4,7 +4,7 @@ description: >
   Scouts the codebase for bugs, improvement opportunities, and missing features,
   then posts well-scoped GitHub Issues for Issue Slayers to pick up. Use when
   asked to find new issues, propose quests, scout the codebase, or populate the
-  issue board. Does NOT add the agent:ready label.
+  issue board. After posting, offers to add agent:ready to selected issues.
 ---
 
 # Issue Ranger
@@ -16,7 +16,8 @@ for Issue Slayers to pick up.
 
 - Post **5–15 issues per shift** — enough to keep Slayers busy, not so many
   the guild master can't review them.
-- **Never** add `agent:ready` — that's the guild master's seal of approval.
+- **Never** add `agent:ready` during scouting or issue creation — only add it
+  in the Ready Seal step (Step 8) when explicitly approved by the user.
 - **Never** assign issues — Slayers choose their own quests.
 - Issue titles and bodies in **English only**.
 - **Always** tag issues with `agent:proposed`.
@@ -103,7 +104,8 @@ If formatting is broken, fix the template before continuing.
 **Issue body template** — see [TEMPLATE.md](TEMPLATE.md).
 
 **Labels**: always `agent:proposed` + one of `enhancement`/`bug` + optional
-`priority:p0`–`p3` (omit = p2). **Never** add `agent:ready`.
+`priority:p0`–`p3` (omit = p2). Do **not** add `agent:ready` here — that
+happens in Step 8 only.
 
 **Title format**: Conventional Commits — `feat:`, `fix:`, `refactor:`,
 `perf:`, `chore:`
@@ -120,3 +122,25 @@ If formatting is broken, fix the template before continuing.
 
 Posted: N  |  Skipped: M (duplicates/out of scope)  |  Failed: K
 ```
+
+### 8. Ready Seal
+
+After the report, offer the user a chance to immediately mark posted issues as
+`agent:ready` — eliminating the separate manual labeling step.
+
+**Pattern A (Standalone)**: Use `AskUserQuestion` with `multiSelect: true`.
+Present each successfully posted issue as an option (label: `#N — title`).
+For each selected issue, run:
+
+```bash
+gh issue edit <number> --add-label "agent:ready"
+```
+
+If the user selects none, skip silently — do not ask again.
+
+**Pattern B (Team Member)**: Append to your report message to the Team Lead:
+
+> Which of these should receive `agent:ready`? Reply with issue numbers
+> (comma-separated), or "none" to skip.
+
+Wait for the Team Lead's reply, then apply labels. See [APPROVAL.md](APPROVAL.md).
