@@ -188,8 +188,13 @@ impl TextureManager {
             self.loading_tasks.remove(&idx);
             match result {
                 Ok(mips) => {
-                    let width = mips[0].width();
-                    let height = mips[0].height();
+                    let Some(base) = mips.first() else {
+                        error!("Image {} returned empty mip chain", idx);
+                        self.errors.insert(idx, "empty mip chain".to_string());
+                        continue;
+                    };
+                    let width = base.width();
+                    let height = base.height();
 
                     let texture_size = wgpu::Extent3d {
                         width,
