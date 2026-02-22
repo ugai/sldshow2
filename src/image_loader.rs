@@ -312,6 +312,16 @@ impl TextureManager {
 
 // Standalone functions
 
+/// Converts a linear light value to sRGB using the IEC 61966-2-1 piecewise transfer function.
+/// This is more accurate than the simple gamma 2.2 approximation, especially for near-black values.
+fn linear_to_srgb(c: f32) -> f32 {
+    if c <= 0.003_130_8 {
+        c * 12.92
+    } else {
+        1.055 * c.powf(1.0 / 2.4) - 0.055
+    }
+}
+
 // Helper to perform fast resizing using fast_image_resize
 // Helper to perform fast resizing using fast_image_resize
 fn fast_resize(
@@ -349,13 +359,12 @@ fn load_image_rgba(path: &Utf8Path, max_size: (u32, u32)) -> anyhow::Result<Vec<
     // If it's EXR (linear HDR), we need to tonemap or convert to sRGB locally
     // since our WGPU format is Rgba8UnormSrgb and expects sRGB input values.
     if path.extension().unwrap_or("").eq_ignore_ascii_case("exr") {
-        // Simple linear to sRGB approximation for EXR
+        // Apply the IEC 61966-2-1 piecewise sRGB transfer function per channel
         let mut rgba32f = img.into_rgba32f();
         for pixel in rgba32f.pixels_mut() {
-            // Apply gamma 2.2 for basic sRGB viewing (pixel.powf(1.0/2.2))
-            pixel[0] = pixel[0].max(0.0).powf(1.0 / 2.2);
-            pixel[1] = pixel[1].max(0.0).powf(1.0 / 2.2);
-            pixel[2] = pixel[2].max(0.0).powf(1.0 / 2.2);
+            pixel[0] = linear_to_srgb(pixel[0].max(0.0));
+            pixel[1] = linear_to_srgb(pixel[1].max(0.0));
+            pixel[2] = linear_to_srgb(pixel[2].max(0.0));
             // Alpha remains linear
         }
         img = image::DynamicImage::ImageRgba32F(rgba32f);

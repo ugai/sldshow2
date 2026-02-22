@@ -224,12 +224,7 @@ fn generate_thumbnail(path: &Utf8Path) -> anyhow::Result<RgbaImage> {
     let offset_x = (THUMBNAIL_SIZE - new_w) / 2;
     let offset_y = (THUMBNAIL_SIZE - new_h) / 2;
 
-    image::imageops::overlay(
-        &mut thumbnail,
-        &resized,
-        offset_x.into(),
-        offset_y.into(),
-    );
+    image::imageops::overlay(&mut thumbnail, &resized, offset_x.into(), offset_y.into());
 
     Ok(thumbnail)
 }
