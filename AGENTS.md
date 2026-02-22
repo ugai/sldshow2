@@ -93,10 +93,12 @@ Only scouts, only reports.
 </tr>
 <tr>
 <td align="center" width="50%">
+<img src="docs/assets/portrait-agent-raid-commander.png" width="300"><br>
 <strong><code>issue-raid-commander</code></strong> — <em>Battlefield Awareness Without Intervention.</em><br>
 Reads the ready queue, detects merge conflicts before they happen, and
-hands the team lead a sprint plan. Never touches code. Never spawns agents.
-Only assesses, only commands.
+hands the team lead a sprint plan.
+Once fought on the front lines. Now stands behind them.
+Never spawns agents. Only assesses. Never intervenes.
 </td>
 </tr>
 </table>
