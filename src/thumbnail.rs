@@ -161,6 +161,31 @@ impl ThumbnailManager {
     }
 }
 
+// Helper to perform fast resizing using fast_image_resize
+fn fast_resize_exact(
+    src_img: fast_image_resize::images::Image,
+    dst_width: u32,
+    dst_height: u32,
+    filter: fast_image_resize::FilterType,
+) -> RgbaImage {
+    let mut dst_img = fast_image_resize::images::Image::new(
+        dst_width,
+        dst_height,
+        fast_image_resize::PixelType::U8x4,
+    );
+
+    let mut resizer = fast_image_resize::Resizer::new();
+    let resize_opts = fast_image_resize::ResizeOptions::new()
+        .resize_alg(fast_image_resize::ResizeAlg::Convolution(filter));
+
+    resizer
+        .resize(&src_img, &mut dst_img, &resize_opts)
+        .unwrap();
+
+    let buffer = dst_img.into_vec();
+    RgbaImage::from_raw(dst_width, dst_height, buffer).unwrap()
+}
+
 /// Generate a 256x256 thumbnail from an image file.
 /// Preserves aspect ratio with letterboxing.
 #[allow(dead_code)]
@@ -178,7 +203,21 @@ fn generate_thumbnail(path: &Utf8Path) -> anyhow::Result<RgbaImage> {
     let new_w = ((orig_w as f32 * scale).round() as u32).max(1);
     let new_h = ((orig_h as f32 * scale).round() as u32).max(1);
 
-    let resized = img.resize_exact(new_w, new_h, image::imageops::FilterType::Lanczos3);
+    let mut rgba_img = img.into_rgba8();
+    let src_image = fast_image_resize::images::Image::from_slice_u8(
+        orig_w,
+        orig_h,
+        rgba_img.as_mut(),
+        fast_image_resize::PixelType::U8x4,
+    )
+    .unwrap();
+
+    let resized = fast_resize_exact(
+        src_image,
+        new_w,
+        new_h,
+        fast_image_resize::FilterType::Lanczos3,
+    );
 
     // Letterbox to exact 256x256 with centered content
     let mut thumbnail = RgbaImage::new(THUMBNAIL_SIZE, THUMBNAIL_SIZE);
@@ -187,7 +226,7 @@ fn generate_thumbnail(path: &Utf8Path) -> anyhow::Result<RgbaImage> {
 
     image::imageops::overlay(
         &mut thumbnail,
-        &resized.to_rgba8(),
+        &resized,
         offset_x.into(),
         offset_y.into(),
     );

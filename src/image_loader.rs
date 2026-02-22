@@ -312,6 +312,36 @@ impl TextureManager {
 
 // Standalone functions
 
+// Helper to perform fast resizing using fast_image_resize
+// Helper to perform fast resizing using fast_image_resize
+fn fast_resize(
+    src_img: fast_image_resize::images::Image,
+    dst_width: u32,
+    dst_height: u32,
+    filter: fast_image_resize::FilterType,
+) -> image::RgbaImage {
+    // Create destination image
+    let mut dst_img = fast_image_resize::images::Image::new(
+        dst_width,
+        dst_height,
+        fast_image_resize::PixelType::U8x4,
+    );
+
+    // Create resizer
+    let mut resizer = fast_image_resize::Resizer::new();
+    let resize_opts = fast_image_resize::ResizeOptions::new()
+        .resize_alg(fast_image_resize::ResizeAlg::Convolution(filter));
+
+    // Resize
+    resizer
+        .resize(&src_img, &mut dst_img, &resize_opts)
+        .unwrap();
+
+    // Convert back to image::RgbaImage
+    let buffer = dst_img.into_vec();
+    image::RgbaImage::from_raw(dst_width, dst_height, buffer).unwrap()
+}
+
 fn load_image_rgba(path: &Utf8Path, max_size: (u32, u32)) -> anyhow::Result<Vec<image::RgbaImage>> {
     let mut img = image::open(path.as_std_path())
         .map_err(|e| anyhow::anyhow!("Failed to open image: {}", e))?;
@@ -334,8 +364,7 @@ fn load_image_rgba(path: &Utf8Path, max_size: (u32, u32)) -> anyhow::Result<Vec<
     // Apply EXIF rotation
     let img = apply_exif_rotation(img, path);
 
-    let resized = resize_for_gpu(img, max_size.0, max_size.1);
-    let base = resized.into_rgba8();
+    let base = resize_for_gpu(img, max_size.0, max_size.1).into_rgba8();
 
     // Generate mipmap chain on CPU
     let mip_count = mip_level_count(base.width(), base.height());
@@ -346,12 +375,25 @@ fn load_image_rgba(path: &Utf8Path, max_size: (u32, u32)) -> anyhow::Result<Vec<
         let prev = mips.last().unwrap();
         let new_w = (prev.width() / 2).max(1);
         let new_h = (prev.height() / 2).max(1);
-        mips.push(image::imageops::resize(
-            prev,
+
+        let mut prev_clone = prev.clone();
+
+        // Fast image resize wrapper creation
+        let src_image = fast_image_resize::images::Image::from_slice_u8(
+            prev.width(),
+            prev.height(),
+            prev_clone.as_mut(),
+            fast_image_resize::PixelType::U8x4,
+        )
+        .unwrap();
+
+        let resized = fast_resize(
+            src_image,
             new_w,
             new_h,
-            image::imageops::FilterType::Triangle,
-        ));
+            fast_image_resize::FilterType::Bilinear,
+        );
+        mips.push(resized);
     }
 
     Ok(mips)
@@ -407,7 +449,22 @@ fn resize_for_gpu(
     let new_w = ((orig_w as f32 * scale).round() as u32).max(1);
     let new_h = ((orig_h as f32 * scale).round() as u32).max(1);
 
-    img.resize(new_w, new_h, image::imageops::FilterType::Lanczos3)
+    let mut rgba_img = img.into_rgba8();
+    let src_image = fast_image_resize::images::Image::from_slice_u8(
+        orig_w,
+        orig_h,
+        rgba_img.as_mut(),
+        fast_image_resize::PixelType::U8x4,
+    )
+    .unwrap();
+
+    let resized = fast_resize(
+        src_image,
+        new_w,
+        new_h,
+        fast_image_resize::FilterType::Lanczos3,
+    );
+    image::DynamicImage::ImageRgba8(resized)
 }
 
 pub fn scan_image_paths(
