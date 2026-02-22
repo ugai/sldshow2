@@ -9,7 +9,9 @@
 use camino::{Utf8Path, Utf8PathBuf};
 use image::{GenericImageView, RgbaImage};
 use log::{debug, warn};
-use std::collections::{HashMap, HashSet, VecDeque};
+use lru::LruCache;
+use std::collections::{HashSet, VecDeque};
+use std::num::NonZeroUsize;
 use std::sync::mpsc::{Receiver, Sender, channel};
 
 use crate::image_loader::apply_exif_rotation;
@@ -23,12 +25,8 @@ const MAX_CONCURRENT_GENERATION: usize = 4;
 
 #[allow(dead_code)]
 pub struct ThumbnailManager {
-    /// In-memory cache: index → thumbnail image
-    cache: HashMap<usize, RgbaImage>,
-    /// LRU queue for eviction (front = oldest, back = newest)
-    lru_order: VecDeque<usize>,
-    /// Maximum cache size (number of thumbnails)
-    max_cache_size: usize,
+    /// LRU cache: index → thumbnail image (O(1) access and eviction)
+    cache: LruCache<usize, RgbaImage>,
 
     /// Async generation tracking
     loading_tasks: HashSet<usize>,
@@ -43,11 +41,10 @@ impl ThumbnailManager {
     /// Create a new thumbnail manager with bounded cache size.
     pub fn new(max_cache_size: usize) -> Self {
         assert!(max_cache_size > 0, "max_cache_size must be greater than 0");
+        let cap = NonZeroUsize::new(max_cache_size).expect("max_cache_size must be greater than 0");
         let (tx, rx) = channel();
         Self {
-            cache: HashMap::new(),
-            lru_order: VecDeque::new(),
-            max_cache_size,
+            cache: LruCache::new(cap),
             loading_tasks: HashSet::new(),
             pending_queue: VecDeque::new(),
             tx,
@@ -59,7 +56,7 @@ impl ThumbnailManager {
     /// Returns immediately; call `update()` to process completed thumbnails.
     pub fn request_thumbnail(&mut self, index: usize, path: &Utf8Path) {
         // Already cached or loading or pending
-        if self.cache.contains_key(&index)
+        if self.cache.contains(&index)
             || self.loading_tasks.contains(&index)
             || self.pending_queue.iter().any(|(i, _)| *i == index)
         {
@@ -97,21 +94,11 @@ impl ThumbnailManager {
 
             match result {
                 Ok(thumbnail) => {
-                    // Remove from lru_order if already present (re-generation case)
-                    self.lru_order.retain(|&i| i != index);
-
-                    // Evict LRU entry if cache is full
-                    if self.cache.len() >= self.max_cache_size {
-                        if let Some(evict_index) = self.lru_order.pop_front() {
-                            self.cache.remove(&evict_index);
-                            debug!("Evicted thumbnail {} from cache", evict_index);
-                        }
+                    // put() inserts and promotes to MRU; evicts LRU entry automatically if full.
+                    if let Some((evict_index, _)) = self.cache.push(index, thumbnail) {
+                        debug!("Evicted thumbnail {} from cache", evict_index);
                     }
-
-                    self.cache.insert(index, thumbnail);
-                    self.lru_order.push_back(index);
                     debug!("Cached thumbnail {}", index);
-                    debug_assert_eq!(self.cache.len(), self.lru_order.len());
                 }
                 Err(e) => {
                     warn!("Failed to generate thumbnail {}: {}", index, e);
@@ -124,7 +111,7 @@ impl ThumbnailManager {
             match self.pending_queue.pop_front() {
                 Some((index, path)) => {
                     // Skip if already cached or already loading in the meantime
-                    if self.cache.contains_key(&index) || self.loading_tasks.contains(&index) {
+                    if self.cache.contains(&index) || self.loading_tasks.contains(&index) {
                         continue;
                     }
                     self.spawn_generation(index, path);
@@ -137,19 +124,12 @@ impl ThumbnailManager {
     /// Retrieve a cached thumbnail. Returns None if not yet generated.
     /// Marks the entry as recently used (LRU).
     pub fn get_thumbnail(&mut self, index: usize) -> Option<&RgbaImage> {
-        if self.cache.contains_key(&index) {
-            // Move to back of LRU queue (most recently used)
-            self.lru_order.retain(|&i| i != index);
-            self.lru_order.push_back(index);
-            debug_assert_eq!(self.cache.len(), self.lru_order.len());
-        }
         self.cache.get(&index)
     }
 
     /// Clear all cached thumbnails and cancel pending tasks.
     pub fn clear(&mut self) {
         self.cache.clear();
-        self.lru_order.clear();
         self.loading_tasks.clear();
         self.pending_queue.clear();
         // Recreate channel so old threads' tx handles are orphaned;
@@ -177,7 +157,7 @@ impl ThumbnailManager {
 
     /// Return a list of all currently cached thumbnail indices.
     pub fn get_cached_indices(&self) -> Vec<usize> {
-        self.cache.keys().cloned().collect()
+        self.cache.iter().map(|(&k, _)| k).collect()
     }
 }
 
@@ -229,8 +209,7 @@ mod tests {
     #[test]
     fn test_thumbnail_manager_clear() {
         let mut manager = ThumbnailManager::new(100);
-        manager.cache.insert(0, RgbaImage::new(256, 256));
-        manager.lru_order.push_back(0);
+        manager.cache.put(0, RgbaImage::new(256, 256));
         manager.loading_tasks.insert(1);
 
         manager.clear();
@@ -243,5 +222,20 @@ mod tests {
     #[should_panic(expected = "max_cache_size must be greater than 0")]
     fn test_thumbnail_manager_zero_cache_size() {
         ThumbnailManager::new(0);
+    }
+
+    #[test]
+    fn test_lru_eviction() {
+        let mut manager = ThumbnailManager::new(2);
+        manager.cache.put(0, RgbaImage::new(256, 256));
+        manager.cache.put(1, RgbaImage::new(256, 256));
+        // Access 0 to make it MRU; 1 becomes LRU
+        manager.get_thumbnail(0);
+        // Insert 2 — should evict 1 (LRU)
+        manager.cache.put(2, RgbaImage::new(256, 256));
+        assert_eq!(manager.cache_size(), 2);
+        assert!(manager.get_thumbnail(0).is_some());
+        assert!(manager.get_thumbnail(1).is_none());
+        assert!(manager.get_thumbnail(2).is_some());
     }
 }
