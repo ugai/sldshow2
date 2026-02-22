@@ -1,14 +1,16 @@
 //! Screenshot capture from the rendered surface.
 
 use log::{error, info};
+use std::time::{SystemTime, UNIX_EPOCH};
 
-pub struct ScreenshotCapture {
-    counter: u32,
-}
+/// Maximum number of filename candidates tried before giving up.
+const MAX_FILENAME_ATTEMPTS: u32 = 10;
+
+pub struct ScreenshotCapture;
 
 impl ScreenshotCapture {
     pub fn new() -> Self {
-        Self { counter: 0 }
+        Self
     }
 
     /// Capture the current frame to a PNG file.
@@ -74,7 +76,7 @@ impl ScreenshotCapture {
 
         if let Ok(Ok(())) = receiver.recv() {
             let data = buffer_slice.get_mapped_range();
-            let filename = self.next_filename();
+            let filename = self.next_filename()?;
 
             // Remove row padding and copy pixel data
             let mut pixels = Vec::with_capacity((width * height * bytes_per_pixel) as usize);
@@ -112,13 +114,29 @@ impl ScreenshotCapture {
         }
     }
 
-    fn next_filename(&mut self) -> String {
-        loop {
-            self.counter += 1;
-            let filename = format!("sldshow-shot{:04}.png", self.counter);
+    /// Generate a unique screenshot filename using a millisecond-precision
+    /// timestamp.  If the timestamp-derived name already exists (e.g. two
+    /// screenshots in the same millisecond), a numeric suffix is appended.
+    /// Returns `Err` if no free slot is found within [`MAX_FILENAME_ATTEMPTS`]
+    /// tries, or if the system clock is unavailable.
+    fn next_filename(&self) -> Result<String, String> {
+        let ms = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_millis())
+            .map_err(|_| "Screenshot failed!".to_string())?;
+
+        for attempt in 0..MAX_FILENAME_ATTEMPTS {
+            let filename = if attempt == 0 {
+                format!("sldshow-shot-{ms}.png")
+            } else {
+                format!("sldshow-shot-{ms}-{attempt}.png")
+            };
             if !std::path::Path::new(&filename).exists() {
-                return filename;
+                return Ok(filename);
             }
         }
+
+        error!("No free screenshot filename found after {MAX_FILENAME_ATTEMPTS} attempts");
+        Err("Screenshot failed!".to_string())
     }
 }
