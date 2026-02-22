@@ -43,6 +43,8 @@ validator = { version = "0.19", features = ["derive"] }
 
 # Parallel computation
 rayon = "1.10"
+# LRU cache
+lru = "0.16"
 # UTF-8 path handling
 camino = { version = "1.1", features = ["serde1"] }
 
