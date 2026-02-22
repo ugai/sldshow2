@@ -16,6 +16,7 @@ This document describes the high-level architecture and key components of `sldsh
 | :--- | :--- |
 | `main.rs` | **Entry Point**. Initializes logging, configuration, and the event loop. Creates the window and hands off control to `ApplicationState`. |
 | `app.rs` | **Application Logic**. Contains `ApplicationState` struct. Handles the `winit` event loop (`ApplicationHandler`), input processing, update loop, and rendering coordination. |
+| `renderer.rs` | **GPU Renderer**. Owns the wgpu surface, device, queue, transition pipeline, uniform buffer, and bind group. Extracted from `ApplicationState` to group rendering concerns. |
 | `input.rs` | **Input Handling**. Processes raw winit events into abstract `InputAction`s. Handles key remapping, mouse interaction, and cursor visibility. |
 | `transition.rs` | **Rendering Pipeline**. Manages the WGPU render pipeline for image transitions. Loads and executes compiled WGSL shaders. |
 | `image_loader.rs` | **Asset Management**. Asynchronous image loading using `rayon`. Manages texture uploads to the GPU. |
@@ -36,8 +37,7 @@ This document describes the high-level architecture and key components of `sldsh
 2.  Initializes `winit` EventLoop.
 3.  Creates the `winit::Window`.
 4.  Calls `ApplicationState::new()`:
-    -   Initializes WGPU (Surface, Adapter, Device, Queue).
-    -   Sets up the `TransitionPipeline` (loads shaders).
+    -   Creates `Renderer` (Surface, Adapter, Device, Queue, TransitionPipeline, uniform buffer).
     -   Initializes `TextureManager` (scans initial paths).
     -   Sets up `EguiOverlay`.
 5.  Starts the event loop with `run_app(&mut state)`.
