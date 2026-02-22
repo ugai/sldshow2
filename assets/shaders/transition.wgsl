@@ -1,6 +1,6 @@
 // Transition shader for sldshow2
 // Ported from original sldshow with updated WGSL syntax
-// 22 different transition effects
+// 20 different transition effects
 
 // Vertex output structure
 struct VertexOutput {
