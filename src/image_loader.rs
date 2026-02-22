@@ -36,8 +36,11 @@ pub struct TextureManager {
     // Async loading (sends mip chain: Vec[0]=base, Vec[1]=LOD1, ...)
     loading_tasks: HashSet<usize>,
     errors: HashMap<usize, String>,
-    tx: Sender<(usize, anyhow::Result<Vec<image::RgbaImage>>)>,
-    rx: Receiver<(usize, anyhow::Result<Vec<image::RgbaImage>>)>,
+    // Incremented on every replace_paths / set_shuffle_enabled call so that
+    // results from threads spawned in a previous generation are discarded.
+    epoch: u64,
+    tx: Sender<(u64, usize, anyhow::Result<Vec<image::RgbaImage>>)>,
+    rx: Receiver<(u64, usize, anyhow::Result<Vec<image::RgbaImage>>)>,
 }
 
 impl TextureManager {
@@ -52,6 +55,7 @@ impl TextureManager {
             original_paths: Vec::new(),
             loading_tasks: HashSet::new(),
             errors: HashMap::new(),
+            epoch: 0,
             tx,
             rx,
         }
@@ -98,7 +102,10 @@ impl TextureManager {
             .position(|p| p == &current_path)
             .unwrap_or(0);
 
-        // Invalidate texture cache since indices changed, but keep current
+        // Invalidate texture cache since indices changed, but keep current.
+        // Bump epoch so any in-flight thread results from the old ordering
+        // are discarded when they arrive in update().
+        self.epoch = self.epoch.wrapping_add(1);
         self.textures.clear();
         self.loading_tasks.clear();
         self.errors.clear();
@@ -150,11 +157,13 @@ impl TextureManager {
     pub fn replace_paths(&mut self, new_paths: Vec<Utf8PathBuf>) {
         self.original_paths = new_paths.clone();
         self.paths = new_paths;
+        // Bump epoch so any in-flight thread results from the previous path
+        // list are discarded when they arrive in update().
+        self.epoch = self.epoch.wrapping_add(1);
         self.textures.clear();
         self.loading_tasks.clear();
         self.errors.clear();
         self.current_index = 0;
-        // Drain any in-flight results so stale images aren't uploaded later
         while self.rx.try_recv().is_ok() {}
     }
 
@@ -184,8 +193,12 @@ impl TextureManager {
         }
 
         // 1. Process received images and upload to GPU
-        while let Ok((idx, result)) = self.rx.try_recv() {
+        while let Ok((msg_epoch, idx, result)) = self.rx.try_recv() {
             self.loading_tasks.remove(&idx);
+            // Discard results from threads spawned before the last path reorder
+            if msg_epoch != self.epoch {
+                continue;
+            }
             match result {
                 Ok(mips) => {
                     let Some(base) = mips.first() else {
@@ -289,6 +302,7 @@ impl TextureManager {
                 if let Some(path) = self.paths.get(idx).cloned() {
                     let tx = self.tx.clone();
                     let max_size = self.max_texture_size;
+                    let epoch = self.epoch;
 
                     self.loading_tasks.insert(idx);
 
@@ -305,7 +319,7 @@ impl TextureManager {
                                 error!("Image loader thread panicked for index {}: {}", idx, msg);
                                 Err(anyhow::anyhow!("loader thread panicked: {}", msg))
                             });
-                        if tx.send((idx, res)).is_err() {
+                        if tx.send((epoch, idx, res)).is_err() {
                             warn!("Failed to send loaded image {} (receiver dropped)", idx);
                         }
                     });
