@@ -83,7 +83,6 @@ pub struct WindowConfig {
     pub always_on_top: bool,
     pub decorations: bool,
     pub resizable: bool,
-    pub monitor_index: usize,
 }
 
 impl Default for WindowConfig {
@@ -95,7 +94,6 @@ impl Default for WindowConfig {
             always_on_top: false,
             decorations: true,
             resizable: false,
-            monitor_index: 0,
         }
     }
 }

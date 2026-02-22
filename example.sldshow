@@ -8,7 +8,6 @@ fullscreen = false
 always_on_top = false
 decorations = true  # Show window titlebar/borders
 resizable = true
-monitor_index = 0   # Which monitor to display on (0 = primary)
 
 [viewer]
 # Image paths - can be directories or individual files
