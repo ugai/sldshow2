@@ -16,6 +16,7 @@ mod image_loader;
 mod input;
 mod osc;
 mod overlay;
+mod renderer;
 mod screenshot;
 mod thumbnail;
 mod timer;

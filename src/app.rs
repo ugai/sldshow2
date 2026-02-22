@@ -1,8 +1,7 @@
-use anyhow::{Context, Result};
+use anyhow::Result;
 use log::{error, info, warn};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use wgpu::util::DeviceExt;
 use winit::{
     application::ApplicationHandler,
     event::{ElementState, KeyEvent, WindowEvent},
@@ -17,33 +16,27 @@ use crate::image_loader::{self, TextureManager};
 use crate::input::{InputAction, InputHandler};
 use crate::osc::OscAction;
 use crate::overlay::EguiOverlay;
+use crate::renderer::Renderer;
 use crate::screenshot::ScreenshotCapture;
 use crate::thumbnail::ThumbnailManager;
 use crate::timer::{SequenceTimer, SlideshowTimer};
 use crate::transition::{TransitionPipeline, TransitionUniform};
 
 pub struct ApplicationState {
-    surface: wgpu::Surface<'static>,
-    device: wgpu::Device,
-    queue: wgpu::Queue,
     config: Config,
-    surface_config: wgpu::SurfaceConfiguration,
     size: winit::dpi::PhysicalSize<u32>,
     window: Arc<winit::window::Window>,
+
+    // GPU renderer (surface, device, queue, pipeline, uniform buffer, bind group)
+    renderer: Renderer,
 
     // Subsystems
     texture_manager: TextureManager,
     thumbnail_manager: ThumbnailManager,
-    pipeline: TransitionPipeline,
     slideshow: SlideshowTimer,
     sequence_timer: SequenceTimer,
     input_handler: InputHandler,
     egui_overlay: EguiOverlay,
-
-    // Rendering resources
-    uniform_buffer: wgpu::Buffer,
-    // We recreate bind group when textures change
-    bind_group: Option<wgpu::BindGroup>,
 
     // Transition State
     transition: Option<ActiveTransition>,
@@ -101,78 +94,8 @@ impl ApplicationState {
     ) -> Result<Self> {
         let size = window.inner_size();
 
-        // Initialize WGPU
-        let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
-            backends: wgpu::Backends::all(),
-            ..Default::default()
-        });
-
-        let surface = instance.create_surface(window.clone())?;
-
-        let adapter = instance
-            .request_adapter(&wgpu::RequestAdapterOptions {
-                power_preference: wgpu::PowerPreference::HighPerformance,
-                compatible_surface: Some(&surface),
-                force_fallback_adapter: false,
-            })
-            .await
-            .context("Failed to find an appropriate adapter")?;
-
-        info!("Using adapter: {:?}", adapter.get_info());
-
-        let (device, queue) = adapter
-            .request_device(&wgpu::DeviceDescriptor {
-                label: None,
-                required_features: wgpu::Features::empty(),
-                required_limits: wgpu::Limits::default(),
-                ..Default::default()
-            })
-            .await
-            .context("Failed to create device")?;
-
-        let caps = surface.get_capabilities(&adapter);
-        let config_format = caps
-            .formats
-            .iter()
-            .copied()
-            .find(|f| f.is_srgb())
-            .unwrap_or(caps.formats[0]);
-
-        let surface_config = wgpu::SurfaceConfiguration {
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
-            format: config_format,
-            width: size.width,
-            height: size.height,
-            present_mode: wgpu::PresentMode::AutoVsync,
-            alpha_mode: {
-                let transparent = config.style.bg_color[3] < 255;
-                info!("Available alpha modes: {:?}", caps.alpha_modes);
-                if transparent {
-                    // Try PreMultiplied first, then PostMultiplied, then Auto
-                    let preferred = [
-                        wgpu::CompositeAlphaMode::PreMultiplied,
-                        wgpu::CompositeAlphaMode::PostMultiplied,
-                        wgpu::CompositeAlphaMode::Auto,
-                    ];
-                    let selected = preferred
-                        .iter()
-                        .copied()
-                        .find(|m| caps.alpha_modes.contains(m))
-                        .unwrap_or(caps.alpha_modes[0]);
-                    info!(
-                        "Transparent mode enabled, selected alpha mode: {:?}",
-                        selected
-                    );
-                    selected
-                } else {
-                    caps.alpha_modes[0]
-                }
-            },
-            view_formats: vec![],
-            desired_maximum_frame_latency: 2,
-        };
-
-        surface.configure(&device, &surface_config);
+        // Initialize GPU renderer
+        let renderer = Renderer::new(window.clone(), &config, size).await?;
 
         // Initialize Subsystems
         let cache_extent = if config.viewer.playback_mode == config::PlaybackMode::Sequence {
@@ -205,43 +128,18 @@ impl ApplicationState {
 
         let thumbnail_manager = ThumbnailManager::new(200);
 
-        let pipeline = TransitionPipeline::new(&device, config_format, config.viewer.filter_mode);
-
         let slideshow = SlideshowTimer::new(config.viewer.timer);
         let sequence_timer = SequenceTimer::new(config.viewer.sequence_fps);
 
         // Initialize egui overlay
         let mut egui_overlay = EguiOverlay::new(
-            &device,
-            config_format,
+            &renderer.device,
+            renderer.format(),
             window.clone(),
             config.style.font_family.clone(),
         );
         // Apply style config
         egui_overlay.set_style(config.style.font_size, config.style.text_color);
-
-        // Create uniform buffer
-        let uniform = TransitionUniform {
-            blend: 0.0,
-            mode: 0,
-            aspect_ratio: [1.0, 1.0], // Placeholder
-            bg_color: config.bg_color_f32(),
-            window_size: [size.width as f32, size.height as f32],
-            image_a_size: [1.0, 1.0], // Placeholder
-            image_b_size: [1.0, 1.0], // Placeholder
-            brightness: 0.0,
-            contrast: 1.0,
-            gamma: 1.0,
-            saturation: 1.0,
-            fit_mode: config.viewer.fit_mode.to_uniform_value(),
-            ambient_blur: config.viewer.ambient_blur,
-        };
-
-        let uniform_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("Transition Uniform Buffer"),
-            contents: bytemuck::cast_slice(&[uniform]),
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-        });
 
         // Initialize state
         let show_filename_text = config.style.show_image_path;
@@ -255,22 +153,16 @@ impl ApplicationState {
         let initial_timer = config.viewer.timer;
 
         let state = Self {
-            surface,
-            device,
-            queue,
             config,
-            surface_config,
             size,
             window,
+            renderer,
             texture_manager,
             thumbnail_manager,
-            pipeline,
             slideshow,
             sequence_timer,
             input_handler: InputHandler::new(),
             egui_overlay,
-            uniform_buffer,
-            bind_group: None,
             transition: None,
             current_texture_index,
             osd_message: None,
@@ -297,9 +189,7 @@ impl ApplicationState {
     fn resize(&mut self, new_size: winit::dpi::PhysicalSize<u32>) {
         if new_size.width > 0 && new_size.height > 0 {
             self.size = new_size;
-            self.surface_config.width = new_size.width;
-            self.surface_config.height = new_size.height;
-            self.surface.configure(&self.device, &self.surface_config);
+            self.renderer.resize(new_size);
             self.egui_overlay.resize(new_size.width, new_size.height);
         }
     }
@@ -346,7 +236,7 @@ impl ApplicationState {
                     .set_shuffle_enabled(self.shuffle_enabled);
                 self.current_texture_index = Some(new_index);
                 self.transition = None;
-                self.bind_group = None;
+                self.renderer.invalidate_bind_group();
                 let status = if self.shuffle_enabled {
                     "Shuffle: ON"
                 } else {
@@ -589,7 +479,7 @@ impl ApplicationState {
         if self.config.viewer.playback_mode == config::PlaybackMode::Sequence {
             self.current_texture_index = Some(self.texture_manager.current_index);
             self.transition = None;
-            self.bind_group = None;
+            self.renderer.invalidate_bind_group();
         } else {
             self.start_transition(old_index, self.texture_manager.current_index);
         }
@@ -757,7 +647,7 @@ impl ApplicationState {
         });
 
         // Force bind group recreation
-        self.bind_group = None;
+        self.renderer.invalidate_bind_group();
     }
 
     fn update(&mut self) {
@@ -789,7 +679,7 @@ impl ApplicationState {
                         .set_shuffle_enabled(self.shuffle_enabled);
                     self.current_texture_index = Some(new_index);
                     self.transition = None;
-                    self.bind_group = None;
+                    self.renderer.invalidate_bind_group();
                     self.cached_info_string = None;
                 }
                 OverlayAction::SetPauseAtLast(_) => {
@@ -844,7 +734,7 @@ impl ApplicationState {
                     let count = new_paths.len();
                     self.texture_manager.replace_paths(new_paths);
                     self.transition = None;
-                    self.bind_group = None;
+                    self.renderer.invalidate_bind_group();
                     self.current_texture_index = if count > 0 { Some(0) } else { None };
                     self.slideshow.reset();
                     self.update_window_title();
@@ -860,7 +750,8 @@ impl ApplicationState {
             }
         }
 
-        self.texture_manager.update(&self.device, &self.queue);
+        self.texture_manager
+            .update(&self.renderer.device, &self.renderer.queue);
         self.thumbnail_manager.update();
 
         // Check if transition finished (must run before auto-advance to avoid
@@ -869,7 +760,7 @@ impl ApplicationState {
             if transition.start_time.elapsed() >= transition.duration {
                 self.current_texture_index = Some(transition.to_index);
                 self.transition = None;
-                self.bind_group = None;
+                self.renderer.invalidate_bind_group();
             }
         }
 
@@ -957,7 +848,7 @@ impl ApplicationState {
     }
 
     fn render(&mut self) -> Result<(), wgpu::SurfaceError> {
-        let output = self.surface.get_current_texture()?;
+        let output = self.renderer.surface.get_current_texture()?;
         let view = output
             .texture
             .create_view(&wgpu::TextureViewDescriptor::default());
@@ -969,11 +860,12 @@ impl ApplicationState {
             a: bg[3] as f64 / 255.0,
         };
 
-        let mut encoder = self
-            .device
-            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                label: Some("Render Encoder"),
-            });
+        let mut encoder =
+            self.renderer
+                .device
+                .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                    label: Some("Render Encoder"),
+                });
 
         // Prepare BindGroup and Uniforms
         // Determine which textures to use
@@ -994,10 +886,10 @@ impl ApplicationState {
 
         if let (Some(tex_a), Some(tex_b)) = (tex_a, tex_b) {
             // Recreate bind group when textures change (transition start/end)
-            if self.bind_group.is_none() {
-                self.bind_group = Some(self.pipeline.create_bind_group(
-                    &self.device,
-                    &self.uniform_buffer,
+            if self.renderer.bind_group.is_none() {
+                self.renderer.bind_group = Some(self.renderer.pipeline.create_bind_group(
+                    &self.renderer.device,
+                    &self.renderer.uniform_buffer,
                     &tex_a.view,
                     &tex_b.view,
                 ));
@@ -1020,8 +912,11 @@ impl ApplicationState {
                 ambient_blur: self.config.viewer.ambient_blur,
             };
 
-            self.queue
-                .write_buffer(&self.uniform_buffer, 0, bytemuck::cast_slice(&[uniform]));
+            self.renderer.queue.write_buffer(
+                &self.renderer.uniform_buffer,
+                0,
+                bytemuck::cast_slice(&[uniform]),
+            );
 
             {
                 let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -1038,8 +933,8 @@ impl ApplicationState {
                     ..Default::default()
                 });
 
-                if let Some(ref bind_group) = self.bind_group {
-                    render_pass.set_pipeline(&self.pipeline.render_pipeline);
+                if let Some(ref bind_group) = self.renderer.bind_group {
+                    render_pass.set_pipeline(&self.renderer.pipeline.render_pipeline);
                     render_pass.set_bind_group(0, bind_group, &[]);
                     render_pass.draw(0..3, 0..1); // 3 vertices for fullscreen triangle
                 }
@@ -1070,8 +965,8 @@ impl ApplicationState {
 
         // Prepare egui render data (must happen before creating render pass)
         let clipped_primitives = self.egui_overlay.prepare_render(
-            &self.device,
-            &self.queue,
+            &self.renderer.device,
+            &self.renderer.queue,
             &mut encoder,
             &screen_descriptor,
             egui_output,
@@ -1101,17 +996,19 @@ impl ApplicationState {
         if self.screenshot_requested {
             self.screenshot_requested = false;
             match self.screenshot.capture(
-                &self.device,
-                &self.queue,
+                &self.renderer.device,
+                &self.renderer.queue,
                 encoder,
                 &output.texture,
-                &self.surface_config,
+                &self.renderer.surface_config,
             ) {
                 Ok(filename) => self.show_osd(format!("Screenshot: {}", filename)),
                 Err(msg) => self.show_osd(msg),
             }
         } else {
-            self.queue.submit(std::iter::once(encoder.finish()));
+            self.renderer
+                .queue
+                .submit(std::iter::once(encoder.finish()));
         }
 
         output.present();
