@@ -39,6 +39,8 @@ issue-ranger          Scout the codebase → post agent:proposed issues
 issue-raid-commander  Analyze ready queue → detect conflicts → output sprint plan
       ↓
 issue-slayer × N      Implement in parallel worktrees → open PRs
+      ↓
+verify-sprint         Merge PR branches locally → visual check → squash merge to main
 ```
 
 Run `issue-raid-commander` before spawning a slayer team to avoid merge conflicts.
@@ -46,7 +48,8 @@ For single-issue work, skip it and go straight to `issue-slayer`.
 
 **Full pipeline shortcut**: `dispatching-guild-expedition` runs the entire
 workflow above in one command — Rangers × 4, user approval gate, Commander,
-then Slayers × N in parallel.
+then Slayers × N in parallel. Follow up with `verify-sprint` to verify and
+merge the opened PRs.
 
 ## Execution Patterns
 

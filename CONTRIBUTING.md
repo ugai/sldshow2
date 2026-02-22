@@ -91,6 +91,10 @@ Issues use three label categories:
 
 This project supports autonomous AI agent development using the `issue-slayer` skill.
 
+After a sprint, use the `verify-sprint` skill to merge all PR branches into a local
+ephemeral branch, run a combined visual check, and squash-merge each PR into
+`main`. The verify branch is never pushed to remote.
+
 For detailed instructions on Agent execution patterns, eligibility, and rules, see **[AGENTS.md](AGENTS.md)**.
 
 ## Project Board
