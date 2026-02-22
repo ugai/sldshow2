@@ -400,10 +400,8 @@ fn load_image_rgba(path: &Utf8Path, max_size: (u32, u32)) -> anyhow::Result<Vec<
 }
 
 fn mip_level_count(width: u32, height: u32) -> u32 {
-    if width == 0 || height == 0 {
-        return 1;
-    }
-    (width.max(height) as f32).log2().floor() as u32 + 1
+    let max_dim = width.max(height).max(1);
+    max_dim.ilog2() + 1
 }
 
 pub fn apply_exif_rotation(img: image::DynamicImage, path: &Utf8Path) -> image::DynamicImage {
