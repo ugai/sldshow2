@@ -1199,7 +1199,6 @@ impl ApplicationHandler for ApplicationState {
                         Err(wgpu::SurfaceError::Lost) => self.resize(self.size),
                         Err(wgpu::SurfaceError::OutOfMemory) => {
                             error!("GPU out of memory — exiting");
-                            eprintln!("Fatal: GPU out of memory — exiting");
                             event_loop.exit();
                         }
                         Err(e) => error!("Render error: {:?}", e),
