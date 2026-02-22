@@ -80,6 +80,9 @@ pub struct ApplicationState {
 
     // Timer reset target — stores the config's original timer value
     initial_timer: f32,
+
+    // Cached info overlay string — invalidated on image change
+    cached_info_string: Option<String>,
 }
 
 struct ActiveTransition {
@@ -284,6 +287,7 @@ impl ApplicationState {
             shuffle_enabled,
             modifiers: winit::keyboard::ModifiersState::default(),
             initial_timer,
+            cached_info_string: None,
         };
 
         state.update_window_title();
@@ -341,6 +345,7 @@ impl ApplicationState {
                     .texture_manager
                     .set_shuffle_enabled(self.shuffle_enabled);
                 self.current_texture_index = Some(new_index);
+                self.transition = None;
                 self.bind_group = None;
                 let status = if self.shuffle_enabled {
                     "Shuffle: ON"
@@ -591,6 +596,7 @@ impl ApplicationState {
         self.slideshow.reset();
         self.sequence_timer.reset();
         self.update_window_title();
+        self.cached_info_string = None;
     }
 
     fn timer_step(&self, increasing: bool) -> f32 {
@@ -782,7 +788,9 @@ impl ApplicationState {
                         .texture_manager
                         .set_shuffle_enabled(self.shuffle_enabled);
                     self.current_texture_index = Some(new_index);
+                    self.transition = None;
                     self.bind_group = None;
+                    self.cached_info_string = None;
                 }
                 OverlayAction::SetPauseAtLast(_) => {
                     // Config already updated, just accessed by slideshow next frame
@@ -840,6 +848,7 @@ impl ApplicationState {
                     self.current_texture_index = if count > 0 { Some(0) } else { None };
                     self.slideshow.reset();
                     self.update_window_title();
+                    self.cached_info_string = None;
                     self.show_osd(format!("Loaded {} images", count));
                     info!("Drag & drop: loaded {} images", count);
                 }
@@ -935,8 +944,11 @@ impl ApplicationState {
 
         // Info overlay (top-left) — persistent I or temporary i
         if self.egui_overlay.info_overlay_visible() {
-            let info = self.build_info_string();
-            self.egui_overlay.set_info_text(&info);
+            if self.cached_info_string.is_none() {
+                self.cached_info_string = Some(self.build_info_string());
+            }
+            let info = self.cached_info_string.as_deref().unwrap_or("");
+            self.egui_overlay.set_info_text(info);
         } else if self.info_temp_expiry.is_some() {
             // Content was already set by key handler; just keep it
         } else {
