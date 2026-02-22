@@ -105,8 +105,9 @@ Once fought on the front lines. Now stands behind them.
 Never spawns agents. Only assesses. Never intervenes.
 </td>
 <td align="center" width="50%">
+<img src="docs/assets/cover-art-epic-expedition.jpg" width="300"><br>
 <strong><code>dispatching-guild-expedition</code></strong> — <em>One Command. Full Sprint.</em><br>
-Orchestrates the entire pipeline: Rangers × 4 scout in parallel, the user
+Orchestrates the entire pipeline: Rangers × N scout in parallel, the user
 approves issues at the gate, Raid Commander maps the battlefield, then
 Slayers × N charge in parallel. From empty board to open PRs.
 </td>
