@@ -288,7 +288,18 @@ impl TextureManager {
                     self.loading_tasks.insert(idx);
 
                     std::thread::spawn(move || {
-                        let res = load_image_rgba(&path, max_size);
+                        let res = std::panic::catch_unwind(|| load_image_rgba(&path, max_size))
+                            .unwrap_or_else(|payload| {
+                                let msg = if let Some(s) = payload.downcast_ref::<String>() {
+                                    s.clone()
+                                } else if let Some(s) = payload.downcast_ref::<&str>() {
+                                    (*s).to_owned()
+                                } else {
+                                    "unknown panic in image loader thread".to_owned()
+                                };
+                                error!("Image loader thread panicked for index {}: {}", idx, msg);
+                                Err(anyhow::anyhow!("loader thread panicked: {}", msg))
+                            });
                         if tx.send((idx, res)).is_err() {
                             warn!("Failed to send loaded image {} (receiver dropped)", idx);
                         }
