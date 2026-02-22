@@ -34,7 +34,7 @@ pub struct TextureManager {
     original_paths: Vec<Utf8PathBuf>,
 
     // Async loading (sends mip chain: Vec[0]=base, Vec[1]=LOD1, ...)
-    loading_tasks: HashSet<usize>,
+    loading_tasks: HashMap<usize, u64>,
     errors: HashMap<usize, String>,
     // Incremented on every replace_paths / set_shuffle_enabled call so that
     // results from threads spawned in a previous generation are discarded.
@@ -53,7 +53,7 @@ impl TextureManager {
             max_texture_size,
             cache_extent,
             original_paths: Vec::new(),
-            loading_tasks: HashSet::new(),
+            loading_tasks: HashMap::new(),
             errors: HashMap::new(),
             epoch: 0,
             tx,
@@ -194,10 +194,14 @@ impl TextureManager {
 
         // 1. Process received images and upload to GPU
         while let Ok((msg_epoch, idx, result)) = self.rx.try_recv() {
-            self.loading_tasks.remove(&idx);
-            // Discard results from threads spawned before the last path reorder
+            // Discard results from threads spawned before the last path reorder.
+            // Only remove from loading_tasks if the epoch matches the spawned entry,
+            // so that stale messages don't evict a newer task for the same slot.
             if msg_epoch != self.epoch {
                 continue;
+            }
+            if self.loading_tasks.get(&idx) == Some(&msg_epoch) {
+                self.loading_tasks.remove(&idx);
             }
             match result {
                 Ok(mips) => {
@@ -288,12 +292,12 @@ impl TextureManager {
         self.textures.retain(|idx, _| needed_indices.contains(idx));
         self.errors.retain(|idx, _| needed_indices.contains(idx));
         self.loading_tasks
-            .retain(|idx| needed_indices.contains(idx));
+            .retain(|idx, _| needed_indices.contains(idx));
 
         for idx in needed_indices {
             if !self.textures.contains_key(&idx)
                 && !self.errors.contains_key(&idx)
-                && !self.loading_tasks.contains(&idx)
+                && !self.loading_tasks.contains_key(&idx)
             {
                 if self.loading_tasks.len() >= MAX_CONCURRENT_TASKS {
                     break;
@@ -304,7 +308,7 @@ impl TextureManager {
                     let max_size = self.max_texture_size;
                     let epoch = self.epoch;
 
-                    self.loading_tasks.insert(idx);
+                    self.loading_tasks.insert(idx, self.epoch);
 
                     std::thread::spawn(move || {
                         let res = std::panic::catch_unwind(|| load_image_rgba(&path, max_size))
