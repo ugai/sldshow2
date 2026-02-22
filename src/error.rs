@@ -31,6 +31,13 @@ pub enum SldshowError {
         source: std::io::Error,
     },
 
+    #[error("Failed to save config to {path}: {source}")]
+    ConfigSaveError {
+        path: Utf8PathBuf,
+        #[source]
+        source: std::io::Error,
+    },
+
     #[error("Failed to parse config from {path}: {source}")]
     ConfigParseError {
         path: Utf8PathBuf,

@@ -263,7 +263,7 @@ impl Config {
         let content = toml::to_string_pretty(self)?;
 
         std::fs::write(path.as_ref().as_std_path(), content).map_err(|e| {
-            SldshowError::ConfigLoadError {
+            SldshowError::ConfigSaveError {
                 path: path.as_ref().to_path_buf(),
                 source: e,
             }
@@ -304,5 +304,20 @@ mod tests {
 
         assert_eq!(config.window.width, deserialized.window.width);
         assert_eq!(config.viewer.timer, deserialized.viewer.timer);
+    }
+
+    #[test]
+    fn test_save_error() {
+        let config = Config::default();
+        // Trying to save to a path where parent directory likely doesn't exist
+        let path = Utf8PathBuf::from("non_existent_dir_12345/config.toml");
+        let result = config.save(&path);
+
+        match result {
+            Err(SldshowError::ConfigSaveError { path: p, source: _ }) => {
+                assert_eq!(p, path);
+            }
+            _ => panic!("Expected ConfigSaveError, got {:?}", result),
+        }
     }
 }
