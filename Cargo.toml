@@ -52,6 +52,7 @@ arboard = "3.4"
 kamadak-exif = "0.6.1"
 font-loader = "0.11.0"
 egui-phosphor = "0.10"
+fast_image_resize = "5.1.4"
 
 [target.'cfg(windows)'.dependencies]
 windows = { version = "0.58", features = [
