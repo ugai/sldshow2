@@ -561,32 +561,14 @@ impl ApplicationState {
     fn next_image(&mut self) {
         let old_index = self.texture_manager.current_index;
         if self.texture_manager.next(self.config.viewer.pause_at_last) {
-            if self.config.viewer.playback_mode == config::PlaybackMode::Sequence {
-                self.current_texture_index = Some(self.texture_manager.current_index);
-                self.transition = None;
-                self.bind_group = None;
-            } else {
-                self.start_transition(old_index, self.texture_manager.current_index);
-            }
-            self.slideshow.reset();
-            self.sequence_timer.reset();
-            self.update_window_title();
+            self.finish_navigation(old_index);
         }
     }
 
     fn prev_image(&mut self) {
         let old_index = self.texture_manager.current_index;
         if self.texture_manager.previous() {
-            if self.config.viewer.playback_mode == config::PlaybackMode::Sequence {
-                self.current_texture_index = Some(self.texture_manager.current_index);
-                self.transition = None;
-                self.bind_group = None;
-            } else {
-                self.start_transition(old_index, self.texture_manager.current_index);
-            }
-            self.slideshow.reset();
-            self.sequence_timer.reset();
-            self.update_window_title();
+            self.finish_navigation(old_index);
         }
     }
 
@@ -594,17 +576,21 @@ impl ApplicationState {
         let old_index = self.texture_manager.current_index;
         if index < self.texture_manager.len() && index != old_index {
             self.texture_manager.jump_to(index);
-            if self.config.viewer.playback_mode == config::PlaybackMode::Sequence {
-                self.current_texture_index = Some(self.texture_manager.current_index);
-                self.transition = None;
-                self.bind_group = None;
-            } else {
-                self.start_transition(old_index, self.texture_manager.current_index);
-            }
-            self.slideshow.reset();
-            self.sequence_timer.reset();
-            self.update_window_title();
+            self.finish_navigation(old_index);
         }
+    }
+
+    fn finish_navigation(&mut self, old_index: usize) {
+        if self.config.viewer.playback_mode == config::PlaybackMode::Sequence {
+            self.current_texture_index = Some(self.texture_manager.current_index);
+            self.transition = None;
+            self.bind_group = None;
+        } else {
+            self.start_transition(old_index, self.texture_manager.current_index);
+        }
+        self.slideshow.reset();
+        self.sequence_timer.reset();
+        self.update_window_title();
     }
 
     fn timer_step(&self, increasing: bool) -> f32 {
