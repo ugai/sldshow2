@@ -1,7 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 //! Application entry point.
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use camino::Utf8PathBuf;
 use log::{error, warn};
 use std::sync::Arc;
@@ -56,12 +56,13 @@ fn main() -> Result<()> {
             EventLoop::builder()
                 .with_msg_hook(drag_drop::build_msg_hook(drag_drop_tx))
                 .build()
-                .unwrap()
+                .context("Failed to create event loop")?
         }
         #[cfg(not(windows))]
         {
             drop(drag_drop_tx); // suppress unused-variable on non-Windows
-            EventLoop::new().unwrap()
+            EventLoop::new()
+                .context("Failed to create event loop — is a display server running?")?
         }
     };
 
@@ -87,7 +88,11 @@ fn main() -> Result<()> {
         .with_fullscreen(fullscreen);
 
     #[allow(deprecated)]
-    let window = Arc::new(event_loop.create_window(window_attributes).unwrap());
+    let window = Arc::new(
+        event_loop
+            .create_window(window_attributes)
+            .context("Failed to create window")?,
+    );
 
     // Replace winit's OLE drag-and-drop with WM_DROPFILES
     #[cfg(windows)]
