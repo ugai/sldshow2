@@ -1,6 +1,7 @@
 //! Screenshot capture from the rendered surface.
 
-use log::{error, info};
+use log::{error, info, warn};
+use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 /// Maximum number of filename candidates tried before giving up.
@@ -114,7 +115,27 @@ impl ScreenshotCapture {
         }
     }
 
-    /// Generate a unique screenshot filename using a millisecond-precision
+    /// Resolve the directory where screenshots should be saved.
+    ///
+    /// Priority:
+    /// 1. System Pictures directory (`dirs::picture_dir()`)
+    /// 2. Executable's parent directory
+    /// 3. Current working directory (last resort)
+    fn screenshot_dir() -> PathBuf {
+        if let Some(pictures) = dirs::picture_dir() {
+            return pictures;
+        }
+        warn!("Pictures directory unavailable; falling back to executable directory");
+        if let Ok(exe) = std::env::current_exe() {
+            if let Some(parent) = exe.parent() {
+                return parent.to_path_buf();
+            }
+        }
+        warn!("Executable directory unavailable; falling back to current working directory");
+        PathBuf::from(".")
+    }
+
+    /// Generate a unique screenshot path using a millisecond-precision
     /// timestamp.  If the timestamp-derived name already exists (e.g. two
     /// screenshots in the same millisecond), a numeric suffix is appended.
     /// Returns `Err` if no free slot is found within [`MAX_FILENAME_ATTEMPTS`]
@@ -125,14 +146,17 @@ impl ScreenshotCapture {
             .map(|d| d.as_millis())
             .map_err(|_| "Screenshot failed!".to_string())?;
 
+        let dir = Self::screenshot_dir();
+
         for attempt in 0..MAX_FILENAME_ATTEMPTS {
-            let filename = if attempt == 0 {
+            let name = if attempt == 0 {
                 format!("sldshow-shot-{ms}.png")
             } else {
                 format!("sldshow-shot-{ms}-{attempt}.png")
             };
-            if !std::path::Path::new(&filename).exists() {
-                return Ok(filename);
+            let path = dir.join(&name);
+            if !path.exists() {
+                return Ok(path.to_string_lossy().into_owned());
             }
         }
 
