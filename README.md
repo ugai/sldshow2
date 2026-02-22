@@ -150,3 +150,45 @@ Based on the original [sldshow](https://github.com/ugai/sldshow) by ugai.
 Transition effects adapted from [GL Transitions](https://gl-transitions.com/) (MIT License).
 
 Test images are programmatically generated (CC0/Public Domain).
+
+---
+
+## The Guild
+
+Issues labeled `agent:ready` are picked up by AI agents that autonomously implement and open PRs. See [AGENTS.md](AGENTS.md) for the workflow.
+
+<table>
+<tr>
+<td align="center" width="50%">
+<img src="docs/assets/portrait-agent-slayer.png" width="300"><br>
+<strong><code>issue-slayer</code></strong> — <em>The Blade That Closes Issues.</em><br>
+Picks up <code>agent:ready</code> issues, implements in an isolated worktree, and
+delivers pull requests. Does not theorize. Does not over-engineer.
+One issue. One PR. Every time.
+</td>
+<td align="center" width="50%">
+<img src="docs/assets/portrait-agent-ranger.png" width="300"><br>
+<strong><code>issue-ranger</code></strong> — <em>Eyes of the Guild.</em><br>
+Ranges the codebase from six vantage points, gathers intel from abroad,
+and posts well-scoped issues on the board. Never fights. Never codes.
+Only scouts, only reports.
+</td>
+</tr>
+<tr>
+<td align="center" width="50%">
+<img src="docs/assets/portrait-agent-raid-commander.png" width="300"><br>
+<strong><code>issue-raid-commander</code></strong> — <em>Battlefield Awareness Without Intervention.</em><br>
+Reads the ready queue, detects merge conflicts before they happen, and
+hands the team lead a sprint plan.
+Once fought on the front lines. Now stands behind them.
+Never spawns agents. Only assesses. Never intervenes.
+</td>
+<td align="center" width="50%">
+<img src="docs/assets/cover-art-epic-expedition.jpg" width="300"><br>
+<strong><code>dispatching-guild-expedition</code></strong> — <em>One Command. Full Sprint.</em><br>
+Orchestrates the entire pipeline: Rangers × N scout in parallel, the user
+approves issues at the gate, Raid Commander maps the battlefield, then
+Slayers × N charge in parallel. From empty board to open PRs.
+</td>
+</tr>
+</table>
