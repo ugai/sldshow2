@@ -1,24 +1,33 @@
-//! Drag & drop handler using Windows WM_DROPFILES API.
+//! Drag & drop handler.
 //!
-//! winit 0.29 registers OLE drag-and-drop by default, but on some Windows
-//! configurations the events never fire. This module replaces that with the
-//! simpler, more reliable `DragAcceptFiles` / `WM_DROPFILES` mechanism.
+//! On Windows, uses the `WM_DROPFILES` API directly (bypasses winit's OLE
+//! drag-and-drop which can be unreliable on some configurations).
+//! On other platforms, `WindowEvent::DroppedFile` events are forwarded through
+//! the same channel via [`DragDropHandler::queue_dropped_file`].
 
 use camino::Utf8PathBuf;
 use std::sync::mpsc;
 
 /// Receiver half lives in `ApplicationState`, sender is captured by the
-/// event-loop message hook.
+/// event-loop message hook (Windows) or used directly via
+/// [`DragDropHandler::queue_dropped_file`] (non-Windows).
 pub struct DragDropHandler {
     rx: mpsc::Receiver<Vec<Utf8PathBuf>>,
+    /// Retained so non-Windows platforms can enqueue files from window events.
+    #[cfg(not(windows))]
+    tx: mpsc::Sender<Vec<Utf8PathBuf>>,
 }
 
 impl DragDropHandler {
-    /// Create a handler pair.  Returns `(handler, sender)` — the sender must
-    /// be moved into the message hook via [`install_msg_hook`].
+    /// Create a handler pair.  On Windows the returned sender must be moved
+    /// into the message hook via [`build_msg_hook`].
     pub fn new() -> (Self, mpsc::Sender<Vec<Utf8PathBuf>>) {
         let (tx, rx) = mpsc::channel();
-        (Self { rx }, tx)
+        #[cfg(windows)]
+        let handler = Self { rx };
+        #[cfg(not(windows))]
+        let handler = Self { rx, tx: tx.clone() };
+        (handler, tx)
     }
 
     /// Drain all batches received since the last call. Returns `None` when
@@ -29,6 +38,20 @@ impl DragDropHandler {
             all.extend(batch);
         }
         if all.is_empty() { None } else { Some(all) }
+    }
+
+    /// Enqueue a single dropped file path (non-Windows only).
+    ///
+    /// Call this from `WindowEvent::DroppedFile` on Linux/macOS so that the
+    /// existing drain logic in [`take_pending`] picks it up on the next frame.
+    #[cfg(not(windows))]
+    pub fn queue_dropped_file(&self, path: std::path::PathBuf) {
+        match Utf8PathBuf::try_from(path) {
+            Ok(p) => {
+                let _ = self.tx.send(vec![p]);
+            }
+            Err(e) => log::warn!("Dropped path is not valid UTF-8: {}", e),
+        }
     }
 }
 

@@ -1156,6 +1156,12 @@ impl ApplicationHandler for ApplicationState {
                             Err(e) => error!("Render error: {:?}", e),
                         }
                     }
+                    // Handle drag-and-drop on non-Windows platforms via winit's
+                    // DroppedFile event. Windows uses WM_DROPFILES (see drag_drop.rs).
+                    #[cfg(not(windows))]
+                    WindowEvent::DroppedFile(path) => {
+                        self.drag_drop.queue_dropped_file(path);
+                    }
                     _ => {}
                 }
             }
