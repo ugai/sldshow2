@@ -28,7 +28,7 @@ sequence_fps = 24.0          # Framerate for sequence playback
                              # Auto-detected from EXR metadata (framesPerSecond) if available
 max_texture_size = [1920, 1080]  # Max texture resolution for GPU upload
                                  # Lower = faster uploads, less memory
-                                 # [0, 0] = use window size (may stutter at 4K+)
+                                 # [0, 0] = no limit / full resolution (may stutter at 4K+)
 filter_mode = "linear"           # Texture filtering: "linear" (smooth) or "nearest" (pixelated)
 fit_mode = "AmbientFit"          # "Fit" = black bars, "AmbientFit" = blurred background
                                  # Toggle at runtime with 'A' key
