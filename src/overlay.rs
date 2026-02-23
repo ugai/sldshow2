@@ -399,8 +399,8 @@ impl EguiOverlay {
 
                             ui.add_space(4.0);
                             ui.heading("Color Adjustments");
-                            ui.label("1 / 2              Brightness -/+");
-                            ui.label("3 / 4              Contrast -/+");
+                            ui.label("1 / 2              Contrast -/+");
+                            ui.label("3 / 4              Brightness -/+");
                             ui.label("5 / 6              Gamma -/+");
                             ui.label("7 / 8              Saturation -/+");
 
