@@ -26,7 +26,7 @@ visual testing (replace the path with the actual worktree absolute path):
 ```
 To test manually, run:
 
-cd <worktree-absolute-path>
+pushd <worktree-absolute-path>
 $env:RUST_LOG="warn"; cargo run --release -- example.sldshow
 ```
 
