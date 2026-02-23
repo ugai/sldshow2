@@ -3,17 +3,15 @@ use log::{error, info, warn};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use winit::{
-    application::ApplicationHandler,
-    event::{ElementState, KeyEvent, WindowEvent},
-    event_loop::ActiveEventLoop,
-    keyboard::{KeyCode, PhysicalKey},
+    application::ApplicationHandler, event::WindowEvent, event_loop::ActiveEventLoop,
+    keyboard::KeyCode,
 };
 
 use crate::clipboard;
 use crate::config::{self, Config};
 use crate::drag_drop::DragDropHandler;
 use crate::image_loader::{self, TextureManager};
-use crate::input::{InputAction, InputHandler};
+use crate::input::{InputAction, InputContext, InputHandler};
 use crate::osc::OscAction;
 use crate::overlay::EguiOverlay;
 use crate::renderer::Renderer;
@@ -205,16 +203,20 @@ impl ApplicationState {
         }
     }
 
-    fn input(&mut self, event: &WindowEvent, modifiers: &winit::keyboard::ModifiersState) -> bool {
-        let fullscreen = self.window.fullscreen().is_some();
-        let image_count = self.texture_manager.len();
-        let (consumed, action) = self.input_handler.handle_event(
-            event,
-            modifiers,
-            &self.window,
-            fullscreen,
-            image_count,
-        );
+    fn input(
+        &mut self,
+        event: &WindowEvent,
+        modifiers: &winit::keyboard::ModifiersState,
+    ) -> (bool, bool) {
+        let ctx = InputContext {
+            fullscreen: self.window.fullscreen().is_some(),
+            image_count: self.texture_manager.len(),
+            help_visible: self.egui_overlay.help_overlay_visible(),
+            window_default_size: (self.config.window.width, self.config.window.height),
+        };
+        let (consumed, action) =
+            self.input_handler
+                .handle_event(event, modifiers, &self.window, &ctx);
 
         // Update OSC activity on cursor movement
         if matches!(event, WindowEvent::CursorMoved { .. }) {
@@ -226,16 +228,19 @@ impl ApplicationState {
             self.window.set_cursor_visible(true);
         }
 
+        let mut should_exit = false;
         if let Some(action) = action {
-            self.execute_input_action(action);
+            should_exit = self.execute_input_action(action);
         }
 
-        consumed
+        (consumed, should_exit)
     }
 
     fn execute_osc_action(&mut self, action: OscAction) {
         match action {
-            OscAction::PlayPause => self.execute_input_action(InputAction::TogglePause),
+            OscAction::PlayPause => {
+                self.execute_input_action(InputAction::TogglePause);
+            }
             OscAction::Previous => self.prev_image(),
             OscAction::Next => self.next_image(),
             OscAction::ToggleShuffle => {
@@ -265,7 +270,8 @@ impl ApplicationState {
         }
     }
 
-    fn execute_input_action(&mut self, action: InputAction) {
+    /// Executes an input action. Returns `true` if the application should exit.
+    fn execute_input_action(&mut self, action: InputAction) -> bool {
         match action {
             InputAction::NextImage { steps } => {
                 for _ in 0..steps {
@@ -461,7 +467,34 @@ impl ApplicationState {
             InputAction::ToggleGallery => {
                 self.egui_overlay.toggle_gallery();
             }
+            InputAction::Exit => return true,
+            InputAction::ResizeWindow { width, height } => {
+                let _ = self
+                    .window
+                    .request_inner_size(winit::dpi::LogicalSize::new(width, height));
+                self.show_osd(format!("Resize: {}x{}", width, height));
+            }
+            InputAction::CopyPathToClipboard => {
+                if let Some(path) = self.texture_manager.current_path() {
+                    match arboard::Clipboard::new() {
+                        Ok(mut clipboard) => {
+                            if let Err(e) = clipboard.set_text(path.as_str()) {
+                                error!("Failed to copy to clipboard: {}", e);
+                            } else {
+                                info!("Copied path to clipboard: {}", path);
+                                self.show_osd("Copied to Clipboard".to_string());
+                            }
+                        }
+                        Err(e) => {
+                            error!("Failed to initialize clipboard: {}", e);
+                            self.show_osd("Clipboard Unavailable".to_string());
+                        }
+                    }
+                }
+            }
+            InputAction::OpenInExplorer => self.open_explorer(),
         }
+        false
     }
 
     fn next_image(&mut self) {
@@ -1058,153 +1091,41 @@ impl ApplicationHandler for ApplicationState {
 
         // Try input handler only if egui didn't consume the event
         let modifiers = self.modifiers;
-        if !egui_consumed && !self.input(&event, &modifiers) {
-            match event {
-                WindowEvent::CloseRequested => event_loop.exit(),
-                WindowEvent::KeyboardInput {
-                    event:
-                        KeyEvent {
-                            state: ElementState::Pressed,
-                            physical_key: PhysicalKey::Code(KeyCode::Escape),
-                            ..
-                        },
-                    ..
-                } => {
-                    // Close help overlay if visible, otherwise exit
-                    if self.egui_overlay.help_overlay_visible() {
-                        self.egui_overlay.toggle_help_overlay();
-                    } else {
-                        event_loop.exit();
+        if !egui_consumed {
+            let (consumed, should_exit) = self.input(&event, &modifiers);
+            if should_exit {
+                event_loop.exit();
+                return;
+            }
+            if !consumed {
+                match event {
+                    WindowEvent::CloseRequested => event_loop.exit(),
+                    WindowEvent::Resized(physical_size) => {
+                        self.resize(physical_size);
                     }
-                }
-                WindowEvent::KeyboardInput {
-                    event:
-                        KeyEvent {
-                            state: ElementState::Pressed,
-                            physical_key: PhysicalKey::Code(KeyCode::KeyQ),
-                            ..
-                        },
-                    ..
-                } => event_loop.exit(),
-                WindowEvent::Resized(physical_size) => {
-                    self.resize(physical_size);
-                }
-                WindowEvent::ScaleFactorChanged {
-                    scale_factor,
-                    inner_size_writer: _,
-                } => {
-                    info!("Scale factor changed to: {}", scale_factor);
-                    // winit will automatically resize the window according to the new scale factor.
-                    // We don't need to use inner_size_writer unless we want to override the OS default.
-                    // The automatic resize will trigger a WindowEvent::Resized, which handles the actual resize.
-                }
-                WindowEvent::RedrawRequested => {
-                    self.update();
-                    match self.render() {
-                        Ok(_) => {}
-                        Err(wgpu::SurfaceError::Lost) => self.resize(self.size),
-                        Err(wgpu::SurfaceError::OutOfMemory) => {
-                            error!("GPU out of memory — exiting");
-                            event_loop.exit();
-                        }
-                        Err(e) => error!("Render error: {:?}", e),
+                    WindowEvent::ScaleFactorChanged {
+                        scale_factor,
+                        inner_size_writer: _,
+                    } => {
+                        info!("Scale factor changed to: {}", scale_factor);
+                        // winit will automatically resize the window according to the new scale factor.
+                        // We don't need to use inner_size_writer unless we want to override the OS default.
+                        // The automatic resize will trigger a WindowEvent::Resized, which handles the actual resize.
                     }
-                }
-                // Handle Alt+Digit shortcuts for window resizing
-                WindowEvent::KeyboardInput {
-                    event:
-                        KeyEvent {
-                            state: ElementState::Pressed,
-                            physical_key: PhysicalKey::Code(KeyCode::Digit1),
-                            ..
-                        },
-                    ..
-                } => {
-                    if self.modifiers.alt_key() {
-                        let _ = self
-                            .window
-                            .request_inner_size(winit::dpi::LogicalSize::new(1280, 720));
-                        self.show_osd("Resize: 1280x720".to_string());
-                    }
-                }
-                WindowEvent::KeyboardInput {
-                    event:
-                        KeyEvent {
-                            state: ElementState::Pressed,
-                            physical_key: PhysicalKey::Code(KeyCode::Digit2),
-                            ..
-                        },
-                    ..
-                } => {
-                    if self.modifiers.alt_key() {
-                        let _ = self
-                            .window
-                            .request_inner_size(winit::dpi::LogicalSize::new(1920, 1080));
-                        self.show_osd("Resize: 1920x1080".to_string());
-                    }
-                }
-                WindowEvent::KeyboardInput {
-                    event:
-                        KeyEvent {
-                            state: ElementState::Pressed,
-                            physical_key: PhysicalKey::Code(KeyCode::Digit0),
-                            ..
-                        },
-                    ..
-                } => {
-                    if self.modifiers.alt_key() {
-                        let _ = self.window.request_inner_size(winit::dpi::LogicalSize::new(
-                            self.config.window.width,
-                            self.config.window.height,
-                        ));
-                        self.show_osd(format!(
-                            "Resize: {}x{}",
-                            self.config.window.width, self.config.window.height
-                        ));
-                    }
-                }
-                WindowEvent::KeyboardInput {
-                    event:
-                        KeyEvent {
-                            state: ElementState::Pressed,
-                            physical_key: PhysicalKey::Code(KeyCode::KeyC),
-                            ..
-                        },
-                    ..
-                } => {
-                    if self.modifiers.control_key() {
-                        if let Some(path) = self.texture_manager.current_path() {
-                            match arboard::Clipboard::new() {
-                                Ok(mut clipboard) => {
-                                    if let Err(e) = clipboard.set_text(path.as_str()) {
-                                        error!("Failed to copy to clipboard: {}", e);
-                                    } else {
-                                        info!("Copied path to clipboard: {}", path);
-                                        self.show_osd("Copied to Clipboard".to_string());
-                                    }
-                                }
-                                Err(e) => {
-                                    error!("Failed to initialize clipboard: {}", e);
-                                    self.show_osd("Clipboard Unavailable".to_string());
-                                }
+                    WindowEvent::RedrawRequested => {
+                        self.update();
+                        match self.render() {
+                            Ok(_) => {}
+                            Err(wgpu::SurfaceError::Lost) => self.resize(self.size),
+                            Err(wgpu::SurfaceError::OutOfMemory) => {
+                                error!("GPU out of memory — exiting");
+                                event_loop.exit();
                             }
+                            Err(e) => error!("Render error: {:?}", e),
                         }
                     }
+                    _ => {}
                 }
-                WindowEvent::KeyboardInput {
-                    event:
-                        KeyEvent {
-                            state: ElementState::Pressed,
-                            physical_key: PhysicalKey::Code(KeyCode::KeyE),
-                            ..
-                        },
-                    ..
-                } => {
-                    if self.modifiers.alt_key() {
-                        self.open_explorer();
-                    }
-                }
-                _ => {}
             }
         }
     }
