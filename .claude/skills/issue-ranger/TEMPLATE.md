@@ -10,8 +10,9 @@ then pass it to `gh issue create --body-file`.
 
 ## Details
 
-<Specific technical approach or requirements. Include relevant file paths,
-function names, and line numbers where applicable.>
+<Specific technical approach or requirements. Reference by file path and
+function/struct name (e.g., `fast_resize()` in `src/image_loader.rs`).
+Do NOT use line numbers — they drift as the codebase evolves.>
 
 ## Acceptance Criteria
 

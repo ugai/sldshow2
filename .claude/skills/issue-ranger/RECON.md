@@ -2,6 +2,10 @@
 
 Scout each perspective in priority order. Stop when you have 15 candidates.
 
+**When referencing code**: use file path + function/struct name, not line
+numbers. Line numbers drift between the time you scout and the time a Slayer
+picks up the issue.
+
 ## Priority 1 — Robustness & Error Handling
 
 - `unwrap` / `expect` in production paths that should be `?` with context

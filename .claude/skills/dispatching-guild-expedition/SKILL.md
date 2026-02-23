@@ -85,4 +85,17 @@ All Slayers run in **Pattern B** (Team Member mode). Coordinate merge order
 per the Raid Commander's analysis. When all Slayers have opened their PRs,
 shut down the team and report the sprint summary.
 
-Suggest using `verify-sprint` to batch-verify and squash-merge the opened PRs.
+## Step 5 — Hand-off
+
+End the summary with a clear next-step prompt:
+
+```
+## Next Step
+
+All PRs are open. Run `verify-sprint` to batch-verify and squash-merge them:
+
+> /verify-sprint
+
+This will merge each PR branch locally, run the quality gate, let you
+visually inspect the result, then squash-merge to main.
+```
