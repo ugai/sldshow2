@@ -323,7 +323,7 @@ impl TextureManager {
 
                     self.loading_tasks.insert(idx, self.epoch);
 
-                    std::thread::spawn(move || {
+                    rayon::spawn(move || {
                         let res = std::panic::catch_unwind(|| load_image_rgba(&path, max_size))
                             .unwrap_or_else(|payload| {
                                 let msg = if let Some(s) = payload.downcast_ref::<String>() {
