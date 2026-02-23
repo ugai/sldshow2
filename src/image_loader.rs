@@ -418,7 +418,9 @@ fn load_image_rgba(path: &Utf8Path, max_size: (u32, u32)) -> anyhow::Result<Vec<
     mips.push(base);
 
     for _ in 1..mip_count {
-        let prev = mips.last().unwrap();
+        let prev = mips
+            .last()
+            .ok_or_else(|| anyhow::anyhow!("mip chain is empty"))?;
         let new_w = (prev.width() / 2).max(1);
         let new_h = (prev.height() / 2).max(1);
 
