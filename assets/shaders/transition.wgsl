@@ -36,7 +36,8 @@ struct TransitionUniform {
     fit_mode: i32,     // 0 = Fit (black bars), 1 = AmbientFit (blurred background)
     ambient_blur: f32, // Mip LOD level for ambient fit blur (default: 5.0)
     zoom_scale: f32,   // 1.0 = no zoom; > 1.0 = zoomed in
-    zoom_pan: vec2<f32>, // UV-space pan offset
+    zoom_pan_x: f32,     // UV-space pan offset X (split to avoid vec2 alignment padding)
+    zoom_pan_y: f32,     // UV-space pan offset Y
     _pad: f32,
 }
 
@@ -65,7 +66,7 @@ const PI: f32 = 3.141592653589793;
 fn apply_zoom(uv: vec2<f32>) -> vec2<f32> {
     let scale = max(material.zoom_scale, 1.0);
     // Map uv from [0,1] into the zoomed window centered at (0.5 + pan)
-    let center = vec2<f32>(0.5) + material.zoom_pan;
+    let center = vec2<f32>(0.5) + vec2<f32>(material.zoom_pan_x, material.zoom_pan_y);
     return (uv - center) / scale + center;
 }
 
