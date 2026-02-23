@@ -88,16 +88,16 @@ impl EguiOverlay {
                         "system_font".to_owned(),
                         FontData::from_owned(font_data).into(),
                     );
-                    fonts
-                        .families
-                        .get_mut(&FontFamily::Proportional)
-                        .unwrap()
-                        .insert(0, "system_font".to_owned());
-                    fonts
-                        .families
-                        .get_mut(&FontFamily::Monospace)
-                        .unwrap()
-                        .insert(0, "system_font".to_owned());
+                    if let Some(family) = fonts.families.get_mut(&FontFamily::Proportional) {
+                        family.insert(0, "system_font".to_owned());
+                    } else {
+                        log::warn!("Proportional font family missing from FontDefinitions");
+                    }
+                    if let Some(family) = fonts.families.get_mut(&FontFamily::Monospace) {
+                        family.insert(0, "system_font".to_owned());
+                    } else {
+                        log::warn!("Monospace font family missing from FontDefinitions");
+                    }
                 } else {
                     log::warn!("Failed to load system font: {}", family_name);
                 }

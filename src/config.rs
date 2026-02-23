@@ -126,7 +126,7 @@ pub struct ViewerConfig {
     /// Maximum texture size [width, height] for GPU upload.
     /// Images larger than this are downscaled before GPU upload to reduce frame spikes.
     /// Lower values = faster uploads but lower quality. [1920, 1080] is a good balance.
-    /// Set to [0, 0] to use window dimensions (may cause frame spikes at 4K+).
+    /// Set to [0, 0] for no limit (upload at full resolution; may cause frame spikes at 4K+).
     pub max_texture_size: [u32; 2],
     pub filter_mode: FilterMode,
     /// Display mode: Fit (black bars) or AmbientFit (blurred background fills letterbox)

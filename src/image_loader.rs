@@ -418,7 +418,9 @@ fn load_image_rgba(path: &Utf8Path, max_size: (u32, u32)) -> anyhow::Result<Vec<
     mips.push(base);
 
     for _ in 1..mip_count {
-        let prev = mips.last().unwrap();
+        let prev = mips
+            .last()
+            .ok_or_else(|| anyhow::anyhow!("mip chain is empty"))?;
         let new_w = (prev.width() / 2).max(1);
         let new_h = (prev.height() / 2).max(1);
 
@@ -520,6 +522,10 @@ fn resize_for_gpu(
     max_width: u32,
     max_height: u32,
 ) -> anyhow::Result<image::DynamicImage> {
+    // [0, 0] means "no limit" — upload at full resolution
+    if max_width == 0 || max_height == 0 {
+        return Ok(img);
+    }
     let (orig_w, orig_h) = img.dimensions();
     if orig_w <= max_width && orig_h <= max_height {
         return Ok(img);
