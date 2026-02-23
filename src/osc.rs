@@ -216,16 +216,18 @@ impl Osc {
             Color32::from_rgb(100, 160, 255), // Light blue
         );
 
-        // Hover tooltip
+        // Hover tooltip (only when pointer position is available)
         if response.hovered() {
-            let mouse_x = ui.input(|i| i.pointer.hover_pos().unwrap_or_default().x);
-            let t = ((mouse_x - rect.left()) / rect.width()).clamp(0.0, 1.0);
-            let hover_index = (t * (total_images - 1) as f32).round() as usize; // 0-based index
+            if let Some(hover_pos) = ui.input(|i| i.pointer.hover_pos()) {
+                let mouse_x = hover_pos.x;
+                let t = ((mouse_x - rect.left()) / rect.width()).clamp(0.0, 1.0);
+                let hover_index = (t * (total_images - 1) as f32).round() as usize; // 0-based index
 
-            // Show 1-based index for user
-            egui::show_tooltip(ui.ctx(), ui.layer_id(), response.id, |ui| {
-                ui.label(format!("{} / {}", hover_index + 1, total_images));
-            });
+                // Show 1-based index for user
+                egui::show_tooltip(ui.ctx(), ui.layer_id(), response.id, |ui| {
+                    ui.label(format!("{} / {}", hover_index + 1, total_images));
+                });
+            }
         }
 
         // Interaction (Click or Drag)
