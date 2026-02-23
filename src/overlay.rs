@@ -232,11 +232,18 @@ impl EguiOverlay {
         self.show_settings || self.show_help_overlay || self.show_gallery || self.osc.visible
     }
 
-    fn cleanup_gallery_textures(&mut self, thumbnail_manager: &ThumbnailManager) {
+    fn cleanup_gallery_textures(&mut self, thumbnail_manager: &mut ThumbnailManager) {
+        // Remove handles for thumbnails that are no longer in the cache (evicted).
         let cached_indices: std::collections::HashSet<_> =
             thumbnail_manager.get_cached_indices().into_iter().collect();
         self.gallery_textures
             .retain(|k, _| cached_indices.contains(k));
+
+        // Invalidate handles for thumbnails that were re-generated since the last
+        // frame. The next render will recreate them from the fresh pixel data.
+        for index in thumbnail_manager.drain_newly_cached() {
+            self.gallery_textures.remove(&index);
+        }
     }
 
     /// Update OSC activity (call on mouse movement)

@@ -34,6 +34,11 @@ pub struct ThumbnailManager {
     pending_queue: VecDeque<(usize, Utf8PathBuf)>,
     tx: Sender<(usize, anyhow::Result<RgbaImage>)>,
     rx: Receiver<(usize, anyhow::Result<RgbaImage>)>,
+
+    /// Indices of thumbnails that were newly inserted into the cache since the
+    /// last call to `drain_newly_cached()`. Used by the overlay to invalidate
+    /// stale egui texture handles after a thumbnail is re-generated.
+    newly_cached: Vec<usize>,
 }
 
 #[allow(dead_code)]
@@ -49,6 +54,7 @@ impl ThumbnailManager {
             pending_queue: VecDeque::new(),
             tx,
             rx,
+            newly_cached: Vec::new(),
         }
     }
 
@@ -99,6 +105,7 @@ impl ThumbnailManager {
                         debug!("Evicted thumbnail {} from cache", evict_index);
                     }
                     debug!("Cached thumbnail {}", index);
+                    self.newly_cached.push(index);
                 }
                 Err(e) => {
                     warn!("Failed to generate thumbnail {}: {}", index, e);
@@ -132,6 +139,7 @@ impl ThumbnailManager {
         self.cache.clear();
         self.loading_tasks.clear();
         self.pending_queue.clear();
+        self.newly_cached.clear();
         // Recreate channel so old threads' tx handles are orphaned;
         // their sends will silently fail without leaking loading_tasks.
         let (tx, rx) = channel();
@@ -143,6 +151,15 @@ impl ThumbnailManager {
     /// Used to reset priorities when the requested set changes (e.g. rapid scrolling).
     pub fn clear_pending(&mut self) {
         self.pending_queue.clear();
+    }
+
+    /// Return and clear the list of indices whose thumbnails were newly inserted
+    /// into the cache since the last call to this method.
+    ///
+    /// Call this each frame to invalidate stale egui texture handles so the gallery
+    /// view displays the latest thumbnail data after a re-generation.
+    pub fn drain_newly_cached(&mut self) -> Vec<usize> {
+        std::mem::take(&mut self.newly_cached)
     }
 
     /// Returns the number of cached thumbnails.
