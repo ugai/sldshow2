@@ -35,6 +35,10 @@ struct TransitionUniform {
     saturation: f32,
     fit_mode: i32,     // 0 = Fit (black bars), 1 = AmbientFit (blurred background)
     ambient_blur: f32, // Mip LOD level for ambient fit blur (default: 5.0)
+    zoom_scale: f32,   // 1.0 = no zoom; > 1.0 = zoomed in
+    zoom_pan_x: f32,     // UV-space pan offset X (split to avoid vec2 alignment padding)
+    zoom_pan_y: f32,     // UV-space pan offset Y
+    _pad: f32,
 }
 
 @group(0) @binding(0)
@@ -56,8 +60,20 @@ var sampler_b: sampler;
 const TRANSITION_MAX_MODE_IDX: i32 = 19;
 const PI: f32 = 3.141592653589793;
 
+// Apply zoom/pan transform to screen UV before contain-fit scaling.
+// zoom_scale > 1.0 zooms in (narrows the visible UV window).
+// zoom_pan shifts the center of the visible region.
+fn apply_zoom(uv: vec2<f32>) -> vec2<f32> {
+    let scale = max(material.zoom_scale, 1.0);
+    // Map uv from [0,1] into the zoomed window centered at (0.5 + pan)
+    let center = vec2<f32>(0.5) + vec2<f32>(material.zoom_pan_x, material.zoom_pan_y);
+    return (uv - center) / scale + center;
+}
+
 // UV adjustment: contain-fit (letterbox/pillarbox)
 fn adjust_uv(uv: vec2<f32>, image_size: vec2<f32>, window_size: vec2<f32>) -> vec2<f32> {
+    let zoomed_uv = apply_zoom(uv);
+
     let img_aspect = image_size.x / image_size.y;
     let win_aspect = window_size.x / window_size.y;
 
@@ -71,7 +87,7 @@ fn adjust_uv(uv: vec2<f32>, image_size: vec2<f32>, window_size: vec2<f32>) -> ve
     }
 
     // Apply scale centered at (0.5, 0.5)
-    let adjusted = (uv - 0.5) / scale + 0.5;
+    let adjusted = (zoomed_uv - 0.5) / scale + 0.5;
     return adjusted;
 }
 

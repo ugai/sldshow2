@@ -74,6 +74,10 @@ pub struct ApplicationState {
 
     // Cached info overlay string — invalidated on image change
     cached_info_string: Option<String>,
+
+    // Zoom/pan state
+    zoom_scale: f32,
+    zoom_pan: [f32; 2],
 }
 
 struct ActiveTransition {
@@ -189,6 +193,8 @@ impl ApplicationState {
             modifiers: winit::keyboard::ModifiersState::default(),
             initial_timer,
             cached_info_string: None,
+            zoom_scale: 1.0,
+            zoom_pan: [0.0, 0.0],
         };
 
         state.update_window_title();
@@ -494,8 +500,62 @@ impl ApplicationState {
                 }
             }
             InputAction::OpenInExplorer => self.open_explorer(),
+            InputAction::Zoom { delta } => {
+                let factor = if delta > 0.0 { 1.1f32 } else { 1.0 / 1.1 };
+                self.zoom_scale = (self.zoom_scale * factor).clamp(1.0, 10.0);
+                // Keep input_handler in sync so drag behavior is correct
+                self.input_handler.zoom_scale = self.zoom_scale;
+                // Clamp pan so image stays within viewport when zooming out
+                self.clamp_zoom_pan();
+                self.show_osd(format!("Zoom: {:.1}x", self.zoom_scale));
+            }
+            InputAction::Pan { dx, dy } => {
+                // Convert physical pixel delta to UV-space delta
+                let uv_dx = -dx / self.size.width as f32;
+                let uv_dy = -dy / self.size.height as f32;
+                self.zoom_pan[0] += uv_dx;
+                self.zoom_pan[1] += uv_dy;
+                self.clamp_zoom_pan();
+            }
+            InputAction::ResetZoom => {
+                self.zoom_scale = 1.0;
+                self.zoom_pan = [0.0, 0.0];
+                self.input_handler.zoom_scale = 1.0;
+                self.show_osd("Zoom: Reset".to_string());
+            }
         }
         false
+    }
+
+    /// Clamp zoom_pan so the image edge is reachable but the image stays on screen.
+    fn clamp_zoom_pan(&mut self) {
+        let s = self.zoom_scale;
+        if s <= 1.0 {
+            self.zoom_pan = [0.0, 0.0];
+            return;
+        }
+
+        // Mirror the contain-fit scale logic from adjust_uv() in the WGSL shader.
+        // cx/cy < 1.0 on the letterboxed/pillarboxed axis; 1.0 on the full-dimension axis.
+        let (cx, cy) = if let Some(tex) = self.texture_manager.get_current_texture() {
+            let img_aspect = tex.width as f32 / tex.height as f32;
+            let win_aspect = self.size.width as f32 / self.size.height as f32;
+            if img_aspect > win_aspect {
+                (1.0f32, win_aspect / img_aspect)
+            } else {
+                (img_aspect / win_aspect, 1.0f32)
+            }
+        } else {
+            (1.0, 1.0)
+        };
+
+        // Correct per-axis limit: max_offset = 0.5 * (s*c - 1) / (s - 1)
+        // When c = 1.0 this simplifies to 0.5 (independent of zoom).
+        // When c < 1.0 (letterboxed axis) the limit is smaller.
+        let max_x = (0.5 * (s * cx - 1.0) / (s - 1.0)).max(0.0);
+        let max_y = (0.5 * (s * cy - 1.0) / (s - 1.0)).max(0.0);
+        self.zoom_pan[0] = self.zoom_pan[0].clamp(-max_x, max_x);
+        self.zoom_pan[1] = self.zoom_pan[1].clamp(-max_y, max_y);
     }
 
     fn next_image(&mut self) {
@@ -532,6 +592,10 @@ impl ApplicationState {
         self.sequence_timer.reset();
         self.update_window_title();
         self.cached_info_string = None;
+        // Reset zoom/pan on every image change
+        self.zoom_scale = 1.0;
+        self.zoom_pan = [0.0, 0.0];
+        self.input_handler.reset_zoom();
     }
 
     fn timer_step(&self, increasing: bool) -> f32 {
@@ -972,6 +1036,9 @@ impl ApplicationState {
                 saturation: self.color_saturation,
                 fit_mode: self.config.viewer.fit_mode.to_uniform_value(),
                 ambient_blur: self.config.viewer.ambient_blur,
+                zoom_scale: self.zoom_scale,
+                zoom_pan: self.zoom_pan,
+                _pad: 0.0,
             };
 
             self.renderer.queue.write_buffer(

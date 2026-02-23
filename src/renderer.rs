@@ -118,6 +118,9 @@ impl Renderer {
             saturation: 1.0,
             fit_mode: config.viewer.fit_mode.to_uniform_value(),
             ambient_blur: config.viewer.ambient_blur,
+            zoom_scale: 1.0,
+            zoom_pan: [0.0, 0.0],
+            _pad: 0.0,
         };
 
         let uniform_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {

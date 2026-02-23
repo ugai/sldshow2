@@ -13,8 +13,12 @@ use winit::{
 /// Actions that can be triggered by input events.
 #[derive(Debug, Clone)]
 pub enum InputAction {
-    NextImage { steps: usize },
-    PrevImage { steps: usize },
+    NextImage {
+        steps: usize,
+    },
+    PrevImage {
+        steps: usize,
+    },
     JumpTo(usize),
     TogglePause,
     ToggleFullscreen,
@@ -32,7 +36,10 @@ pub enum InputAction {
     ShowFilenameTemporary,
     ToggleLoop,
     ToggleFitMode,
-    SetWindowPosition { x: i32, y: i32 },
+    SetWindowPosition {
+        x: i32,
+        y: i32,
+    },
     CopyImageToClipboard,
     ToggleHelpOverlay,
     ToggleGallery,
@@ -40,6 +47,17 @@ pub enum InputAction {
     ResizeWindow { width: u32, height: u32 },
     CopyPathToClipboard,
     OpenInExplorer,
+    /// Zoom in (delta > 0) or out (delta < 0). Delta is a multiplicative scroll step.
+    Zoom {
+        delta: f32,
+    },
+    /// Pan the image by (dx, dy) in physical pixels.
+    Pan {
+        dx: f32,
+        dy: f32,
+    },
+    /// Reset zoom and pan to defaults.
+    ResetZoom,
 }
 
 /// Application context passed to the input handler for context-aware keyboard actions.
@@ -61,6 +79,8 @@ pub struct InputHandler {
     is_dragging: bool,
     ignore_next_release: bool,
     cursor_pos: Option<PhysicalPosition<f64>>,
+    /// Current zoom level (1.0 = no zoom). Kept here so drag behavior can check it.
+    pub zoom_scale: f32,
 }
 
 impl InputHandler {
@@ -74,7 +94,13 @@ impl InputHandler {
             is_dragging: false,
             ignore_next_release: false,
             cursor_pos: None,
+            zoom_scale: 1.0,
         }
+    }
+
+    /// Reset zoom state (called on image navigation).
+    pub fn reset_zoom(&mut self) {
+        self.zoom_scale = 1.0;
     }
 
     /// Handles a window event and returns (consumed, optional_action).
@@ -147,6 +173,18 @@ impl InputHandler {
             }
 
             if self.is_dragging {
+                // When zoomed, drag pans the image instead of moving the window
+                if self.zoom_scale > 1.0 {
+                    self.drag_start_cursor = Some(screen_pos);
+                    return (
+                        true,
+                        Some(InputAction::Pan {
+                            dx: dx as f32,
+                            dy: dy as f32,
+                        }),
+                    );
+                }
+
                 if fullscreen {
                     self.drag_start_cursor = Some(screen_pos);
                     return (true, Some(InputAction::SetFullscreen(false)));
@@ -218,6 +256,19 @@ impl InputHandler {
         modifiers: &ModifiersState,
     ) -> (bool, Option<InputAction>) {
         self.last_cursor_move = Instant::now();
+
+        // Ctrl+Scroll → zoom; plain Scroll → image navigation
+        if modifiers.control_key() {
+            let y = match delta {
+                winit::event::MouseScrollDelta::LineDelta(_, y) => *y,
+                winit::event::MouseScrollDelta::PixelDelta(pos) => pos.y as f32 / 20.0,
+            };
+            if y != 0.0 {
+                return (true, Some(InputAction::Zoom { delta: y }));
+            }
+            return (false, None);
+        }
+
         let steps = if modifiers.shift_key() { 10 } else { 1 };
 
         match delta {
@@ -365,6 +416,7 @@ impl InputHandler {
                 Some(InputAction::ToggleHelpOverlay)
             }
             PhysicalKey::Code(KeyCode::KeyG) => Some(InputAction::ToggleGallery),
+            PhysicalKey::Code(KeyCode::KeyZ) => Some(InputAction::ResetZoom),
             _ => None,
         };
 
