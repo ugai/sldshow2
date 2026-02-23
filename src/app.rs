@@ -78,6 +78,10 @@ pub struct ApplicationState {
     // Zoom/pan state
     zoom_scale: f32,
     zoom_pan: [f32; 2],
+
+    // Deferred resize — set on WindowEvent::Resized, applied at the start of render()
+    // to avoid reconfiguring the surface on every rapid resize event.
+    pending_resize: Option<winit::dpi::PhysicalSize<u32>>,
 }
 
 struct ActiveTransition {
@@ -195,6 +199,7 @@ impl ApplicationState {
             cached_info_string: None,
             zoom_scale: 1.0,
             zoom_pan: [0.0, 0.0],
+            pending_resize: None,
         };
 
         state.update_window_title();
@@ -974,6 +979,11 @@ impl ApplicationState {
     }
 
     fn render(&mut self) -> Result<(), wgpu::SurfaceError> {
+        // Apply any deferred resize before touching the surface.
+        if let Some(new_size) = self.pending_resize.take() {
+            self.resize(new_size);
+        }
+
         let output = self.renderer.surface.get_current_texture()?;
         let view = output
             .texture
@@ -1209,7 +1219,14 @@ impl ApplicationHandler for ApplicationState {
                 match event {
                     WindowEvent::CloseRequested => event_loop.exit(),
                     WindowEvent::Resized(physical_size) => {
-                        self.resize(physical_size);
+                        // Defer surface reconfiguration to the next render() call.
+                        // During a live window drag the OS fires many Resized events
+                        // per frame; reconfiguring the surface on each one causes
+                        // visible stuttering. Storing only the latest size here
+                        // collapses all intermediate events into a single resize that
+                        // is applied once, right before the next frame is drawn.
+                        self.pending_resize = Some(physical_size);
+                        self.window.request_redraw();
                     }
                     WindowEvent::ScaleFactorChanged {
                         scale_factor,
