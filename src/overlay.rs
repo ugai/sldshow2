@@ -411,6 +411,12 @@ impl EguiOverlay {
                             ui.label("O / Shift+O        Show filename temporarily / toggle");
 
                             ui.add_space(4.0);
+                            ui.heading("Window Resize");
+                            ui.label("Alt+0              Configured default size");
+                            ui.label("Alt+1              1024x768");
+                            ui.label("Alt+2              1920x1080 (Full HD)");
+
+                            ui.add_space(4.0);
                             ui.heading("Color Adjustments");
                             ui.label("1 / 2              Contrast -/+");
                             ui.label("3 / 4              Brightness -/+");

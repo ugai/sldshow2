@@ -28,7 +28,9 @@ pub enum InputAction {
     AdjustTimer(f32),
     ResetTimer,
     Screenshot,
-    ColorAdjust { key: KeyCode },
+    ColorAdjust {
+        key: KeyCode,
+    },
     ResetColorAdjustments,
     ToggleInfoOverlay,
     ShowInfoTemporary,
@@ -44,7 +46,10 @@ pub enum InputAction {
     ToggleHelpOverlay,
     ToggleGallery,
     Exit,
-    ResizeWindow { width: u32, height: u32 },
+    ResizeWindow {
+        width: u32,
+        height: u32,
+    },
     CopyPathToClipboard,
     OpenInExplorer,
     /// Zoom in (delta > 0) or out (delta < 0). Delta is a multiplicative scroll step.
@@ -373,8 +378,8 @@ impl InputHandler {
             }
             PhysicalKey::Code(KeyCode::Digit1) if modifiers.alt_key() => {
                 Some(InputAction::ResizeWindow {
-                    width: 1280,
-                    height: 720,
+                    width: 1024,
+                    height: 768,
                 })
             }
             PhysicalKey::Code(KeyCode::Digit2) if modifiers.alt_key() => {
