@@ -70,6 +70,24 @@ We use two primary patterns for agent work, both utilizing isolated `git worktre
 -   **Branch Naming**: `<type>/<kebab-case-description>` (e.g., `feat/add-ambient-blur`)
 -   **PR Title**: Conventional Commits (e.g., `feat: add ambient blur shader`)
 -   **PR Body**: Must include `Closes #<issue-number>`.
+-   **One Issue, One PR** — default policy. Each issue gets its own PR.
+
+### Bundle PR (Exception)
+
+Raid Commander (or a human) may group issues into a **Bundle PR** when ALL:
+
+1.  Same fix pattern (e.g., unwrap removal, lint fix, dep bump)
+2.  Each issue is **small** complexity
+3.  No file conflicts within the group
+4.  Total diff is reviewable as a single unit
+
+Bundle PR rules:
+
+-   One commit per issue (`Ref #<N>` in each commit message)
+-   PR body lists all `Closes #<N>`
+-   Slayer uses a single worktree
+-   Raid Commander flags candidates as `bundleable` in the sprint plan;
+    Slayer follows that designation (or a direct user/lead instruction)
 
 ## General Rules
 

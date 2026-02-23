@@ -164,7 +164,7 @@ Issues labeled `agent:ready` are picked up by AI agents that autonomously implem
 <strong><code>issue-slayer</code></strong> — <em>The Blade That Closes Issues.</em><br>
 Picks up <code>agent:ready</code> issues, implements in an isolated worktree, and
 delivers pull requests. Does not theorize. Does not over-engineer.
-One issue. One PR. Every time.
+One issue. One PR. Almost every time.
 </td>
 <td align="center" width="50%">
 <img src="docs/assets/portrait-agent-ranger.png" width="300"><br>
@@ -188,7 +188,8 @@ Never spawns agents. Only assesses. Never intervenes.
 <strong><code>dispatching-guild-expedition</code></strong> — <em>One Command. Full Sprint.</em><br>
 Orchestrates the entire pipeline: Rangers × N scout in parallel, the user
 approves issues at the gate, Raid Commander maps the battlefield, then
-Slayers × N charge in parallel. From empty board to open PRs.
+Slayers × N charge in parallel.
+From empty board to open PRs — not by plan, but by vibe.
 </td>
 </tr>
 </table>

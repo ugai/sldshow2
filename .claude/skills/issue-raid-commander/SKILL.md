@@ -46,3 +46,18 @@ Tell the team lead what they need to act:
 
 Choose the format that fits the situation. Prefer brevity. A table is
 appropriate for many issues; a sentence is fine for two.
+
+### Bundle PR candidates
+
+Flag groups of issues as `bundleable` when they meet the criteria in
+`AGENTS.md` (same pattern, small, no file conflicts, reviewable as one unit).
+Example output:
+
+```
+Bundle candidate: #178, #180, #182, #183
+  Pattern: unwrap → error propagation
+  Files: image_loader.rs, config.rs, overlay.rs, osc.rs (no overlap)
+  → Assign to a single Slayer
+```
+
+The Slayer will create one commit per issue and a single PR.

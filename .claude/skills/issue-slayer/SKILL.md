@@ -35,7 +35,7 @@ See [ENV.md](ENV.md) for tool-specific and shell-specific commands.
 (no label = p2), then lowest issue number.
 
 **Never** pick without `agent:ready`. **Never** pick an assigned issue.
-One agent, one issue.
+One agent, one issue — unless working a **Bundle PR** (see `AGENTS.md`).
 
 ```bash
 gh issue list --label "agent:ready" \
@@ -136,6 +136,9 @@ Closes #<N>
 EOF
 gh pr create --title "<type>: <description>" --body-file /tmp/pr_body_<N>.md
 ```
+
+**Bundle PR**: One commit per issue (`Ref #<N>`), single worktree, PR body
+lists all `Closes #<N>`. See `AGENTS.md` for eligibility criteria.
 
 Do **not** merge. Notify the approver that the PR is ready.
 
