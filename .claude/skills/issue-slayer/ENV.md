@@ -1,5 +1,17 @@
 # Environment-Specific Commands
 
+## Tool Name
+
+When filling in `<tool-name>` in the claim comment, use the name of the tool you
+are currently running under:
+
+| Environment       | Tool name         |
+|-------------------|-------------------|
+| Claude Code CLI   | `Claude Code`     |
+| GitHub Copilot    | `GitHub Copilot`  |
+| Gemini CLI        | `Gemini CLI`      |
+| Antigravity       | `Antigravity`     |
+
 ## Plan Approval (Pattern A)
 
 Present the implementation plan and request user approval before writing code.
@@ -24,6 +36,25 @@ Present the implementation plan and request user approval before writing code.
 | Check teammate activity | Read `TaskList` | Check equivalent task list |
 | Send plan for approval | `SendMessage` to Team Lead | Use available messaging tool |
 | Notify PR ready | `SendMessage` to Team Lead with PR URL | Use available messaging tool |
+
+## PowerShell: UTF-8 Encoding for `gh`
+
+On Japanese (and other non-English) Windows systems, PowerShell's default encoding
+is not UTF-8, which causes issue titles and bodies to be garbled when read or
+written via `gh`. Add the following two lines **before** the first `gh` call:
+
+```powershell
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+$OutputEncoding = [System.Text.Encoding]::UTF8
+```
+
+You only need to do this once per session. Example full sequence:
+
+```powershell
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+$OutputEncoding = [System.Text.Encoding]::UTF8
+gh issue list --label "agent:ready" ...
+```
 
 ## Manual Test Command
 
