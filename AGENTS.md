@@ -64,6 +64,7 @@ We use two primary patterns for agent work, both utilizing isolated `git worktre
 
 -   **Co-authorship trailer** — format: `Co-Authored-By: {model} ({tool}) <email>`. Use the actual model name:
     -   Claude Code: `Co-Authored-By: {model} (Claude Code) <noreply@anthropic.com>`
+    -   GitHub Copilot: `Co-Authored-By: {model} (GitHub Copilot) <175728472+Copilot@users.noreply.github.com>`
     -   Gemini CLI: `Co-Authored-By: {model} (Gemini CLI) <176961590+gemini-code-assist[bot]@users.noreply.github.com>`
     -   Antigravity: `Co-Authored-By: {model} (Antigravity) <176961590+gemini-code-assist[bot]@users.noreply.github.com>`
 -   **Branch Naming**: `<type>/<kebab-case-description>` (e.g., `feat/add-ambient-blur`)

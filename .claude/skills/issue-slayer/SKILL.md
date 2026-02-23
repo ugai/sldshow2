@@ -113,11 +113,28 @@ See [ENV.md](ENV.md) for the correct syntax for your shell.
 
 ## Pull Request
 
+Write the PR body to a temp file to avoid shell-escaping issues with backticks
+and other special characters in Markdown code spans. Never use inline `--body`
+for multi-line PR descriptions.
+
 ```bash
 git fetch origin main
 git rebase origin/main
 git push -u origin <branch-name>
-gh pr create --title "<type>: <description>" --body "Closes #<N>"
+cat > /tmp/pr_body_<N>.md << 'EOF'
+Closes #<N>
+
+## Overview
+<1-2 sentences>
+
+## Changes
+- <bullet>
+
+## Testing
+- [x] All quality gate checks passed (see VERIFY.md)
+- [ ] Manual testing recommended
+EOF
+gh pr create --title "<type>: <description>" --body-file /tmp/pr_body_<N>.md
 ```
 
 Do **not** merge. Notify the approver that the PR is ready.

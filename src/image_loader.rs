@@ -365,7 +365,7 @@ fn fast_resize(
     dst_width: u32,
     dst_height: u32,
     filter: fast_image_resize::FilterType,
-) -> image::RgbaImage {
+) -> anyhow::Result<image::RgbaImage> {
     // Create destination image
     let mut dst_img = fast_image_resize::images::Image::new(
         dst_width,
@@ -381,11 +381,12 @@ fn fast_resize(
     // Resize
     resizer
         .resize(&src_img, &mut dst_img, &resize_opts)
-        .unwrap();
+        .map_err(|e| anyhow::anyhow!("{e:?}"))?;
 
     // Convert back to image::RgbaImage
     let buffer = dst_img.into_vec();
-    image::RgbaImage::from_raw(dst_width, dst_height, buffer).unwrap()
+    image::RgbaImage::from_raw(dst_width, dst_height, buffer)
+        .ok_or_else(|| anyhow::anyhow!("from_raw failed"))
 }
 
 fn load_image_rgba(path: &Utf8Path, max_size: (u32, u32)) -> anyhow::Result<Vec<image::RgbaImage>> {
@@ -409,7 +410,7 @@ fn load_image_rgba(path: &Utf8Path, max_size: (u32, u32)) -> anyhow::Result<Vec<
     // Apply EXIF rotation
     let img = apply_exif_rotation(img, path);
 
-    let base = resize_for_gpu(img, max_size.0, max_size.1).into_rgba8();
+    let base = resize_for_gpu(img, max_size.0, max_size.1)?.into_rgba8();
 
     // Generate mipmap chain on CPU
     let mip_count = mip_level_count(base.width(), base.height());
@@ -430,14 +431,14 @@ fn load_image_rgba(path: &Utf8Path, max_size: (u32, u32)) -> anyhow::Result<Vec<
             prev_clone.as_mut(),
             fast_image_resize::PixelType::U8x4,
         )
-        .unwrap();
+        .map_err(|e| anyhow::anyhow!("{e:?}"))?;
 
         let resized = fast_resize(
             src_image,
             new_w,
             new_h,
             fast_image_resize::FilterType::Bilinear,
-        );
+        )?;
         mips.push(resized);
     }
 
@@ -518,10 +519,10 @@ fn resize_for_gpu(
     img: image::DynamicImage,
     max_width: u32,
     max_height: u32,
-) -> image::DynamicImage {
+) -> anyhow::Result<image::DynamicImage> {
     let (orig_w, orig_h) = img.dimensions();
     if orig_w <= max_width && orig_h <= max_height {
-        return img;
+        return Ok(img);
     }
     let scale_w = max_width as f32 / orig_w as f32;
     let scale_h = max_height as f32 / orig_h as f32;
@@ -536,15 +537,15 @@ fn resize_for_gpu(
         rgba_img.as_mut(),
         fast_image_resize::PixelType::U8x4,
     )
-    .unwrap();
+    .map_err(|e| anyhow::anyhow!("{e:?}"))?;
 
     let resized = fast_resize(
         src_image,
         new_w,
         new_h,
         fast_image_resize::FilterType::Lanczos3,
-    );
-    image::DynamicImage::ImageRgba8(resized)
+    )?;
+    Ok(image::DynamicImage::ImageRgba8(resized))
 }
 
 pub fn scan_image_paths(

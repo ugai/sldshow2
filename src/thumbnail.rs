@@ -167,7 +167,7 @@ fn fast_resize_exact(
     dst_width: u32,
     dst_height: u32,
     filter: fast_image_resize::FilterType,
-) -> RgbaImage {
+) -> anyhow::Result<RgbaImage> {
     let mut dst_img = fast_image_resize::images::Image::new(
         dst_width,
         dst_height,
@@ -180,10 +180,11 @@ fn fast_resize_exact(
 
     resizer
         .resize(&src_img, &mut dst_img, &resize_opts)
-        .unwrap();
+        .map_err(|e| anyhow::anyhow!("{e:?}"))?;
 
     let buffer = dst_img.into_vec();
-    RgbaImage::from_raw(dst_width, dst_height, buffer).unwrap()
+    RgbaImage::from_raw(dst_width, dst_height, buffer)
+        .ok_or_else(|| anyhow::anyhow!("from_raw failed"))
 }
 
 /// Generate a 256x256 thumbnail from an image file.
@@ -210,14 +211,14 @@ fn generate_thumbnail(path: &Utf8Path) -> anyhow::Result<RgbaImage> {
         rgba_img.as_mut(),
         fast_image_resize::PixelType::U8x4,
     )
-    .unwrap();
+    .map_err(|e| anyhow::anyhow!("{e:?}"))?;
 
     let resized = fast_resize_exact(
         src_image,
         new_w,
         new_h,
         fast_image_resize::FilterType::Lanczos3,
-    );
+    )?;
 
     // Letterbox to exact 256x256 with centered content
     let mut thumbnail = RgbaImage::new(THUMBNAIL_SIZE, THUMBNAIL_SIZE);
