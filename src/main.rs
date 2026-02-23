@@ -26,18 +26,41 @@ use app::ApplicationState;
 use config::Config;
 use drag_drop::DragDropHandler;
 
+/// RAII guard that restores the thread execution state on drop.
+///
+/// Windows keeps `ES_CONTINUOUS` flags active until the thread exits or they
+/// are explicitly cleared. Creating this guard after calling
+/// `SetThreadExecutionState(ES_CONTINUOUS | …)` ensures that
+/// `SetThreadExecutionState(ES_CONTINUOUS)` is called on normal exit,
+/// restoring the previous idle/sleep behaviour.
+#[cfg(windows)]
+struct ScreenSaverGuard;
+
+#[cfg(windows)]
+impl Drop for ScreenSaverGuard {
+    fn drop(&mut self) {
+        unsafe {
+            use windows::Win32::System::Power::{ES_CONTINUOUS, SetThreadExecutionState};
+            SetThreadExecutionState(ES_CONTINUOUS);
+        }
+    }
+}
+
 fn main() -> Result<()> {
     env_logger::init();
 
-    // Prevent screen saver
+    // Prevent screen saver and system sleep for the lifetime of this guard.
     #[cfg(windows)]
-    unsafe {
-        use windows::Win32::System::Power::{
-            ES_CONTINUOUS, ES_DISPLAY_REQUIRED, ES_SYSTEM_REQUIRED, SetThreadExecutionState,
-        };
-        // Prevents sleep and screen saver
-        SetThreadExecutionState(ES_CONTINUOUS | ES_DISPLAY_REQUIRED | ES_SYSTEM_REQUIRED);
-    }
+    let _screen_saver_guard = {
+        unsafe {
+            use windows::Win32::System::Power::{
+                ES_CONTINUOUS, ES_DISPLAY_REQUIRED, ES_SYSTEM_REQUIRED, SetThreadExecutionState,
+            };
+            // Prevents sleep and screen saver
+            SetThreadExecutionState(ES_CONTINUOUS | ES_DISPLAY_REQUIRED | ES_SYSTEM_REQUIRED);
+        }
+        ScreenSaverGuard
+    };
 
     let args: Vec<String> = std::env::args().collect();
     let config_path = args.get(1).map(Utf8PathBuf::from);
