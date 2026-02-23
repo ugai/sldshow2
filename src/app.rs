@@ -527,15 +527,35 @@ impl ApplicationState {
         false
     }
 
-    /// Clamp zoom_pan so the visible region stays within [0, 1] UV space.
+    /// Clamp zoom_pan so the image edge is reachable but the image stays on screen.
     fn clamp_zoom_pan(&mut self) {
-        // Max UV offset in each axis so the image doesn't pan off-screen.
-        // At zoom_scale s, the visible half-width in UV is 0.5/s.
-        // The center can move at most (0.5 - 0.5/s) away from 0.5,
-        // which simplifies to 0.5 * (1 - 1/s).
-        let max_offset = 0.5 * (1.0 - 1.0 / self.zoom_scale.max(1.0));
-        self.zoom_pan[0] = self.zoom_pan[0].clamp(-max_offset, max_offset);
-        self.zoom_pan[1] = self.zoom_pan[1].clamp(-max_offset, max_offset);
+        let s = self.zoom_scale;
+        if s <= 1.0 {
+            self.zoom_pan = [0.0, 0.0];
+            return;
+        }
+
+        // Mirror the contain-fit scale logic from adjust_uv() in the WGSL shader.
+        // cx/cy < 1.0 on the letterboxed/pillarboxed axis; 1.0 on the full-dimension axis.
+        let (cx, cy) = if let Some(tex) = self.texture_manager.get_current_texture() {
+            let img_aspect = tex.width as f32 / tex.height as f32;
+            let win_aspect = self.size.width as f32 / self.size.height as f32;
+            if img_aspect > win_aspect {
+                (1.0f32, win_aspect / img_aspect)
+            } else {
+                (img_aspect / win_aspect, 1.0f32)
+            }
+        } else {
+            (1.0, 1.0)
+        };
+
+        // Correct per-axis limit: max_offset = 0.5 * (s*c - 1) / (s - 1)
+        // When c = 1.0 this simplifies to 0.5 (independent of zoom).
+        // When c < 1.0 (letterboxed axis) the limit is smaller.
+        let max_x = (0.5 * (s * cx - 1.0) / (s - 1.0)).max(0.0);
+        let max_y = (0.5 * (s * cy - 1.0) / (s - 1.0)).max(0.0);
+        self.zoom_pan[0] = self.zoom_pan[0].clamp(-max_x, max_x);
+        self.zoom_pan[1] = self.zoom_pan[1].clamp(-max_y, max_y);
     }
 
     fn next_image(&mut self) {
