@@ -380,6 +380,7 @@ impl ApplicationState {
             InputAction::ResetTimer => self.reset_timer(),
             InputAction::Screenshot => self.screenshot_requested = true,
             InputAction::ColorAdjust { key } => self.handle_color_key(key),
+            InputAction::ResetColorAdjustments => self.reset_color_adjustments(),
             InputAction::ToggleInfoOverlay => {
                 let visible = self.egui_overlay.toggle_info_overlay();
                 self.info_temp_expiry = None;
@@ -556,6 +557,14 @@ impl ApplicationState {
             format!("{}: {:.2}", name, *value)
         };
         self.show_osd(msg);
+    }
+
+    fn reset_color_adjustments(&mut self) {
+        self.color_brightness = 0.0;
+        self.color_contrast = 1.0;
+        self.color_gamma = 1.0;
+        self.color_saturation = 1.0;
+        self.show_osd("Color Reset".to_string());
     }
 
     fn build_info_string(&self) -> String {
