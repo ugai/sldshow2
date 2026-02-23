@@ -25,6 +25,10 @@ pub struct TransitionUniform {
     // Ambient fit: 0 = Fit (black bars), 1 = AmbientFit (blurred background)
     pub fit_mode: i32,
     pub ambient_blur: f32,
+    // Zoom/pan: scale > 1.0 means zoomed in; pan is UV-space offset
+    pub zoom_scale: f32,
+    pub zoom_pan: [f32; 2],
+    pub _pad: f32,
 }
 
 pub struct TransitionPipeline {
