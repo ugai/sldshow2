@@ -21,7 +21,7 @@ For the full Module Map and Architecture details, see **[docs/ARCHITECTURE.md](d
 
 - **Commit/PR/issue/branch titles**: [Conventional Commits](https://www.conventionalcommits.org/) — `feat:`, `fix:`, `refactor:`, etc.
 - **Branch names**: `feat/kebab-description`, `fix/kebab-description`
-- **PRs**: Squash merge only. Reference issues with `Closes #N`. No direct push to `main`.
+- **PRs**: Squash merge only. No direct push to `main`. **Always include a detailed body** with `## Summary` (bulleted list of changes) and `## Test plan` (checklist of how it was tested), ending with `Closes #N`.
 - **Pre-commit hook**: Runs `cargo fmt --check`, `cargo clippy -D warnings`, `cargo test`. Do not skip with `--no-verify`.
 - Always run `cargo fmt --all` before committing.
 
