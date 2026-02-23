@@ -35,6 +35,18 @@ pub enum InputAction {
     CopyImageToClipboard,
     ToggleHelpOverlay,
     ToggleGallery,
+    Exit,
+    ResizeWindow { width: u32, height: u32 },
+    CopyPathToClipboard,
+    OpenInExplorer,
+}
+
+/// Application context passed to the input handler for context-aware keyboard actions.
+pub struct InputContext {
+    pub fullscreen: bool,
+    pub image_count: usize,
+    pub help_visible: bool,
+    pub window_default_size: (u32, u32),
 }
 
 /// Input state tracker.
@@ -70,18 +82,17 @@ impl InputHandler {
         event: &WindowEvent,
         modifiers: &ModifiersState,
         window: &Window,
-        fullscreen: bool,
-        image_count: usize,
+        ctx: &InputContext,
     ) -> (bool, Option<InputAction>) {
         match event {
             WindowEvent::CursorMoved { position, .. } => {
-                self.handle_cursor_moved(position, window, fullscreen)
+                self.handle_cursor_moved(position, window, ctx.fullscreen)
             }
             WindowEvent::MouseInput {
                 state: ElementState::Pressed,
                 button,
                 ..
-            } => self.handle_mouse_pressed(*button, fullscreen),
+            } => self.handle_mouse_pressed(*button, ctx.fullscreen),
             WindowEvent::MouseInput {
                 state: ElementState::Released,
                 button: MouseButton::Left,
@@ -90,9 +101,13 @@ impl InputHandler {
             WindowEvent::MouseWheel { delta, .. } => self.handle_mouse_wheel(delta, modifiers),
             WindowEvent::KeyboardInput {
                 event: key_event, ..
-            } if key_event.state == ElementState::Pressed => {
-                self.handle_keyboard_pressed(&key_event.physical_key, modifiers, image_count)
-            }
+            } if key_event.state == ElementState::Pressed => self.handle_keyboard_pressed(
+                &key_event.physical_key,
+                modifiers,
+                ctx.image_count,
+                ctx.help_visible,
+                ctx.window_default_size,
+            ),
             _ => (false, None),
         }
     }
@@ -231,10 +246,20 @@ impl InputHandler {
         physical_key: &PhysicalKey,
         modifiers: &ModifiersState,
         image_count: usize,
+        help_visible: bool,
+        window_default_size: (u32, u32),
     ) -> (bool, Option<InputAction>) {
         self.last_cursor_move = Instant::now();
 
         let action = match physical_key {
+            PhysicalKey::Code(KeyCode::Escape) => {
+                if help_visible {
+                    Some(InputAction::ToggleHelpOverlay)
+                } else {
+                    Some(InputAction::Exit)
+                }
+            }
+            PhysicalKey::Code(KeyCode::KeyQ) => Some(InputAction::Exit),
             PhysicalKey::Code(KeyCode::ArrowRight) | PhysicalKey::Code(KeyCode::Space) => {
                 let steps = if modifiers.shift_key() { 10 } else { 1 };
                 Some(InputAction::NextImage { steps })
@@ -282,6 +307,24 @@ impl InputHandler {
             ) if !modifiers.alt_key() && !modifiers.shift_key() && !modifiers.control_key() => {
                 Some(InputAction::ColorAdjust { key: *key })
             }
+            PhysicalKey::Code(KeyCode::Digit0) if modifiers.alt_key() => {
+                Some(InputAction::ResizeWindow {
+                    width: window_default_size.0,
+                    height: window_default_size.1,
+                })
+            }
+            PhysicalKey::Code(KeyCode::Digit1) if modifiers.alt_key() => {
+                Some(InputAction::ResizeWindow {
+                    width: 1280,
+                    height: 720,
+                })
+            }
+            PhysicalKey::Code(KeyCode::Digit2) if modifiers.alt_key() => {
+                Some(InputAction::ResizeWindow {
+                    width: 1920,
+                    height: 1080,
+                })
+            }
             PhysicalKey::Code(KeyCode::KeyI) => {
                 if modifiers.shift_key() {
                     Some(InputAction::ToggleInfoOverlay)
@@ -302,6 +345,14 @@ impl InputHandler {
                 if modifiers.control_key() && modifiers.shift_key() =>
             {
                 Some(InputAction::CopyImageToClipboard)
+            }
+            PhysicalKey::Code(KeyCode::KeyC)
+                if modifiers.control_key() && !modifiers.shift_key() =>
+            {
+                Some(InputAction::CopyPathToClipboard)
+            }
+            PhysicalKey::Code(KeyCode::KeyE) if modifiers.alt_key() => {
+                Some(InputAction::OpenInExplorer)
             }
             PhysicalKey::Code(KeyCode::Slash) if modifiers.shift_key() => {
                 Some(InputAction::ToggleHelpOverlay)
