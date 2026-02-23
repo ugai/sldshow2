@@ -226,6 +226,12 @@ impl EguiOverlay {
         self.show_gallery = !self.show_gallery;
     }
 
+    /// Returns `true` when any overlay or the OSC is currently visible,
+    /// meaning redraws are needed to animate or respond to input.
+    pub fn is_active(&self) -> bool {
+        self.show_settings || self.show_help_overlay || self.show_gallery || self.osc.visible
+    }
+
     fn cleanup_gallery_textures(&mut self, thumbnail_manager: &ThumbnailManager) {
         let cached_indices: std::collections::HashSet<_> =
             thumbnail_manager.get_cached_indices().into_iter().collect();

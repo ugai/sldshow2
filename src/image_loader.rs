@@ -200,6 +200,11 @@ impl TextureManager {
         self.errors.get(&index)
     }
 
+    /// Returns `true` while any texture loads are still in progress.
+    pub fn is_loading(&self) -> bool {
+        !self.loading_tasks.is_empty()
+    }
+
     pub fn update(&mut self, device: &wgpu::Device, queue: &wgpu::Queue) {
         if self.paths.is_empty() {
             return;

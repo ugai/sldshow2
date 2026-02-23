@@ -1030,6 +1030,29 @@ impl ApplicationState {
     fn show_osd(&mut self, text: String) {
         self.osd_message = Some((text, Instant::now() + Duration::from_millis(1500)));
     }
+
+    /// Returns `true` when something on screen is actively changing and a
+    /// redraw must be requested every frame.  When this returns `false` the
+    /// application is visually idle and can stop polling the GPU.
+    fn is_animating(&self) -> bool {
+        // Active image transition
+        self.transition.is_some()
+            // Slideshow auto-advance is running
+            || !self.slideshow.paused
+            // Sequence playback is running
+            || (self.config.viewer.playback_mode == config::PlaybackMode::Sequence
+                && !self.sequence_timer.paused)
+            // OSD message or temporary overlay still visible
+            || self.osd_message.is_some()
+            || self.filename_bar_temp_expiry.is_some()
+            || self.info_temp_expiry.is_some()
+            // Egui overlays or OSC are open/visible
+            || self.egui_overlay.is_active()
+            // Texture loads in flight — update() must run to receive results
+            || self.texture_manager.is_loading()
+            // Cursor visible — update() must run to auto-hide it
+            || self.input_handler.cursor_visible
+    }
 }
 
 impl ApplicationHandler for ApplicationState {
@@ -1207,9 +1230,14 @@ impl ApplicationHandler for ApplicationState {
                 _ => {}
             }
         }
+
+        // Ensure the result of any window event is reflected on screen.
+        self.window.request_redraw();
     }
 
     fn about_to_wait(&mut self, _event_loop: &ActiveEventLoop) {
-        self.window.request_redraw();
+        if self.is_animating() {
+            self.window.request_redraw();
+        }
     }
 }
