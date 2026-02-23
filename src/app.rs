@@ -685,6 +685,15 @@ impl ApplicationState {
         }
     }
     fn start_transition(&mut self, from_index: usize, to_index: usize) {
+        // If transition time is 0, do an instant cut to avoid division by zero
+        // in the render loop (elapsed / duration would produce NaN).
+        if self.config.transition.time == 0.0 {
+            self.current_texture_index = Some(to_index);
+            self.transition = None;
+            self.renderer.invalidate_bind_group();
+            return;
+        }
+
         let mode = if self.config.transition.random {
             TransitionPipeline::random_mode()
         } else {
