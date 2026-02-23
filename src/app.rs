@@ -129,7 +129,18 @@ impl ApplicationState {
         let thumbnail_manager = ThumbnailManager::new(200);
 
         let slideshow = SlideshowTimer::new(config.viewer.timer);
-        let sequence_timer = SequenceTimer::new(config.viewer.sequence_fps);
+        let mut sequence_timer = SequenceTimer::new(config.viewer.sequence_fps);
+
+        // Auto-detect EXR framerate for sequence playback
+        if config.viewer.playback_mode == config::PlaybackMode::Sequence {
+            if let Some(detected_fps) = texture_manager.detect_sequence_fps() {
+                info!(
+                    "Detected EXR framerate: {:.2} fps (overriding config value {})",
+                    detected_fps, config.viewer.sequence_fps
+                );
+                sequence_timer.set_fps(detected_fps);
+            }
+        }
 
         // Initialize egui overlay
         let mut egui_overlay = EguiOverlay::new(

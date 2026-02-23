@@ -112,7 +112,6 @@ impl SequenceTimer {
         self.accumulator = 0.0;
     }
 
-    #[allow(dead_code)]
     pub fn set_fps(&mut self, fps: f32) {
         self.fps = fps.max(1.0);
     }
