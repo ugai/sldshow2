@@ -25,6 +25,7 @@ pub enum InputAction {
     ResetTimer,
     Screenshot,
     ColorAdjust { key: KeyCode },
+    ResetColorAdjustments,
     ToggleInfoOverlay,
     ShowInfoTemporary,
     ToggleFilenameDisplay,
@@ -293,7 +294,13 @@ impl InputHandler {
                 };
                 Some(InputAction::AdjustTimer(delta))
             }
-            PhysicalKey::Code(KeyCode::Backspace) => Some(InputAction::ResetTimer),
+            PhysicalKey::Code(KeyCode::Backspace) => {
+                if modifiers.shift_key() {
+                    Some(InputAction::ResetColorAdjustments)
+                } else {
+                    Some(InputAction::ResetTimer)
+                }
+            }
             PhysicalKey::Code(KeyCode::KeyS) => Some(InputAction::Screenshot),
             PhysicalKey::Code(
                 key @ (KeyCode::Digit1
