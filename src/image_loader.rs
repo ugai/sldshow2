@@ -167,6 +167,19 @@ impl TextureManager {
         while self.rx.try_recv().is_ok() {}
     }
 
+    /// Detect framerate from EXR metadata if available.
+    /// Returns the FPS from the first EXR file found in the path list.
+    pub fn detect_sequence_fps(&self) -> Option<f32> {
+        for path in &self.paths {
+            if path.extension().unwrap_or("").eq_ignore_ascii_case("exr") {
+                if let Some(fps) = extract_exr_fps(path) {
+                    return Some(fps);
+                }
+            }
+        }
+        None
+    }
+
     pub fn len(&self) -> usize {
         self.paths.len()
     }
@@ -465,6 +478,40 @@ pub fn apply_exif_rotation(img: image::DynamicImage, path: &Utf8Path) -> image::
         },
         None => img,
     }
+}
+
+/// Extract framerate from EXR metadata.
+/// Returns None if the file is not readable or lacks framesPerSecond attribute.
+fn extract_exr_fps(path: &Utf8Path) -> Option<f32> {
+    use exr::prelude::*;
+
+    let reader = match read()
+        .no_deep_data()
+        .largest_resolution_level()
+        .all_channels()
+        .all_layers()
+        .all_attributes()
+        .non_parallel()
+        .from_file(path.as_std_path())
+    {
+        Ok(r) => r,
+        Err(_) => return None,
+    };
+
+    // Check standard framesPerSecond attribute
+    for layer in &reader.layer_data {
+        for (name, value) in &layer.attributes.other {
+            if name == "framesPerSecond" {
+                if let AttributeValue::F32(fps) = value {
+                    if *fps > 0.0 && fps.is_finite() {
+                        return Some(*fps);
+                    }
+                }
+            }
+        }
+    }
+
+    None
 }
 
 fn resize_for_gpu(

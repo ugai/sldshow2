@@ -22,6 +22,10 @@ scan_subfolders = true  # Recursively scan directories
 shuffle = true          # Random order
 pause_at_last = false   # Stop at last image instead of looping
 cache_extent = 5        # Number of images to preload (before/after current)
+
+playback_mode = "Slideshow"  # "Slideshow" = timed advances, "Sequence" = frame-by-frame
+sequence_fps = 24.0          # Framerate for sequence playback
+                             # Auto-detected from EXR metadata (framesPerSecond) if available
 max_texture_size = [1920, 1080]  # Max texture resolution for GPU upload
                                  # Lower = faster uploads, less memory
                                  # [0, 0] = use window size (may stutter at 4K+)
