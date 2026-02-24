@@ -378,8 +378,8 @@ impl InputHandler {
             }
             PhysicalKey::Code(KeyCode::Digit1) if modifiers.alt_key() => {
                 Some(InputAction::ResizeWindow {
-                    width: 1280,
-                    height: 720,
+                    width: 1024,
+                    height: 768,
                 })
             }
             PhysicalKey::Code(KeyCode::Digit2) if modifiers.alt_key() => {
