@@ -412,9 +412,9 @@ impl EguiOverlay {
 
                             ui.add_space(4.0);
                             ui.heading("Window Resize");
-                            ui.label("Alt+0              Configured default size");
-                            ui.label("Alt+1              1024x768");
-                            ui.label("Alt+2              1920x1080 (Full HD)");
+                            ui.label("Alt+0              Half image size");
+                            ui.label("Alt+1              Original image size (1:1 pixels)");
+                            ui.label("Alt+2              Double image size");
 
                             ui.add_space(4.0);
                             ui.heading("Color Adjustments");
