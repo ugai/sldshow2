@@ -119,20 +119,23 @@ impl ScreenshotCapture {
     ///
     /// Priority:
     /// 1. System Pictures directory (`dirs::picture_dir()`)
-    /// 2. Executable's parent directory
-    /// 3. Current working directory (last resort)
+    /// 2. Documents directory (`dirs::document_dir()`)
+    /// 3. Home directory (`dirs::home_dir()`)
+    /// 4. Temporary directory (`std::env::temp_dir()`) — always writable
     fn screenshot_dir() -> PathBuf {
         if let Some(pictures) = dirs::picture_dir() {
             return pictures;
         }
-        warn!("Pictures directory unavailable; falling back to executable directory");
-        if let Ok(exe) = std::env::current_exe() {
-            if let Some(parent) = exe.parent() {
-                return parent.to_path_buf();
-            }
+        warn!("Pictures directory unavailable; falling back to documents directory");
+        if let Some(documents) = dirs::document_dir() {
+            return documents;
         }
-        warn!("Executable directory unavailable; falling back to current working directory");
-        PathBuf::from(".")
+        warn!("Documents directory unavailable; falling back to home directory");
+        if let Some(home) = dirs::home_dir() {
+            return home;
+        }
+        warn!("Home directory unavailable; falling back to temporary directory");
+        std::env::temp_dir()
     }
 
     /// Generate a unique screenshot path using a millisecond-precision
