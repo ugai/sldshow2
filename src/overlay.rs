@@ -256,6 +256,13 @@ impl EguiOverlay {
         self.osc.check_autohide();
     }
 
+    /// Returns true if egui currently wants to capture pointer/mouse input.
+    /// Use this to suppress pointer events from reaching the application
+    /// when an egui panel (e.g. Settings) is being interacted with.
+    pub fn wants_pointer_input(&self) -> bool {
+        self.state.egui_ctx().wants_pointer_input()
+    }
+
     /// Forward winit events to egui
     /// Returns true if egui consumed the event
     pub fn handle_event(&mut self, window: &Window, event: &WindowEvent) -> bool {

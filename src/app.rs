@@ -1207,9 +1207,20 @@ impl ApplicationHandler for ApplicationState {
         // Forward event to egui first
         let egui_consumed = self.egui_overlay.handle_event(&self.window, &event);
 
+        // For pointer/mouse events, also suppress the input handler when egui
+        // wants pointer input (e.g. the settings panel is being dragged).
+        // Keyboard events are always forwarded regardless.
+        let egui_blocks_input = egui_consumed
+            || (matches!(
+                event,
+                WindowEvent::MouseInput { .. }
+                    | WindowEvent::CursorMoved { .. }
+                    | WindowEvent::MouseWheel { .. }
+            ) && self.egui_overlay.wants_pointer_input());
+
         // Try input handler only if egui didn't consume the event
         let modifiers = self.modifiers;
-        if !egui_consumed {
+        if !egui_blocks_input {
             let (consumed, should_exit) = self.input(&event, &modifiers);
             if should_exit {
                 event_loop.exit();
