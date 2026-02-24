@@ -427,6 +427,9 @@ impl EguiOverlay {
                             ui.heading("Actions");
                             ui.label("S                  Take screenshot");
                             ui.label("Ctrl+Shift+C       Copy image to clipboard");
+                            ui.label("Ctrl+C             Copy path to clipboard");
+                            ui.label("G                  Toggle Gallery");
+                            ui.label("Alt+E              Open in Explorer");
                             ui.label("?                  Toggle this help");
                             ui.label("Escape             Close this help");
 
