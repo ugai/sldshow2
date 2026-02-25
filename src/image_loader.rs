@@ -394,7 +394,23 @@ fn fast_resize(
 }
 
 fn load_image_rgba(path: &Utf8Path, max_size: (u32, u32)) -> anyhow::Result<Vec<image::RgbaImage>> {
-    let mut img = image::open(path.as_std_path())
+    use std::fs::File;
+    use std::io::{BufReader, Seek, SeekFrom};
+
+    let file = File::open(path.as_std_path())
+        .map_err(|e| anyhow::anyhow!("Failed to open image: {}", e))?;
+    let mut reader = BufReader::new(file);
+
+    // Read EXIF orientation before decoding so we open the file only once.
+    let orientation = read_exif_orientation(&mut reader);
+    reader
+        .seek(SeekFrom::Start(0))
+        .map_err(|e| anyhow::anyhow!("Failed to seek image: {}", e))?;
+
+    let mut img = image::ImageReader::new(&mut reader)
+        .with_guessed_format()
+        .map_err(|e| anyhow::anyhow!("Failed to guess image format: {}", e))?
+        .decode()
         .map_err(|e| anyhow::anyhow!("Failed to open image: {}", e))?;
 
     // If it's EXR (linear HDR), we need to tonemap or convert to sRGB locally
@@ -411,8 +427,8 @@ fn load_image_rgba(path: &Utf8Path, max_size: (u32, u32)) -> anyhow::Result<Vec<
         img = image::DynamicImage::ImageRgba32F(rgba32f);
     }
 
-    // Apply EXIF rotation
-    let img = apply_exif_rotation(img, path);
+    // Apply EXIF rotation using the orientation already read above.
+    let img = apply_orientation(img, orientation);
 
     let base = resize_for_gpu(img, max_size.0, max_size.1)?.into_rgba8();
 
@@ -454,6 +470,30 @@ fn load_image_rgba(path: &Utf8Path, max_size: (u32, u32)) -> anyhow::Result<Vec<
 fn mip_level_count(width: u32, height: u32) -> u32 {
     let max_dim = width.max(height).max(1);
     max_dim.ilog2() + 1
+}
+
+/// Read the EXIF orientation tag from a reader without consuming the whole stream.
+fn read_exif_orientation<R: std::io::BufRead + std::io::Seek>(reader: &mut R) -> Option<u32> {
+    exif::Reader::new()
+        .read_from_container(reader)
+        .ok()?
+        .get_field(exif::Tag::Orientation, exif::In::PRIMARY)?
+        .value
+        .get_uint(0)
+}
+
+/// Apply a raw EXIF orientation value to an image.
+fn apply_orientation(img: image::DynamicImage, orientation: Option<u32>) -> image::DynamicImage {
+    match orientation {
+        Some(2) => img.fliph(),
+        Some(3) => img.rotate180(),
+        Some(4) => img.flipv(),
+        Some(5) => img.rotate90().fliph(),
+        Some(6) => img.rotate90(),
+        Some(7) => img.rotate270().fliph(),
+        Some(8) => img.rotate270(),
+        _ => img,
+    }
 }
 
 pub fn apply_exif_rotation(img: image::DynamicImage, path: &Utf8Path) -> image::DynamicImage {
