@@ -820,11 +820,17 @@ impl ApplicationState {
                 OverlayAction::SetPauseAtLast(_) => {
                     // Config already updated, just accessed by slideshow next frame
                 }
+                OverlayAction::ToggleScanSubfolders(_) => {
+                    // Config already updated; takes effect on next drop/load
+                }
                 OverlayAction::SetTransitionTime(_) => {
                     // Config already updated
                 }
                 OverlayAction::ToggleRandomTransition(_) => {
                     // Config already updated
+                }
+                OverlayAction::SetTransitionMode(_) => {
+                    // Config already updated; picked up by next transition
                 }
                 OverlayAction::SetFitMode(_) | OverlayAction::SetAmbientBlur(_) => {
                     // Config updated, will be picked up by render uniforms next frame

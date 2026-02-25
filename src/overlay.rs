@@ -22,8 +22,10 @@ pub enum OverlayAction {
     SetTimer(f32),
     ToggleShuffle(bool),
     SetPauseAtLast(bool),
+    ToggleScanSubfolders(bool),
     SetTransitionTime(f32),
     ToggleRandomTransition(bool),
+    SetTransitionMode(i32),
     SetFitMode(FitMode),
     SetAmbientBlur(f32),
     ToggleAlwaysOnTop(bool),
@@ -476,6 +478,14 @@ impl EguiOverlay {
                     {
                         action = Some(OverlayAction::SetPauseAtLast(config.viewer.pause_at_last));
                     }
+                    if ui
+                        .checkbox(&mut config.viewer.scan_subfolders, "Scan Subfolders")
+                        .changed()
+                    {
+                        action = Some(OverlayAction::ToggleScanSubfolders(
+                            config.viewer.scan_subfolders,
+                        ));
+                    }
 
                     ui.separator();
                     ui.heading("Transition");
@@ -500,7 +510,18 @@ impl EguiOverlay {
                             config.transition.random,
                         ));
                     }
-                    // TODO: Mode dropdown if not random
+                    if !config.transition.random {
+                        ui.horizontal(|ui| {
+                            ui.label("Transition Mode:");
+                            if ui
+                                .add(egui::Slider::new(&mut config.transition.mode, 0..=19))
+                                .changed()
+                            {
+                                action =
+                                    Some(OverlayAction::SetTransitionMode(config.transition.mode));
+                            }
+                        });
+                    }
 
                     ui.separator();
                     ui.heading("Display");
