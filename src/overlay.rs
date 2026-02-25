@@ -257,10 +257,17 @@ impl EguiOverlay {
     }
 
     /// Returns true if egui currently wants to capture pointer/mouse input.
-    /// Use this to suppress pointer events from reaching the application
-    /// when an egui panel (e.g. Settings) is being interacted with.
+    /// Based on the previous frame's layout — call BEFORE handle_event() to
+    /// avoid a one-frame delay on the initial press.
     pub fn wants_pointer_input(&self) -> bool {
         self.state.egui_ctx().wants_pointer_input()
+    }
+
+    /// Returns true if egui is actively using the pointer this frame
+    /// (drag, resize, or other interaction in progress).
+    /// Call AFTER handle_event() to catch interactions that started this frame.
+    pub fn is_using_pointer(&self) -> bool {
+        self.state.egui_ctx().is_using_pointer()
     }
 
     /// Forward winit events to egui
