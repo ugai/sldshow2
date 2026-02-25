@@ -19,7 +19,6 @@ impl SlideshowTimer {
 
     pub fn update(&mut self) -> bool {
         if self.paused {
-            self.last_tick = Instant::now(); // Keep resetting last_tick while paused
             return false;
         }
 
@@ -79,7 +78,6 @@ impl SequenceTimer {
 
     pub fn update(&mut self) -> usize {
         if self.paused {
-            self.last_tick = Instant::now();
             return 0;
         }
 
