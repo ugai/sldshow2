@@ -494,7 +494,7 @@ impl ApplicationState {
                                 error!("Failed to copy to clipboard: {}", e);
                             } else {
                                 info!("Copied path to clipboard: {}", path);
-                                self.show_osd("Copied to Clipboard".to_string());
+                                self.show_osd("Copied path to clipboard".to_string());
                             }
                         }
                         Err(e) => {

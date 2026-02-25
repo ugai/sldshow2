@@ -664,9 +664,7 @@ impl EguiOverlay {
             let item_size = egui::vec2(thumbnail_size, thumbnail_size);
             let cell_size = item_size + egui::vec2(padding, padding);
 
-            // Scrollbar width is usually 12.0, but let's be safe.
-            // If we cant find the field, we'll estimate.
-            let scroll_bar_width = 16.0;
+            let scroll_bar_width = ui.style().spacing.scroll.bar_width;
             let width = ui.available_width() - scroll_bar_width - padding * 2.0;
             let cols = (width / cell_size.x).floor() as usize;
             let cols = cols.max(1);

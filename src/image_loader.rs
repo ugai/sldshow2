@@ -364,7 +364,6 @@ fn linear_to_srgb(c: f32) -> f32 {
 }
 
 // Helper to perform fast resizing using fast_image_resize
-// Helper to perform fast resizing using fast_image_resize
 fn fast_resize(
     src_img: fast_image_resize::images::Image,
     dst_width: u32,
