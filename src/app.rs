@@ -219,11 +219,15 @@ impl ApplicationState {
         event: &WindowEvent,
         modifiers: &winit::keyboard::ModifiersState,
     ) -> (bool, bool) {
+        let current_image_size = self
+            .texture_manager
+            .get_current_texture()
+            .map(|t| (t.width, t.height));
         let ctx = InputContext {
             fullscreen: self.window.fullscreen().is_some(),
             image_count: self.texture_manager.len(),
             help_visible: self.egui_overlay.help_overlay_visible(),
-            window_default_size: (self.config.window.width, self.config.window.height),
+            current_image_size,
         };
         let (consumed, action) =
             self.input_handler
