@@ -1204,11 +1204,16 @@ impl ApplicationHandler for ApplicationState {
             return;
         }
 
+        // Sample wants_pointer_input() BEFORE handle_event so we use the previous
+        // frame's layout for hit-testing. This avoids a one-frame delay where egui
+        // hasn't yet computed widget positions for the current frame, which would
+        // cause the first mouse-press on an egui panel to slip through to InputHandler.
+        let egui_wants_pointer = self.egui_overlay.wants_pointer_input();
+
         // Forward event to egui first
         let egui_consumed = self.egui_overlay.handle_event(&self.window, &event);
 
-        // For pointer/mouse events, also suppress the input handler when egui
-        // wants pointer input (e.g. the settings panel is being dragged).
+        // For pointer/mouse events, suppress InputHandler when egui owns the pointer.
         // Keyboard events are always forwarded regardless.
         let egui_blocks_input = egui_consumed
             || (matches!(
@@ -1216,7 +1221,7 @@ impl ApplicationHandler for ApplicationState {
                 WindowEvent::MouseInput { .. }
                     | WindowEvent::CursorMoved { .. }
                     | WindowEvent::MouseWheel { .. }
-            ) && self.egui_overlay.wants_pointer_input());
+            ) && egui_wants_pointer);
 
         // Try input handler only if egui didn't consume the event
         let modifiers = self.modifiers;
