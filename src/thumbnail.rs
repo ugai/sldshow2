@@ -78,13 +78,13 @@ impl ThumbnailManager {
         self.spawn_generation(index, path.to_owned());
     }
 
-    /// Spawn a thumbnail generation task on a background thread.
+    /// Spawn a thumbnail generation task on a rayon thread-pool worker.
     fn spawn_generation(&mut self, index: usize, path: Utf8PathBuf) {
         let tx = self.tx.clone();
 
         self.loading_tasks.insert(index);
 
-        std::thread::spawn(move || {
+        rayon::spawn(move || {
             let result = generate_thumbnail(&path);
             if tx.send((index, result)).is_err() {
                 warn!("Failed to send thumbnail {} (receiver dropped)", path);
