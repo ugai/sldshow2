@@ -82,6 +82,9 @@ pub struct ApplicationState {
     // Deferred resize — set on WindowEvent::Resized, applied at the start of render()
     // to avoid reconfiguring the surface on every rapid resize event.
     pending_resize: Option<winit::dpi::PhysicalSize<u32>>,
+
+    // Async clipboard support
+    clipboard_receiver: Option<std::sync::mpsc::Receiver<Result<(), String>>>,
 }
 
 struct ActiveTransition {
@@ -200,6 +203,7 @@ impl ApplicationState {
             zoom_scale: 1.0,
             zoom_pan: [0.0, 0.0],
             pending_resize: None,
+            clipboard_receiver: None,
         };
 
         state.update_window_title();
@@ -462,19 +466,23 @@ impl ApplicationState {
             InputAction::CopyImageToClipboard => {
                 if self.texture_manager.paths.is_empty() {
                     self.show_osd("No Image Loaded".to_string());
+                } else if self.clipboard_receiver.is_some() {
+                    self.show_osd("Copying...".to_string());
                 } else {
                     let current_path =
-                        &self.texture_manager.paths[self.texture_manager.current_index];
-                    match clipboard::copy_image_to_clipboard(current_path) {
-                        Ok(_) => {
-                            info!("Copied image to clipboard: {}", current_path);
-                            self.show_osd("Copied Image to Clipboard".to_string());
-                        }
-                        Err(e) => {
-                            error!("Failed to copy image to clipboard: {}", e);
-                            self.show_osd(format!("Copy Failed: {}", e));
-                        }
-                    }
+                        self.texture_manager.paths[self.texture_manager.current_index].clone();
+
+                    let (tx, rx) = std::sync::mpsc::channel();
+                    self.clipboard_receiver = Some(rx);
+                    self.show_osd("Copying to Clipboard...".to_string());
+
+                    std::thread::spawn(move || {
+                        let res = match clipboard::copy_image_to_clipboard(&current_path) {
+                            Ok(_) => Ok(()),
+                            Err(e) => Err(format!("{}", e)),
+                        };
+                        let _ = tx.send(res);
+                    });
                 }
             }
             InputAction::ToggleHelpOverlay => {
@@ -797,6 +805,27 @@ impl ApplicationState {
             &self.texture_manager,
             &mut self.thumbnail_manager,
         );
+
+        // Check clipboard task completion
+        if let Some(rx) = &self.clipboard_receiver {
+            match rx.try_recv() {
+                Ok(Ok(())) => {
+                    info!("Copied image to clipboard successfully.");
+                    self.show_osd("Copied Image to Clipboard".to_string());
+                    self.clipboard_receiver = None;
+                }
+                Ok(Err(e)) => {
+                    error!("Failed to copy image to clipboard: {}", e);
+                    self.show_osd(format!("Copy Failed: {}", e));
+                    self.clipboard_receiver = None;
+                }
+                Err(std::sync::mpsc::TryRecvError::Empty) => {} // Still running
+                Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                    self.show_osd("Copy Failed: Task died".to_string());
+                    self.clipboard_receiver = None;
+                }
+            }
+        }
 
         // Handle Overlay actions (Settings & OSC)
         if let Some(action) = overlay_action {
