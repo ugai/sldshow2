@@ -167,6 +167,18 @@ impl TextureManager {
         while self.rx.try_recv().is_ok() {}
     }
 
+    /// Append paths to the existing image list, preserving the current index and loaded textures.
+    pub fn append_paths(&mut self, new_paths: Vec<Utf8PathBuf>) {
+        if self.paths.is_empty() {
+            self.replace_paths(new_paths);
+            return;
+        }
+        self.original_paths.extend(new_paths.clone());
+        self.paths.extend(new_paths);
+        // Do not bump epoch or clear existing textures because the existing indices remain valid.
+        // The new images will naturally be fetched when navigated to.
+    }
+
     /// Detect framerate from EXR metadata if available.
     /// Returns the FPS from the first EXR file found in the path list.
     pub fn detect_sequence_fps(&self) -> Option<f32> {

@@ -902,15 +902,24 @@ impl ApplicationState {
                         new_paths.shuffle(&mut rand::rng());
                     }
                     let count = new_paths.len();
-                    self.texture_manager.replace_paths(new_paths);
-                    self.transition = None;
-                    self.renderer.invalidate_bind_group();
-                    self.current_texture_index = if count > 0 { Some(0) } else { None };
-                    self.slideshow.reset();
+
+                    if self.modifiers.shift_key() {
+                        self.texture_manager.append_paths(new_paths);
+                        // If it was already playing a slideshow/sequence, don't reset index to 0 or interrupt.
+                        self.show_osd(format!("Appended {} images", count));
+                        info!("Drag & drop: appended {} images", count);
+                    } else {
+                        self.texture_manager.replace_paths(new_paths);
+                        self.transition = None;
+                        self.renderer.invalidate_bind_group();
+                        self.current_texture_index = if count > 0 { Some(0) } else { None };
+                        self.slideshow.reset();
+                        self.show_osd(format!("Loaded {} images", count));
+                        info!("Drag & drop: loaded {} images", count);
+                    }
+
                     self.update_window_title();
                     self.cached_info_string = None;
-                    self.show_osd(format!("Loaded {} images", count));
-                    info!("Drag & drop: loaded {} images", count);
                 }
                 Err(e) => {
                     warn!("Drag & drop scan failed: {}", e);
