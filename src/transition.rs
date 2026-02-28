@@ -28,7 +28,7 @@ pub struct TransitionUniform {
     // Zoom/pan: scale > 1.0 means zoomed in; pan is UV-space offset
     pub zoom_scale: f32,
     pub zoom_pan: [f32; 2],
-    pub _pad: f32,
+    pub display_mode: i32, // 0 = SDR (clamp), 1 = HDR (pass-through)
 }
 
 pub struct TransitionPipeline {

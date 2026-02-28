@@ -123,6 +123,7 @@ impl ApplicationState {
                 config.viewer.max_texture_size[1],
             ),
         );
+        texture_manager.is_hdr = renderer.is_hdr;
 
         // Scan images
         if let Err(e) =
@@ -1096,7 +1097,7 @@ impl ApplicationState {
                 ambient_blur: self.config.viewer.ambient_blur,
                 zoom_scale: self.zoom_scale,
                 zoom_pan: self.zoom_pan,
-                _pad: 0.0,
+                display_mode: if self.renderer.is_hdr { 1 } else { 0 },
             };
 
             self.renderer.queue.write_buffer(

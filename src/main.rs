@@ -63,12 +63,26 @@ fn main() -> Result<()> {
     };
 
     let args: Vec<String> = std::env::args().collect();
-    let config_path = args.get(1).map(Utf8PathBuf::from);
-    let config = Config::load_default(config_path).unwrap_or_else(|e| {
+
+    // First positional arg is a config file if it ends in ".sldshow"; otherwise
+    // all positional args are treated as image/folder paths and override
+    // viewer.image_paths in the loaded (or default) config.
+    let (config_path, cli_image_paths): (Option<Utf8PathBuf>, Vec<Utf8PathBuf>) =
+        match args.get(1).map(Utf8PathBuf::from) {
+            Some(p) if p.extension() == Some("sldshow") => (Some(p), vec![]),
+            Some(_) => (None, args[1..].iter().map(Utf8PathBuf::from).collect()),
+            None => (None, vec![]),
+        };
+
+    let mut config = Config::load_default(config_path).unwrap_or_else(|e| {
         error!("Failed to load config: {}", e);
         warn!("Using default configuration");
         Config::default()
     });
+
+    if !cli_image_paths.is_empty() {
+        config.viewer.image_paths = cli_image_paths;
+    }
 
     // Set up drag-and-drop channel and event loop with message hook
     let (drag_drop, drag_drop_tx) = DragDropHandler::new();

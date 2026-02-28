@@ -20,6 +20,8 @@ pub struct Renderer {
     pub uniform_buffer: wgpu::Buffer,
     /// Recreated when textures change (transition start/end).
     pub bind_group: Option<wgpu::BindGroup>,
+    /// True when a 16-bit float (Rgba16Float) swapchain was selected.
+    pub is_hdr: bool,
 }
 
 impl Renderer {
@@ -59,12 +61,20 @@ impl Renderer {
             .context("Failed to create device")?;
 
         let caps = surface.get_capabilities(&adapter);
-        let config_format = caps
-            .formats
-            .iter()
-            .copied()
-            .find(|f| f.is_srgb())
-            .unwrap_or(caps.formats[0]);
+        let hdr_fmt = wgpu::TextureFormat::Rgba16Float;
+        let (config_format, is_hdr) = if caps.formats.contains(&hdr_fmt) {
+            info!("HDR swapchain selected: Rgba16Float");
+            (hdr_fmt, true)
+        } else {
+            let fmt = caps
+                .formats
+                .iter()
+                .copied()
+                .find(|f| f.is_srgb())
+                .unwrap_or(caps.formats[0]);
+            info!("SDR swapchain selected: {:?}", fmt);
+            (fmt, false)
+        };
 
         let surface_config = wgpu::SurfaceConfiguration {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
@@ -120,7 +130,7 @@ impl Renderer {
             ambient_blur: config.viewer.ambient_blur,
             zoom_scale: 1.0,
             zoom_pan: [0.0, 0.0],
-            _pad: 0.0,
+            display_mode: 0,
         };
 
         let uniform_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
@@ -137,6 +147,7 @@ impl Renderer {
             pipeline,
             uniform_buffer,
             bind_group: None,
+            is_hdr,
         })
     }
 

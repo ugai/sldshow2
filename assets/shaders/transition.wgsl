@@ -38,7 +38,7 @@ struct TransitionUniform {
     zoom_scale: f32,   // 1.0 = no zoom; > 1.0 = zoomed in
     zoom_pan_x: f32,     // UV-space pan offset X (split to avoid vec2 alignment padding)
     zoom_pan_y: f32,     // UV-space pan offset Y
-    _pad: f32,
+    display_mode: i32,   // 0 = SDR (clamp to [0,1]), 1 = HDR (allow > 1.0)
 }
 
 @group(0) @binding(0)
@@ -306,8 +306,12 @@ fn apply_color_adjustments(color: vec4<f32>) -> vec4<f32> {
     let luminance = dot(c, vec3<f32>(0.2126, 0.7152, 0.0722));
     c = mix(vec3<f32>(luminance), c, material.saturation);
 
-    // Clamp to valid range
-    c = clamp(c, vec3<f32>(0.0), vec3<f32>(1.0));
+    // Clamp to valid range (SDR) or pass through (HDR)
+    if material.display_mode == 0 {
+        c = clamp(c, vec3<f32>(0.0), vec3<f32>(1.0));
+    } else {
+        c = max(c, vec3<f32>(0.0));
+    }
 
     return vec4<f32>(c, color.a);
 }

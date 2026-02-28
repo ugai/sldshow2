@@ -23,6 +23,9 @@ Desktop.ini
 debug_screenshots/
 sldshow-shot*.png
 
+# Generated test assets
+tools/test_hdr_gradient.exr
+
 # Temporary files
 nul
 *.tmp

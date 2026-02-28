@@ -2,6 +2,7 @@
 name = "sldshow2"
 version = "0.2.0"
 edition = "2024"
+default-run = "sldshow2"
 rust-version = "1.85"
 authors = ["ugai"]
 description = "Simple slideshow image viewer with custom WGSL transitions"
@@ -56,6 +57,7 @@ kamadak-exif = "0.6.1"
 font-loader = "0.11.0"
 egui-phosphor = "0.10"
 fast_image_resize = "5.1.4"
+half = "2"
 
 [target.'cfg(windows)'.dependencies]
 windows = { version = "0.58", features = [
