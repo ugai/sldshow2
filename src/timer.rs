@@ -66,6 +66,14 @@ pub struct SequenceTimer {
     accumulator: f32,
 }
 
+/// Maximum number of sequence frames to advance in a single update tick.
+///
+/// If a long stall produces more due frames than this cap, the timer advances
+/// at most this many frames and drops the remaining whole-frame backlog while
+/// preserving the fractional remainder. This keeps playback responsive and
+/// prevents a burst of `next_image()` calls in one frame.
+const MAX_FRAME_ADVANCE_PER_TICK: usize = 8;
+
 impl SequenceTimer {
     pub fn new(fps: f32) -> Self {
         Self {
@@ -85,16 +93,31 @@ impl SequenceTimer {
         let dt = now.duration_since(self.last_tick).as_secs_f32();
         self.last_tick = now;
 
-        self.accumulator += dt;
-        let frame_duration = 1.0 / self.fps;
+        self.advance_by(dt)
+    }
 
-        let mut frames = 0;
-        while self.accumulator >= frame_duration {
-            frames += 1;
-            self.accumulator -= frame_duration;
+    fn advance_by(&mut self, dt: f32) -> usize {
+        if !dt.is_finite() || dt <= 0.0 {
+            return 0;
         }
 
-        frames
+        self.accumulator += dt;
+        let frame_duration = 1.0 / self.fps;
+        let frames_due = (self.accumulator / frame_duration) as usize;
+        if frames_due == 0 {
+            return 0;
+        }
+
+        let frames_to_advance = frames_due.min(MAX_FRAME_ADVANCE_PER_TICK);
+
+        if frames_due > MAX_FRAME_ADVANCE_PER_TICK {
+            // Stall recovery policy: drop excess whole-frame backlog.
+            self.accumulator %= frame_duration;
+        } else {
+            self.accumulator -= frame_duration * frames_to_advance as f32;
+        }
+
+        frames_to_advance
     }
 
     pub fn toggle_pause(&mut self) -> bool {
@@ -112,5 +135,31 @@ impl SequenceTimer {
 
     pub fn set_fps(&mut self, fps: f32) {
         self.fps = fps.max(1.0);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn advance_by_caps_catch_up_and_drops_excess_backlog() {
+        let mut timer = SequenceTimer::new(10.0);
+
+        let frames = timer.advance_by(2.35);
+
+        assert_eq!(frames, MAX_FRAME_ADVANCE_PER_TICK);
+        assert!(timer.accumulator < 0.1);
+        assert_eq!(timer.advance_by(0.0), 0);
+    }
+
+    #[test]
+    fn advance_by_keeps_expected_remainder_under_cap() {
+        let mut timer = SequenceTimer::new(10.0);
+
+        let frames = timer.advance_by(0.35);
+
+        assert_eq!(frames, 3);
+        assert!((timer.accumulator - 0.05).abs() < 0.001);
     }
 }
