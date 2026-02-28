@@ -20,6 +20,10 @@ pub struct Renderer {
     pub uniform_buffer: wgpu::Buffer,
     /// Recreated when textures change (transition start/end).
     pub bind_group: Option<wgpu::BindGroup>,
+    /// The texture indices that `bind_group` was built from.
+    /// Used to detect when the active textures change so the bind group
+    /// is rebuilt even if it was not explicitly invalidated.
+    pub bound_tex_indices: Option<(usize, usize)>,
     /// True when a 16-bit float (Rgba16Float) swapchain was selected.
     pub is_hdr: bool,
 }
@@ -147,6 +151,7 @@ impl Renderer {
             pipeline,
             uniform_buffer,
             bind_group: None,
+            bound_tex_indices: None,
             is_hdr,
         })
     }
@@ -166,5 +171,6 @@ impl Renderer {
     /// Force the bind group to be recreated on the next frame.
     pub fn invalidate_bind_group(&mut self) {
         self.bind_group = None;
+        self.bound_tex_indices = None;
     }
 }

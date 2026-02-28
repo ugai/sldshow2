@@ -1070,7 +1070,16 @@ impl ApplicationState {
         let tex_b = self.texture_manager.get_texture(tex_b_idx);
 
         if let (Some(tex_a), Some(tex_b)) = (tex_a, tex_b) {
-            // Recreate bind group when textures change (transition start/end)
+            // Recreate bind group when textures change (transition start/end).
+            // Also invalidate if the requested indices differ from what was
+            // used to build the current bind group — this catches any case
+            // where the bind group was not explicitly invalidated but the
+            // active texture slots changed (e.g., a texture was reloaded or
+            // the transition skipped an explicit invalidation path).
+            if self.renderer.bound_tex_indices != Some((tex_a_idx, tex_b_idx)) {
+                self.renderer.bind_group = None;
+                self.renderer.bound_tex_indices = None;
+            }
             if self.renderer.bind_group.is_none() {
                 self.renderer.bind_group = Some(self.renderer.pipeline.create_bind_group(
                     &self.renderer.device,
@@ -1078,6 +1087,7 @@ impl ApplicationState {
                     &tex_a.view,
                     &tex_b.view,
                 ));
+                self.renderer.bound_tex_indices = Some((tex_a_idx, tex_b_idx));
             }
 
             // Update Uniforms
