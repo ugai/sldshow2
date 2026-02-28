@@ -3,8 +3,8 @@
 //! Generates 256x256 thumbnails lazily (on demand) using async rayon workers.
 //! Uses an LRU cache with bounded memory to prevent unlimited growth.
 //!
-//! This module provides infrastructure for the future gallery view (issue #45).
-//! Currently unused but ready for integration.
+//! Used by the gallery flow to generate and cache thumbnails asynchronously for
+//! the overlay gallery view.
 
 use camino::{Utf8Path, Utf8PathBuf};
 use image::{GenericImageView, RgbaImage};
