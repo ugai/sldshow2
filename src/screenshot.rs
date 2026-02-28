@@ -2,10 +2,15 @@
 
 use log::{error, info, warn};
 use std::path::PathBuf;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::sync::mpsc::TryRecvError;
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 /// Maximum number of filename candidates tried before giving up.
 const MAX_FILENAME_ATTEMPTS: u32 = 10;
+/// Maximum duration to wait for GPU map completion during screenshot capture.
+const SCREENSHOT_MAP_TIMEOUT: Duration = Duration::from_secs(2);
+/// Sleep interval between non-blocking map status polls.
+const SCREENSHOT_MAP_POLL_INTERVAL: Duration = Duration::from_millis(5);
 
 pub struct ScreenshotCapture;
 
@@ -73,9 +78,24 @@ impl ScreenshotCapture {
         buffer_slice.map_async(wgpu::MapMode::Read, move |result| {
             let _ = sender.send(result);
         });
-        let _ = device.poll(wgpu::PollType::Wait);
+        let wait_started = Instant::now();
+        let map_result = loop {
+            let _ = device.poll(wgpu::PollType::Poll);
+            match receiver.try_recv() {
+                Ok(result) => break Ok(result),
+                Err(TryRecvError::Empty) => {
+                    if wait_started.elapsed() >= SCREENSHOT_MAP_TIMEOUT {
+                        break Err("Timed out waiting for screenshot GPU map".to_string());
+                    }
+                    std::thread::sleep(SCREENSHOT_MAP_POLL_INTERVAL);
+                }
+                Err(TryRecvError::Disconnected) => {
+                    break Err("Screenshot map callback channel disconnected".to_string());
+                }
+            }
+        };
 
-        if let Ok(Ok(())) = receiver.recv() {
+        if let Ok(Ok(())) = map_result {
             let data = buffer_slice.get_mapped_range();
             let filename = self.next_filename()?;
 
@@ -110,8 +130,18 @@ impl ScreenshotCapture {
                 }
             }
         } else {
-            error!("Failed to map screenshot buffer");
-            Err("Screenshot failed!".to_string())
+            let message = match map_result {
+                Ok(Err(e)) => {
+                    error!("Failed to map screenshot buffer: {e}");
+                    "Screenshot failed: GPU map failed.".to_string()
+                }
+                Err(reason) => {
+                    error!("Failed to map screenshot buffer: {reason}");
+                    format!("Screenshot failed: {reason}.")
+                }
+                Ok(Ok(())) => "Screenshot failed!".to_string(),
+            };
+            Err(message)
         }
     }
 
