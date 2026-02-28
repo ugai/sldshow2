@@ -5,7 +5,7 @@ High-performance slideshow image viewer with custom [WGSL](https://www.w3.org/TR
 ## Features
 
 - **Rich transition effects** — crossfade, roll, blind, box, angular wipe, random squares, and more
-- **HDR / EXR support** — native Rgba16Float pipeline on HDR displays; EXR sequence playback with auto-detected FPS
+- **HDR / EXR support** *(beta)* — native Rgba16Float pipeline on HDR displays; EXR sequence playback with auto-detected FPS
 - **Interactive zoom & pan** — Ctrl+scroll to zoom, drag to pan
 - **Color adjustments** — contrast, brightness, gamma, saturation
 - **Gallery view** — thumbnail grid with scrub bar and on-screen controller
