@@ -18,9 +18,10 @@ Copy and track progress:
 - [ ] Step 1: Identify PR branches
 - [ ] Step 2: Fetch and create verify branch
 - [ ] Step 3: Merge all PR branches
-- [ ] Step 4: Visual verification (user)
-- [ ] Step 5: Merge PRs into main
-- [ ] Step 6: Discard verify branch
+- [ ] Step 4: Build check
+- [ ] Step 5: Visual verification (user)
+- [ ] Step 6: Merge PRs into main
+- [ ] Step 7: Discard verify branch
 ```
 
 ## Step 1 — Identify PR Branches
@@ -53,12 +54,24 @@ git merge origin/<branch-1> origin/<branch-2> origin/<branch-3> ...
 If the octopus merge fails due to conflicts, fall back to sequential merges.
 Report any conflicts to the user before proceeding.
 
-## Step 4 — Visual Verification
+## Step 4 — Build Check
+
+After a successful merge, run a debug build to catch compile errors before
+asking the user for a visual check:
+
+```bash
+cargo build
+```
+
+If the build fails, identify the responsible PR branch, fix it there, re-merge,
+and re-run the build check. Do not proceed to Step 4 until the build passes.
+
+## Step 5 — Visual Verification
 
 Tell the user to run:
 
 ```bash
-cargo run --release -- test.sldshow
+cargo run -- test.sldshow
 ```
 
 Ask: *"Visual check complete — did everything look correct? (yes / issue found)"*
@@ -71,12 +84,12 @@ Ask: *"Visual check complete — did everything look correct? (yes / issue found
 
 ```bash
 git merge origin/<fixed-branch>
-# → user runs cargo run --release again
+# → user runs cargo run again
 ```
 
 Repeat until the user confirms no issues.
 
-## Step 5 — Merge PRs into Main
+## Step 6 — Merge PRs into Main
 
 ```bash
 gh pr merge <N> --squash --delete-branch
@@ -85,7 +98,7 @@ gh pr merge <N> --squash --delete-branch
 Use the Raid Commander's recommended order if available; otherwise merge fixes
 before features that depend on them.
 
-## Step 6 — Discard Verify Branch
+## Step 7 — Discard Verify Branch
 
 ```bash
 git checkout main

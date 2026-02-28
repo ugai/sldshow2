@@ -40,7 +40,19 @@ picks up the issue.
 - GPU compatibility (older hardware, integrated GPUs)
 - File path edge cases (Unicode, long paths, symlinks)
 
-## Priority 6 — New Features (Small Scope Only)
+## Priority 6 — Documentation Freshness
+
+Compare `README.md` and `docs/ARCHITECTURE.md` against the actual source code:
+
+- Features listed in code but missing from README (new config options, key
+  bindings, supported formats, UI panels)
+- Modules added or renamed in `src/` but not reflected in the Architecture
+  module table or key flows
+- Stale descriptions that no longer match current behavior
+
+File one `docs:` issue per coherent batch of drift — not one per line.
+
+## Priority 7 — New Features (Small Scope Only)
 
 Scope limit: achievable by adding or modifying at most 2–3 files, no new
 subsystem required. If larger, break into sub-issues or reject.

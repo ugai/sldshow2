@@ -93,6 +93,8 @@ Do not create an `implementation_plan.md` file.
 
 **Doc updates** (part of implementation, not a separate step):
 - `example.sldshow` — add entries for any new config options in `config.rs`
+- `README.md` — update if user-visible features, supported formats, or controls changed
+- `docs/ARCHITECTURE.md` — update if modules were added/renamed or key flows changed
 - `CONTRIBUTING.md` — update if a new dev pattern or workflow was introduced
 - `CLAUDE.md` — add new modules to the Module Map; document new conventions
 

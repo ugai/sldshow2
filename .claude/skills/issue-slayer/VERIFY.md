@@ -30,4 +30,4 @@ pushd <worktree-absolute-path>
 $env:RUST_LOG="warn"; cargo run --release -- example.sldshow
 ```
 
-Example path: `D:\git\sldshow2\.agent-worktrees\feat-issue-42-ambient-fit-shader`
+Example path: `<local-repo>/.agent-worktrees/feat-issue-42-ambient-fit-shader`
