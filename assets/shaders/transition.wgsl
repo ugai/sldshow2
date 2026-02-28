@@ -196,18 +196,21 @@ fn ts_roll(uv: vec2<f32>, progress: f32, direction: i32) -> vec4<f32> {
 // 10-11: Sliding door (open/close)
 fn ts_sliding_door(uv: vec2<f32>, progress: f32, opening: bool) -> vec4<f32> {
     let center_distance = abs(uv.x - 0.5) * 2.0;
-    var threshold: f32;
 
     if opening {
-        threshold = progress;
+        // Open: B expands from center outward
+        if center_distance < progress {
+            return sample_with_fit(texture_b, sampler_b, uv, material.image_b_size, material.window_size);
+        } else {
+            return sample_with_fit(texture_a, sampler_a, uv, material.image_a_size, material.window_size);
+        }
     } else {
-        threshold = 1.0 - progress;
-    }
-
-    if center_distance < threshold {
-        return sample_with_fit(texture_b, sampler_b, uv, material.image_b_size, material.window_size);
-    } else {
-        return sample_with_fit(texture_a, sampler_a, uv, material.image_a_size, material.window_size);
+        // Close: B appears from edges inward
+        if center_distance > (1.0 - progress) {
+            return sample_with_fit(texture_b, sampler_b, uv, material.image_b_size, material.window_size);
+        } else {
+            return sample_with_fit(texture_a, sampler_a, uv, material.image_a_size, material.window_size);
+        }
     }
 }
 
