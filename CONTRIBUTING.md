@@ -68,7 +68,7 @@ For detailed architecture documentation, see [docs/ARCHITECTURE.md](docs/ARCHITE
 
 ### Parallel Development
 Multiple contributors may work on separate issues simultaneously. To minimize merge conflicts:
-- **New features should live in dedicated modules** (e.g., `src/egui_overlay.rs`). Keep changes to `main.rs` and `app.rs` minimal.
+- **New features should live in dedicated modules** (e.g., `src/overlay.rs`, `src/osc.rs`). Keep changes to `main.rs` and `app.rs` minimal.
 - **Rebase on latest `main`** before opening a PR.
 - **One feature per branch** — do not bundle unrelated changes.
 

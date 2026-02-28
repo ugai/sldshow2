@@ -17,14 +17,15 @@ Before spawning anything, ask the user one question:
 
 > "Which perspectives should Rangers focus on? (Leave blank for defaults)"
 
-The six perspectives from RECON.md, in priority order:
+The perspectives from RECON.md, in priority order:
 
 1. Robustness & Error Handling
 2. Code Quality & Architecture
 3. Performance
 4. User Experience
 5. Cross-Platform & Compatibility
-6. New Features (small scope only)
+6. Documentation Freshness
+7. New Features (small scope only)
 
 **Default split across 4 Rangers:**
 
@@ -33,7 +34,7 @@ The six perspectives from RECON.md, in priority order:
 | ranger-1 | 1 — Robustness & Error Handling |
 | ranger-2 | 2 — Code Quality & Architecture |
 | ranger-3 | 3 — Performance + 4 — User Experience |
-| ranger-4 | 5 — Cross-Platform + 6 — New Features |
+| ranger-4 | 5 — Cross-Platform + 6 — Documentation + 7 — New Features |
 
 If the user specifies different focuses, redistribute accordingly.
 

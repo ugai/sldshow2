@@ -4,192 +4,87 @@ High-performance slideshow image viewer with custom [WGSL](https://www.w3.org/TR
 
 ## Features
 
-- **Multiple transition effects** with custom WGSL shaders
-- **Embedded assets** (shaders) for standalone distribution
-- **Async image loading** for non-blocking startup and navigation
-- **Frameless window support** for clean presentation
-- **TOML configuration** with flexible settings
-- **Smart image preloading/caching** (configurable extent)
-- **Auto-advance timer** with pause/resume
-- **Keyboard/mouse controls** with hold-to-repeat navigation
-- **Text rendering** with glyphon for file path display
-- **Hot-reload configuration** via file watching
+- **Rich transition effects** — crossfade, roll, blind, box, angular wipe, random squares, and more
+- **HDR / EXR support** — native Rgba16Float pipeline on HDR displays; EXR sequence playback with auto-detected FPS
+- **Interactive zoom & pan** — Ctrl+scroll to zoom, drag to pan
+- **Color adjustments** — contrast, brightness, gamma, saturation
+- **Gallery view** — thumbnail grid with scrub bar and on-screen controller
+- **Settings panel** — runtime controls for playback, transitions, display, and window
+- **AmbientFit** — blurred background fill instead of black bars
+- **Screenshot & clipboard** — capture frame to PNG, copy image or path
+- **Drag & drop** — drop files/folders to load; Shift+drop to append
+- **Transparent & frameless windows**, hot-reload config, screen saver prevention (Windows)
 
 ## Quick Start
 
-### 1. Generate Test Images
-
 ```bash
 cargo run --example generate_test_images
-```
-
-This creates 7 CC0 test images in `assets/test_images/`.
-
-### 2. Run with Test Configuration
-
-```bash
-# Development build
-cargo run -- test.sldshow
-
-# Release build (RECOMMENDED for performance testing)
 cargo run --release -- test.sldshow
 ```
 
-**Note**: Use `--release` for accurate performance evaluation. Debug builds may exhibit frame stuttering due to unoptimized image decoding and GPU operations.
-
-### 3. Test Controls
-
-**Keyboard:**
-- `→` / `Space` - Next image (hold to fast-forward)
-- `←` - Previous image (hold to rewind)
-- `Home` - First image
-- `End` - Last image
-- `P` - Toggle pause/resume
-- `F` - Toggle fullscreen
-- `ESC` / `Q` - Quit
-
-**Mouse:**
-- Left click - Next image
-- Right click - Previous image
-- Scroll wheel - Navigate images
-
-## Building
-
-```bash
-# Development build (compile-time check)
-cargo build
-
-# Release build (optimized, recommended for distribution)
-cargo build --release
-```
-
-The executable is standalone and includes all required assets (shaders) embedded at compile time. You can run the binary from any location.
+Press `?` in-app for the full keyboard shortcut reference.
 
 ## Configuration
 
-See `example.sldshow` for all configuration options.
+TOML files with `.sldshow` extension. Lookup: CLI arg → `~/.sldshow` → defaults.
 
-Default config location: `~/.sldshow`
+See [`example.sldshow`](example.sldshow) for all options — window, viewer (playback mode, fit mode, texture limits, scan subfolders, …), transition, and style (background, font, transparency).
 
-### Key Settings
+## Supported Formats
 
-**Window:**
-
-- `width`, `height` - Window dimensions
-- `fullscreen` - Fullscreen mode
-- `decorations` - Show/hide titlebar
-
-**Viewer:**
-
-- `image_paths` - Directories or files to display
-- `timer` - Seconds per image (0 = paused)
-- `shuffle` - Random order
-- `cache_extent` - Number of images to preload
-
-**Transition:**
-
-- `time` - Transition duration in seconds
-- `random` - Use random effects
-- `mode` - Specific effect (0-19) if not random
-
-**Style:**
-
-- `bg_color` - Background color [R, G, B, A]
-- `show_image_path` - Display current file path
-
-## Transition Effects
-
-Available effects:
-
-- 0-1: Crossfade variations
-- 2-9: Roll (from various directions)
-- 10-11: Sliding door (open/close)
-- 12-15: Blind effects
-- 16-17: Box (expand/contract)
-- 18-19: Advanced effects (random squares, angular wipe)
+PNG, JPEG, GIF, BMP, TIFF, WebP, ICO, TGA, HDR, PNM, DDS, AVIF, OpenEXR
 
 ## Development
 
-- **Contributing**: See [CONTRIBUTING.md](CONTRIBUTING.md) for setup, workflow, and coding standards.
-- **Architecture**: See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for detailed architecture documentation.
-- **AI Agent Automation**: Issues labeled `agent:ready` are picked up and slain by AI agents. See [AGENTS.md](AGENTS.md) for details.
-
-## Troubleshooting
-
-**No images displayed:**
-
-- Check that `image_paths` in config points to valid directories
-- Ensure images are in supported formats (PNG, JPG, GIF, WebP, BMP, TGA, TIFF, ICO, HDR)
-- Check console output for error messages
-
-**Transitions not working:**
-
-- Shader compilation errors will be logged to console
-- Shaders are embedded in the executable; rebuild if issues persist
-
-**Text not displaying:**
-
-- Check `show_image_path` setting in config
-- Verify glyphon initialization in logs
-
-**Performance issues:**
-
-- Reduce `cache_extent` if using many large images
-- Lower `transition.time` for faster transitions
-- Use `fullscreen = false` and smaller window size
-- **Use release builds** (`cargo run --release`) for accurate performance
+- [CONTRIBUTING.md](CONTRIBUTING.md) — setup, workflow, coding standards
+- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — module map and key flows
+- [AGENTS.md](AGENTS.md) — AI agent automation (`agent:ready` issues)
 
 ## License
 
-MIT
+MIT — Based on the original [sldshow](https://github.com/ugai/sldshow) by ugai. Transitions adapted from [GL Transitions](https://gl-transitions.com/) (MIT).
 
-## Credits
+## Appendix
 
-Based on the original [sldshow](https://github.com/ugai/sldshow) by ugai.
+### The Guild — Agent Teams
 
-Transition effects adapted from [GL Transitions](https://gl-transitions.com/) (MIT License).
+*The following is lore.*
 
-Test images are programmatically generated (CC0/Public Domain).
+Three agents serve the Guild.
+Issues labeled `agent:ready` are autonomously implemented and delivered as pull requests.
 
----
-
-## The Guild
-
-Issues labeled `agent:ready` are picked up by AI agents that autonomously implement and open PRs. See [AGENTS.md](AGENTS.md) for the workflow.
+#### Agents (Skills)
 
 <table>
 <tr>
-<td align="center" width="50%">
-<img src="docs/assets/portrait-agent-slayer.png" width="300"><br>
-<strong><code>issue-slayer</code></strong> — <em>The Blade That Closes Issues.</em><br>
-Picks up <code>agent:ready</code> issues, implements in an isolated worktree, and
-delivers pull requests. Does not theorize. Does not over-engineer.
-One issue. One PR. Almost every time.
+<td align="center" width="33%">
+<img src="docs/assets/portrait-agent-ranger.png" width="220"><br>
+<strong><code>issue-ranger</code></strong> — <em>No Unknown Unknowns.</em><br>
+Ranges far. Crawls deep. Every wound in the codebase — named, scoped, filed.
+Nothing escapes the board.
 </td>
-<td align="center" width="50%">
-<img src="docs/assets/portrait-agent-ranger.png" width="300"><br>
-<strong><code>issue-ranger</code></strong> — <em>Eyes of the Guild.</em><br>
-Ranges the codebase from six vantage points, gathers intel from abroad,
-and posts well-scoped issues on the board. Never fights. Never codes.
-Only scouts, only reports.
+<td align="center" width="33%">
+<img src="docs/assets/portrait-agent-slayer.png" width="220"><br>
+<strong><code>issue-slayer</code></strong> — <em>The Blade, The Lone Wolf.</em><br>
+The <code>agent:ready</code> label is the contract. The worktree is where it dies. The PR is the proof.
+Does not theorize. Does not over-engineer. No issue survives.
+</td>
+<td align="center" width="33%">
+<img src="docs/assets/portrait-agent-raid-commander.png" width="220"><br>
+<strong><code>issue-raid-commander</code></strong> — <em>Forged by Sprints, Not Blade.</em><br>
+Reads the ready queue. Spots every conflict before it forms. Charts the sprint plan.
+Once fought on the front lines. Now stands behind them.
 </td>
 </tr>
-<tr>
-<td align="center" width="50%">
-<img src="docs/assets/portrait-agent-raid-commander.png" width="300"><br>
-<strong><code>issue-raid-commander</code></strong> — <em>Battlefield Awareness Without Intervention.</em><br>
-Reads the ready queue, detects merge conflicts before they happen, and
-hands the team lead a sprint plan.
-Once fought on the front lines. Now stands behind them.
-Never spawns agents. Only assesses. Never intervenes.
-</td>
-<td align="center" width="50%">
-<img src="docs/assets/cover-art-epic-expedition.jpg" width="300"><br>
+</table>
+
+#### Workflow
+
+<div align="center">
+<img src="docs/assets/cover-art-epic-expedition.jpg" width="600"><br><br>
 <strong><code>dispatching-guild-expedition</code></strong> — <em>One Command. Full Sprint.</em><br>
 Orchestrates the entire pipeline: Rangers × N scout in parallel, the user
 approves issues at the gate, Raid Commander maps the battlefield, then
 Slayers × N charge in parallel.
-From empty board to open PRs — not by plan, but by vibe.
-</td>
-</tr>
-</table>
+From empty board to open PRs. The whole Guild, at once. Conquered.
+</div>

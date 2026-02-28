@@ -49,7 +49,7 @@ Also read `CLAUDE.md`, `Cargo.toml`, and `example.sldshow`.
 
 ### 2. Scout the Codebase
 
-Read all files under `src/`. Range across six perspectives — stop when you
+Read all files under `src/`. Range across each perspective — stop when you
 have 15 candidate ideas. See [RECON.md](RECON.md) for what to look for in
 each perspective, in priority order:
 
@@ -58,7 +58,8 @@ each perspective, in priority order:
 3. Performance
 4. User Experience
 5. Cross-Platform & Compatibility
-6. New Features (small scope only — max 2–3 files, no new subsystems)
+6. Documentation Freshness
+7. New Features (small scope only — max 2–3 files, no new subsystems)
 
 ### 3. Gather External Intel
 
