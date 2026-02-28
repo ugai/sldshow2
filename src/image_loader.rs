@@ -23,12 +23,22 @@ pub struct LoadedTexture {
     pub height: u32,
 }
 
+/// Mip-chain data returned from the loader thread to the GPU upload path.
+pub enum MipData {
+    /// Standard 8-bit sRGB pixels (one element per mip level).
+    Sdr(Vec<image::RgbaImage>),
+    /// Linear 32-bit float pixels for HDR EXR files (one element per mip level).
+    Hdr(Vec<image::Rgba32FImage>),
+}
+
 pub struct TextureManager {
     pub paths: Vec<Utf8PathBuf>,
     pub current_index: usize,
     pub textures: HashMap<usize, LoadedTexture>,
     pub max_texture_size: (u32, u32),
     pub cache_extent: usize,
+    /// When true, EXR files are loaded as linear Rgba16Float GPU textures.
+    pub is_hdr: bool,
 
     // Original sort order for restoring when shuffle is turned off
     original_paths: Vec<Utf8PathBuf>,
@@ -39,8 +49,8 @@ pub struct TextureManager {
     // Incremented on every replace_paths / set_shuffle_enabled call so that
     // results from threads spawned in a previous generation are discarded.
     epoch: u64,
-    tx: Sender<(u64, usize, anyhow::Result<Vec<image::RgbaImage>>)>,
-    rx: Receiver<(u64, usize, anyhow::Result<Vec<image::RgbaImage>>)>,
+    tx: Sender<(u64, usize, anyhow::Result<MipData>)>,
+    rx: Receiver<(u64, usize, anyhow::Result<MipData>)>,
 }
 
 impl TextureManager {
@@ -52,6 +62,7 @@ impl TextureManager {
             textures: HashMap::new(),
             max_texture_size,
             cache_extent,
+            is_hdr: false,
             original_paths: Vec::new(),
             loading_tasks: HashMap::new(),
             errors: HashMap::new(),
@@ -234,72 +245,146 @@ impl TextureManager {
                 self.loading_tasks.remove(&idx);
             }
             match result {
-                Ok(mips) => {
-                    let Some(base) = mips.first() else {
-                        error!("Image {} returned empty mip chain", idx);
-                        self.errors.insert(idx, "empty mip chain".to_string());
-                        continue;
-                    };
-                    let width = base.width();
-                    let height = base.height();
+                Ok(mip_data) => {
+                    match mip_data {
+                        MipData::Sdr(mips) => {
+                            let Some(base) = mips.first() else {
+                                error!("Image {} returned empty SDR mip chain", idx);
+                                self.errors.insert(idx, "empty mip chain".to_string());
+                                continue;
+                            };
+                            let width = base.width();
+                            let height = base.height();
 
-                    let texture_size = wgpu::Extent3d {
-                        width,
-                        height,
-                        depth_or_array_layers: 1,
-                    };
+                            let texture = device.create_texture(&wgpu::TextureDescriptor {
+                                label: Some(&format!("Image Texture {}", idx)),
+                                size: wgpu::Extent3d {
+                                    width,
+                                    height,
+                                    depth_or_array_layers: 1,
+                                },
+                                mip_level_count: mips.len() as u32,
+                                sample_count: 1,
+                                dimension: wgpu::TextureDimension::D2,
+                                format: wgpu::TextureFormat::Rgba8UnormSrgb,
+                                usage: wgpu::TextureUsages::TEXTURE_BINDING
+                                    | wgpu::TextureUsages::COPY_DST,
+                                view_formats: &[],
+                            });
 
-                    let texture = device.create_texture(&wgpu::TextureDescriptor {
-                        label: Some(&format!("Image Texture {}", idx)),
-                        size: texture_size,
-                        mip_level_count: mips.len() as u32,
-                        sample_count: 1,
-                        dimension: wgpu::TextureDimension::D2,
-                        format: wgpu::TextureFormat::Rgba8UnormSrgb,
-                        usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
-                        view_formats: &[],
-                    });
+                            for (level, mip) in mips.iter().enumerate() {
+                                queue.write_texture(
+                                    wgpu::TexelCopyTextureInfo {
+                                        texture: &texture,
+                                        mip_level: level as u32,
+                                        origin: wgpu::Origin3d::ZERO,
+                                        aspect: wgpu::TextureAspect::All,
+                                    },
+                                    mip,
+                                    wgpu::TexelCopyBufferLayout {
+                                        offset: 0,
+                                        bytes_per_row: Some(4 * mip.width()),
+                                        rows_per_image: Some(mip.height()),
+                                    },
+                                    wgpu::Extent3d {
+                                        width: mip.width(),
+                                        height: mip.height(),
+                                        depth_or_array_layers: 1,
+                                    },
+                                );
+                            }
 
-                    for (level, mip) in mips.iter().enumerate() {
-                        queue.write_texture(
-                            wgpu::TexelCopyTextureInfo {
-                                texture: &texture,
-                                mip_level: level as u32,
-                                origin: wgpu::Origin3d::ZERO,
-                                aspect: wgpu::TextureAspect::All,
-                            },
-                            mip,
-                            wgpu::TexelCopyBufferLayout {
-                                offset: 0,
-                                bytes_per_row: Some(4 * mip.width()),
-                                rows_per_image: Some(mip.height()),
-                            },
-                            wgpu::Extent3d {
-                                width: mip.width(),
-                                height: mip.height(),
-                                depth_or_array_layers: 1,
-                            },
-                        );
+                            let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+                            self.textures.insert(
+                                idx,
+                                LoadedTexture {
+                                    texture,
+                                    view,
+                                    width,
+                                    height,
+                                },
+                            );
+                            debug!(
+                                "Uploaded SDR image {} ({}x{}, {} mips)",
+                                idx,
+                                width,
+                                height,
+                                mips.len()
+                            );
+                        }
+                        MipData::Hdr(mips) => {
+                            let Some(base) = mips.first() else {
+                                error!("Image {} returned empty HDR mip chain", idx);
+                                self.errors.insert(idx, "empty mip chain".to_string());
+                                continue;
+                            };
+                            let width = base.width();
+                            let height = base.height();
+
+                            let texture = device.create_texture(&wgpu::TextureDescriptor {
+                                label: Some(&format!("Image Texture {} (HDR)", idx)),
+                                size: wgpu::Extent3d {
+                                    width,
+                                    height,
+                                    depth_or_array_layers: 1,
+                                },
+                                mip_level_count: mips.len() as u32,
+                                sample_count: 1,
+                                dimension: wgpu::TextureDimension::D2,
+                                format: wgpu::TextureFormat::Rgba16Float,
+                                usage: wgpu::TextureUsages::TEXTURE_BINDING
+                                    | wgpu::TextureUsages::COPY_DST,
+                                view_formats: &[],
+                            });
+
+                            for (level, mip) in mips.iter().enumerate() {
+                                // Convert f32 → f16 for Rgba16Float GPU upload
+                                let f16_bytes: Vec<u8> = mip
+                                    .as_raw()
+                                    .iter()
+                                    .flat_map(|&f| half::f16::from_f32(f).to_ne_bytes())
+                                    .collect();
+                                queue.write_texture(
+                                    wgpu::TexelCopyTextureInfo {
+                                        texture: &texture,
+                                        mip_level: level as u32,
+                                        origin: wgpu::Origin3d::ZERO,
+                                        aspect: wgpu::TextureAspect::All,
+                                    },
+                                    &f16_bytes,
+                                    wgpu::TexelCopyBufferLayout {
+                                        offset: 0,
+                                        // 4 channels × 2 bytes (f16)
+                                        bytes_per_row: Some(8 * mip.width()),
+                                        rows_per_image: Some(mip.height()),
+                                    },
+                                    wgpu::Extent3d {
+                                        width: mip.width(),
+                                        height: mip.height(),
+                                        depth_or_array_layers: 1,
+                                    },
+                                );
+                            }
+
+                            let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+                            self.textures.insert(
+                                idx,
+                                LoadedTexture {
+                                    texture,
+                                    view,
+                                    width,
+                                    height,
+                                },
+                            );
+                            debug!(
+                                "Uploaded HDR image {} ({}x{}, {} mips)",
+                                idx,
+                                width,
+                                height,
+                                mips.len()
+                            );
+                        }
                     }
-
-                    let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
-
-                    self.textures.insert(
-                        idx,
-                        LoadedTexture {
-                            texture,
-                            view,
-                            width,
-                            height,
-                        },
-                    );
-                    debug!(
-                        "Uploaded image {} ({}x{}, {} mips)",
-                        idx,
-                        width,
-                        height,
-                        mips.len()
-                    );
                 }
                 Err(e) => {
                     error!("Failed to load image {}: {}", idx, e);
@@ -337,22 +422,27 @@ impl TextureManager {
                     let tx = self.tx.clone();
                     let max_size = self.max_texture_size;
                     let epoch = self.epoch;
+                    let is_hdr = self.is_hdr;
 
                     self.loading_tasks.insert(idx, self.epoch);
 
                     rayon::spawn(move || {
-                        let res = std::panic::catch_unwind(|| load_image_rgba(&path, max_size))
-                            .unwrap_or_else(|payload| {
-                                let msg = if let Some(s) = payload.downcast_ref::<String>() {
-                                    s.clone()
-                                } else if let Some(s) = payload.downcast_ref::<&str>() {
-                                    (*s).to_owned()
-                                } else {
-                                    "unknown panic in image loader thread".to_owned()
-                                };
-                                error!("Image loader thread panicked for index {}: {}", idx, msg);
-                                Err(anyhow::anyhow!("loader thread panicked: {}", msg))
-                            });
+                        let res =
+                            std::panic::catch_unwind(|| load_image_mips(&path, max_size, is_hdr))
+                                .unwrap_or_else(|payload| {
+                                    let msg = if let Some(s) = payload.downcast_ref::<String>() {
+                                        s.clone()
+                                    } else if let Some(s) = payload.downcast_ref::<&str>() {
+                                        (*s).to_owned()
+                                    } else {
+                                        "unknown panic in image loader thread".to_owned()
+                                    };
+                                    error!(
+                                        "Image loader thread panicked for index {}: {}",
+                                        idx, msg
+                                    );
+                                    Err(anyhow::anyhow!("loader thread panicked: {}", msg))
+                                });
                         if tx.send((epoch, idx, res)).is_err() {
                             warn!("Failed to send loaded image {} (receiver dropped)", idx);
                         }
@@ -405,7 +495,7 @@ fn fast_resize(
         .ok_or_else(|| anyhow::anyhow!("from_raw failed"))
 }
 
-fn load_image_rgba(path: &Utf8Path, max_size: (u32, u32)) -> anyhow::Result<Vec<image::RgbaImage>> {
+fn load_image_mips(path: &Utf8Path, max_size: (u32, u32), is_hdr: bool) -> anyhow::Result<MipData> {
     use std::fs::File;
     use std::io::{BufReader, Seek, SeekFrom};
 
@@ -419,64 +509,88 @@ fn load_image_rgba(path: &Utf8Path, max_size: (u32, u32)) -> anyhow::Result<Vec<
         .seek(SeekFrom::Start(0))
         .map_err(|e| anyhow::anyhow!("Failed to seek image: {}", e))?;
 
-    let mut img = image::ImageReader::new(&mut reader)
+    let img = image::ImageReader::new(&mut reader)
         .with_guessed_format()
         .map_err(|e| anyhow::anyhow!("Failed to guess image format: {}", e))?
         .decode()
         .map_err(|e| anyhow::anyhow!("Failed to open image: {}", e))?;
 
-    // If it's EXR (linear HDR), we need to tonemap or convert to sRGB locally
-    // since our WGPU format is Rgba8UnormSrgb and expects sRGB input values.
-    if path.extension().unwrap_or("").eq_ignore_ascii_case("exr") {
-        // Apply the IEC 61966-2-1 piecewise sRGB transfer function per channel
-        let mut rgba32f = img.into_rgba32f();
-        for pixel in rgba32f.pixels_mut() {
-            pixel[0] = linear_to_srgb(pixel[0].max(0.0));
-            pixel[1] = linear_to_srgb(pixel[1].max(0.0));
-            pixel[2] = linear_to_srgb(pixel[2].max(0.0));
-            // Alpha remains linear
+    let is_exr = path.extension().unwrap_or("").eq_ignore_ascii_case("exr");
+
+    if is_hdr && is_exr {
+        // HDR path: keep linear float data as Rgba32F, skip sRGB conversion.
+        // GPU upload will convert f32 → f16 for Rgba16Float texture.
+        let rgba32f = img.into_rgba32f();
+        let img = apply_orientation(image::DynamicImage::ImageRgba32F(rgba32f), orientation);
+        let base = resize_for_gpu_hdr(img.into_rgba32f(), max_size.0, max_size.1);
+
+        // Generate mip chain using image::imageops (fast_image_resize is U8 only)
+        let mip_count = mip_level_count(base.width(), base.height());
+        let mut mips: Vec<image::Rgba32FImage> = Vec::with_capacity(mip_count as usize);
+        mips.push(base);
+
+        for _ in 1..mip_count {
+            let prev = mips.last().expect("mip chain is non-empty");
+            let new_w = (prev.width() / 2).max(1);
+            let new_h = (prev.height() / 2).max(1);
+            let resized =
+                image::imageops::resize(prev, new_w, new_h, image::imageops::FilterType::Triangle);
+            mips.push(resized);
         }
-        img = image::DynamicImage::ImageRgba32F(rgba32f);
+
+        Ok(MipData::Hdr(mips))
+    } else {
+        // SDR path: existing behavior — tonemap EXR to sRGB, upload as Rgba8UnormSrgb.
+        let mut img = img;
+        if is_exr {
+            // Apply the IEC 61966-2-1 piecewise sRGB transfer function per channel
+            let mut rgba32f = img.into_rgba32f();
+            for pixel in rgba32f.pixels_mut() {
+                pixel[0] = linear_to_srgb(pixel[0].max(0.0));
+                pixel[1] = linear_to_srgb(pixel[1].max(0.0));
+                pixel[2] = linear_to_srgb(pixel[2].max(0.0));
+                // Alpha remains linear
+            }
+            img = image::DynamicImage::ImageRgba32F(rgba32f);
+        }
+
+        let img = apply_orientation(img, orientation);
+        let base = resize_for_gpu(img, max_size.0, max_size.1)?.into_rgba8();
+
+        // Generate mipmap chain on CPU
+        let mip_count = mip_level_count(base.width(), base.height());
+        let mut mips = Vec::with_capacity(mip_count as usize);
+        mips.push(base);
+
+        for _ in 1..mip_count {
+            let prev = mips
+                .last()
+                .ok_or_else(|| anyhow::anyhow!("mip chain is empty"))?;
+            let new_w = (prev.width() / 2).max(1);
+            let new_h = (prev.height() / 2).max(1);
+
+            let mut prev_clone = prev.clone();
+
+            // Fast image resize wrapper creation
+            let src_image = fast_image_resize::images::Image::from_slice_u8(
+                prev.width(),
+                prev.height(),
+                prev_clone.as_mut(),
+                fast_image_resize::PixelType::U8x4,
+            )
+            .map_err(|e| anyhow::anyhow!("{e:?}"))?;
+
+            let resized = fast_resize(
+                src_image,
+                new_w,
+                new_h,
+                fast_image_resize::FilterType::Bilinear,
+            )?;
+            mips.push(resized);
+        }
+
+        Ok(MipData::Sdr(mips))
     }
-
-    // Apply EXIF rotation using the orientation already read above.
-    let img = apply_orientation(img, orientation);
-
-    let base = resize_for_gpu(img, max_size.0, max_size.1)?.into_rgba8();
-
-    // Generate mipmap chain on CPU
-    let mip_count = mip_level_count(base.width(), base.height());
-    let mut mips = Vec::with_capacity(mip_count as usize);
-    mips.push(base);
-
-    for _ in 1..mip_count {
-        let prev = mips
-            .last()
-            .ok_or_else(|| anyhow::anyhow!("mip chain is empty"))?;
-        let new_w = (prev.width() / 2).max(1);
-        let new_h = (prev.height() / 2).max(1);
-
-        let mut prev_clone = prev.clone();
-
-        // Fast image resize wrapper creation
-        let src_image = fast_image_resize::images::Image::from_slice_u8(
-            prev.width(),
-            prev.height(),
-            prev_clone.as_mut(),
-            fast_image_resize::PixelType::U8x4,
-        )
-        .map_err(|e| anyhow::anyhow!("{e:?}"))?;
-
-        let resized = fast_resize(
-            src_image,
-            new_w,
-            new_h,
-            fast_image_resize::FilterType::Bilinear,
-        )?;
-        mips.push(resized);
-    }
-
-    Ok(mips)
 }
 
 fn mip_level_count(width: u32, height: u32) -> u32 {
@@ -608,6 +722,28 @@ fn resize_for_gpu(
         fast_image_resize::FilterType::Lanczos3,
     )?;
     Ok(image::DynamicImage::ImageRgba8(resized))
+}
+
+/// Resize an HDR (Rgba32F) image to fit within max_width×max_height, preserving aspect ratio.
+/// Uses bilinear (Triangle) filter since fast_image_resize does not support float pixels.
+fn resize_for_gpu_hdr(
+    img: image::Rgba32FImage,
+    max_width: u32,
+    max_height: u32,
+) -> image::Rgba32FImage {
+    if max_width == 0 || max_height == 0 {
+        return img;
+    }
+    let (orig_w, orig_h) = (img.width(), img.height());
+    if orig_w <= max_width && orig_h <= max_height {
+        return img;
+    }
+    let scale_w = max_width as f32 / orig_w as f32;
+    let scale_h = max_height as f32 / orig_h as f32;
+    let scale = scale_w.min(scale_h);
+    let new_w = ((orig_w as f32 * scale).round() as u32).max(1);
+    let new_h = ((orig_h as f32 * scale).round() as u32).max(1);
+    image::imageops::resize(&img, new_w, new_h, image::imageops::FilterType::Triangle)
 }
 
 pub fn scan_image_paths(
