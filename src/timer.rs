@@ -77,7 +77,7 @@ const MAX_FRAME_ADVANCE_PER_TICK: usize = 8;
 impl SequenceTimer {
     pub fn new(fps: f32) -> Self {
         Self {
-            fps: fps.max(1.0),
+            fps: sanitize_fps(fps),
             paused: false,
             last_tick: Instant::now(),
             accumulator: 0.0,
@@ -101,8 +101,16 @@ impl SequenceTimer {
             return 0;
         }
 
+        if !self.accumulator.is_finite() {
+            self.accumulator = 0.0;
+        }
+
         self.accumulator += dt;
         let frame_duration = 1.0 / self.fps;
+        if !frame_duration.is_finite() || frame_duration <= 0.0 {
+            self.accumulator = 0.0;
+            return 0;
+        }
         let frames_due = (self.accumulator / frame_duration) as usize;
         if frames_due == 0 {
             return 0;
@@ -115,6 +123,10 @@ impl SequenceTimer {
             self.accumulator %= frame_duration;
         } else {
             self.accumulator -= frame_duration * frames_to_advance as f32;
+        }
+        self.accumulator = self.accumulator.clamp(0.0, frame_duration);
+        if self.accumulator >= frame_duration {
+            self.accumulator = 0.0;
         }
 
         frames_to_advance
@@ -134,7 +146,15 @@ impl SequenceTimer {
     }
 
     pub fn set_fps(&mut self, fps: f32) {
-        self.fps = fps.max(1.0);
+        self.fps = sanitize_fps(fps);
+    }
+}
+
+fn sanitize_fps(fps: f32) -> f32 {
+    if !fps.is_finite() || fps <= 0.0 {
+        1.0
+    } else {
+        fps.max(1.0)
     }
 }
 
