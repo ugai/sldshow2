@@ -894,38 +894,64 @@ impl ApplicationState {
         }
 
         // Process drag & drop
-        if let Some(dropped_paths) = self.drag_drop.take_pending() {
-            match image_loader::scan_image_paths(&dropped_paths, self.config.viewer.scan_subfolders)
-            {
-                Ok(mut new_paths) => {
-                    if self.shuffle_enabled {
-                        use rand::seq::SliceRandom;
-                        new_paths.shuffle(&mut rand::rng());
-                    }
-                    let count = new_paths.len();
+        if let Some(pending_drop) = self.drag_drop.take_pending() {
+            let rejected_suffix = if pending_drop.rejected_non_utf8 > 0 {
+                format!(
+                    " ({} non-UTF-8 path(s) rejected)",
+                    pending_drop.rejected_non_utf8
+                )
+            } else {
+                String::new()
+            };
 
-                    if self.modifiers.shift_key() {
-                        self.texture_manager.append_paths(new_paths);
-                        // If it was already playing a slideshow/sequence, don't reset index to 0 or interrupt.
-                        self.show_osd(format!("Appended {} images", count));
-                        info!("Drag & drop: appended {} images", count);
-                    } else {
-                        self.texture_manager.replace_paths(new_paths);
-                        self.transition = None;
-                        self.renderer.invalidate_bind_group();
-                        self.current_texture_index = if count > 0 { Some(0) } else { None };
-                        self.slideshow.reset();
-                        self.show_osd(format!("Loaded {} images", count));
-                        info!("Drag & drop: loaded {} images", count);
-                    }
-
-                    self.update_window_title();
-                    self.cached_info_string = None;
+            if pending_drop.rejected_non_utf8 > 0 {
+                warn!(
+                    "Drag & drop rejected {} non-UTF-8 path(s)",
+                    pending_drop.rejected_non_utf8
+                );
+                if pending_drop.paths.is_empty() {
+                    self.show_osd(format!(
+                        "Rejected {} non-UTF-8 path(s)",
+                        pending_drop.rejected_non_utf8
+                    ));
                 }
-                Err(e) => {
-                    warn!("Drag & drop scan failed: {}", e);
-                    self.update_window_title();
-                    self.show_osd("No supported images found".to_string());
+            }
+
+            if !pending_drop.paths.is_empty() {
+                match image_loader::scan_image_paths(
+                    &pending_drop.paths,
+                    self.config.viewer.scan_subfolders,
+                ) {
+                    Ok(mut new_paths) => {
+                        if self.shuffle_enabled {
+                            use rand::seq::SliceRandom;
+                            new_paths.shuffle(&mut rand::rng());
+                        }
+                        let count = new_paths.len();
+
+                        if self.modifiers.shift_key() {
+                            self.texture_manager.append_paths(new_paths);
+                            // If it was already playing a slideshow/sequence, don't reset index to 0 or interrupt.
+                            self.show_osd(format!("Appended {} images{}", count, rejected_suffix));
+                            info!("Drag & drop: appended {} images", count);
+                        } else {
+                            self.texture_manager.replace_paths(new_paths);
+                            self.transition = None;
+                            self.renderer.invalidate_bind_group();
+                            self.current_texture_index = if count > 0 { Some(0) } else { None };
+                            self.slideshow.reset();
+                            self.show_osd(format!("Loaded {} images{}", count, rejected_suffix));
+                            info!("Drag & drop: loaded {} images", count);
+                        }
+
+                        self.update_window_title();
+                        self.cached_info_string = None;
+                    }
+                    Err(e) => {
+                        warn!("Drag & drop scan failed: {}", e);
+                        self.update_window_title();
+                        self.show_osd(format!("No supported images found{}", rejected_suffix));
+                    }
                 }
             }
         }

@@ -8,20 +8,31 @@
 use camino::Utf8PathBuf;
 use std::sync::mpsc;
 
+/// Aggregated drag-and-drop data collected since the previous frame.
+pub struct PendingDrop {
+    pub paths: Vec<Utf8PathBuf>,
+    pub rejected_non_utf8: usize,
+}
+
+pub(crate) enum DragDropMessage {
+    Paths(Vec<Utf8PathBuf>),
+    RejectedNonUtf8(usize),
+}
+
 /// Receiver half lives in `ApplicationState`, sender is captured by the
 /// event-loop message hook (Windows) or used directly via
 /// [`DragDropHandler::queue_dropped_file`] (non-Windows).
 pub struct DragDropHandler {
-    rx: mpsc::Receiver<Vec<Utf8PathBuf>>,
+    rx: mpsc::Receiver<DragDropMessage>,
     /// Retained so non-Windows platforms can enqueue files from window events.
     #[cfg(not(windows))]
-    tx: mpsc::Sender<Vec<Utf8PathBuf>>,
+    tx: mpsc::Sender<DragDropMessage>,
 }
 
 impl DragDropHandler {
     /// Create a handler pair.  On Windows the returned sender must be moved
     /// into the message hook via [`build_msg_hook`].
-    pub fn new() -> (Self, mpsc::Sender<Vec<Utf8PathBuf>>) {
+    pub fn new() -> (Self, mpsc::Sender<DragDropMessage>) {
         let (tx, rx) = mpsc::channel();
         #[cfg(windows)]
         let handler = Self { rx };
@@ -30,14 +41,27 @@ impl DragDropHandler {
         (handler, tx)
     }
 
-    /// Drain all batches received since the last call. Returns `None` when
-    /// nothing was dropped.
-    pub fn take_pending(&self) -> Option<Vec<Utf8PathBuf>> {
-        let mut all = Vec::new();
-        while let Ok(batch) = self.rx.try_recv() {
-            all.extend(batch);
+    /// Drain all drag/drop events received since the last call.
+    ///
+    /// Returns `None` when no dropped paths were received and no dropped paths
+    /// were rejected due to UTF-8 conversion failures.
+    pub fn take_pending(&self) -> Option<PendingDrop> {
+        let mut paths = Vec::new();
+        let mut rejected_non_utf8 = 0usize;
+        while let Ok(message) = self.rx.try_recv() {
+            match message {
+                DragDropMessage::Paths(batch) => paths.extend(batch),
+                DragDropMessage::RejectedNonUtf8(count) => rejected_non_utf8 += count,
+            }
         }
-        if all.is_empty() { None } else { Some(all) }
+        if paths.is_empty() && rejected_non_utf8 == 0 {
+            None
+        } else {
+            Some(PendingDrop {
+                paths,
+                rejected_non_utf8,
+            })
+        }
     }
 
     /// Enqueue a single dropped file path (non-Windows only).
@@ -48,9 +72,12 @@ impl DragDropHandler {
     pub fn queue_dropped_file(&self, path: std::path::PathBuf) {
         match Utf8PathBuf::try_from(path) {
             Ok(p) => {
-                let _ = self.tx.send(vec![p]);
+                let _ = self.tx.send(DragDropMessage::Paths(vec![p]));
             }
-            Err(e) => log::warn!("Dropped path is not valid UTF-8: {}", e),
+            Err(e) => {
+                log::warn!("Dropped path is not valid UTF-8: {}", e);
+                let _ = self.tx.send(DragDropMessage::RejectedNonUtf8(1));
+            }
         }
     }
 }
@@ -62,7 +89,7 @@ impl DragDropHandler {
 /// `.build()`.
 #[cfg(windows)]
 pub fn build_msg_hook(
-    tx: mpsc::Sender<Vec<Utf8PathBuf>>,
+    tx: mpsc::Sender<DragDropMessage>,
 ) -> impl FnMut(*const std::ffi::c_void) -> bool {
     use windows::Win32::UI::Shell::{DragFinish, DragQueryFileW, HDROP};
 
@@ -88,6 +115,7 @@ pub fn build_msg_hook(
         let hdrop = HDROP(msg.wparam as *mut std::ffi::c_void);
         let count = unsafe { DragQueryFileW(hdrop, 0xFFFF_FFFF, None) };
         let mut paths = Vec::with_capacity(count as usize);
+        let mut rejected_non_utf8 = 0usize;
 
         for i in 0..count {
             let len = unsafe { DragQueryFileW(hdrop, i, None) } as usize;
@@ -110,13 +138,19 @@ pub fn build_msg_hook(
             };
             match Utf8PathBuf::try_from(std::path::PathBuf::from(path_str)) {
                 Ok(p) => paths.push(p),
-                Err(e) => log::warn!("Dropped path is not valid UTF-8 at index {}: {}", i, e),
+                Err(e) => {
+                    log::warn!("Dropped path is not valid UTF-8 at index {}: {}", i, e);
+                    rejected_non_utf8 += 1;
+                }
             }
         }
         unsafe { DragFinish(hdrop) };
 
         if !paths.is_empty() {
-            let _ = tx.send(paths);
+            let _ = tx.send(DragDropMessage::Paths(paths));
+        }
+        if rejected_non_utf8 > 0 {
+            let _ = tx.send(DragDropMessage::RejectedNonUtf8(rejected_non_utf8));
         }
         true // we handled it — don't let winit see it
     }
