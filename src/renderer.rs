@@ -71,12 +71,8 @@ impl Renderer {
                 .iter()
                 .copied()
                 .find(|f| f.is_srgb())
-                .unwrap_or_else(|| {
-                    caps.formats
-                        .first()
-                        .copied()
-                        .unwrap_or(wgpu::TextureFormat::Bgra8UnormSrgb)
-                });
+                .or_else(|| caps.formats.first().copied())
+                .context("GPU surface reports no supported texture formats")?;
             info!("SDR swapchain selected: {:?}", fmt);
             (fmt, false)
         };
@@ -100,12 +96,8 @@ impl Renderer {
                         .iter()
                         .copied()
                         .find(|m| caps.alpha_modes.contains(m))
-                        .unwrap_or_else(|| {
-                            caps.alpha_modes
-                                .first()
-                                .copied()
-                                .unwrap_or(wgpu::CompositeAlphaMode::Opaque)
-                        });
+                        .or_else(|| caps.alpha_modes.first().copied())
+                        .context("GPU surface reports no supported alpha modes")?;
                     info!(
                         "Transparent mode enabled, selected alpha mode: {:?}",
                         selected
@@ -115,7 +107,7 @@ impl Renderer {
                     caps.alpha_modes
                         .first()
                         .copied()
-                        .unwrap_or(wgpu::CompositeAlphaMode::Opaque)
+                        .context("GPU surface reports no supported alpha modes")?
                 }
             },
             view_formats: vec![],
