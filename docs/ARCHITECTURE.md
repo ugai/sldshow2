@@ -22,7 +22,7 @@ This document describes the high-level architecture and key components of `sldsh
 | `image_loader.rs` | **Asset Management**. Asynchronous image loading using `rayon` (up to 4 concurrent tasks). `MipData` enum supports both SDR (`Rgba8`) and HDR (`Rgba16Float` via `half` crate) texture paths. Full mip chain generation. Supports EXR, PNG, JPEG, GIF, WebP, BMP, TGA, TIFF, ICO, HDR, AVIF, PNM, DDS. |
 | `thumbnail.rs` | **Thumbnails**. Generates and caches 256px thumbnails on background threads for the gallery view. Tracks stale textures via `drain_newly_cached()`. |
 | `overlay.rs` | **UI Layer**. Manages the `egui` context. Draws the filename bar, OSD, info overlay, help overlay (keyboard shortcut reference), settings panel (playback/transition/display/window controls), and gallery view (thumbnail grid with virtual scrolling). |
-| `config.rs` | **Configuration**. `serde::Deserialize` structs for parsing `.sldshow` TOML files. Supports hot-reload via file watching. |
+| `config.rs` | **Configuration**. `serde::Deserialize` structs for parsing `.sldshow` TOML files with defaults and validation. |
 | `timer.rs` | **Slideshow Timer**. State machine for auto-advancing slides with pause/resume. |
 | `clipboard.rs` | **System Integration**. Async image-to-clipboard copy using `arboard`. Re-reads image from disk to avoid GPU readback. |
 | `osc.rs` | **On-Screen Controller**. Floating auto-hide playback bar with scrub timeline, play/pause, next/prev, shuffle, and settings buttons. Uses Phosphor icon font. |

@@ -13,7 +13,7 @@ High-performance slideshow image viewer with custom [WGSL](https://www.w3.org/TR
 - **AmbientFit** — blurred background fill instead of black bars
 - **Screenshot & clipboard** — capture frame to PNG, copy image or path
 - **Drag & drop** — drop files/folders to load; Shift+drop to append
-- **Transparent & frameless windows**, hot-reload config, screen saver prevention (Windows)
+- **Transparent & frameless windows**, screen saver prevention (Windows)
 
 ## Quick Start
 

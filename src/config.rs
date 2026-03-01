@@ -122,7 +122,6 @@ pub struct ViewerConfig {
     pub playback_mode: PlaybackMode,
     #[validate(range(min = 1.0, max = 240.0))]
     pub sequence_fps: f32,
-    pub hot_reload: bool,
     /// Maximum texture size [width, height] for GPU upload.
     /// Images larger than this are downscaled before GPU upload to reduce frame spikes.
     /// Lower values = faster uploads but lower quality. [1920, 1080] is a good balance.
@@ -147,7 +146,6 @@ impl Default for ViewerConfig {
             cache_extent: 5,
             playback_mode: PlaybackMode::Slideshow,
             sequence_fps: 24.0,
-            hot_reload: true,
             max_texture_size: [1920, 1080],
             filter_mode: FilterMode::Linear,
             fit_mode: FitMode::Fit,
