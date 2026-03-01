@@ -165,7 +165,15 @@ impl Renderer {
     }
 
     /// Reconfigure the surface after a resize.
+    ///
+    /// Returns early without reconfiguring if either dimension is zero — wgpu
+    /// panics on zero-dimension surfaces, and the caller in `app.rs` already
+    /// guards against this, but `Renderer::resize` is public so the check
+    /// belongs here too.
     pub fn resize(&mut self, new_size: winit::dpi::PhysicalSize<u32>) {
+        if new_size.width == 0 || new_size.height == 0 {
+            return;
+        }
         self.surface_config.width = new_size.width;
         self.surface_config.height = new_size.height;
         self.surface.configure(&self.device, &self.surface_config);
