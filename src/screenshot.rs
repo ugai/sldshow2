@@ -1,5 +1,6 @@
 //! Screenshot capture from the rendered surface.
 
+use half::f16;
 use log::{error, info, warn};
 use std::path::PathBuf;
 use std::sync::mpsc::TryRecvError;
@@ -33,7 +34,21 @@ impl ScreenshotCapture {
     ) -> Result<String, String> {
         let width = surface_config.width;
         let height = surface_config.height;
-        let bytes_per_pixel = 4u32;
+        let (bytes_per_pixel, is_bgra, is_rgba16f) = match surface_config.format {
+            wgpu::TextureFormat::Rgba8Unorm | wgpu::TextureFormat::Rgba8UnormSrgb => {
+                (4u32, false, false)
+            }
+            wgpu::TextureFormat::Bgra8Unorm | wgpu::TextureFormat::Bgra8UnormSrgb => {
+                (4u32, true, false)
+            }
+            wgpu::TextureFormat::Rgba16Float => (8u32, false, true),
+            format => {
+                error!("Unsupported surface format for screenshot: {format:?}");
+                return Err(format!(
+                    "Screenshot failed: unsupported surface format ({format:?})."
+                ));
+            }
+        };
         let unpadded_bytes_per_row = width * bytes_per_pixel;
         // wgpu requires 256-byte row alignment for buffer copies
         let padded_bytes_per_row = (unpadded_bytes_per_row + 255) & !255;
@@ -95,53 +110,71 @@ impl ScreenshotCapture {
             }
         };
 
-        if let Ok(Ok(())) = map_result {
-            let data = buffer_slice.get_mapped_range();
-            let filename = self.next_filename()?;
+        match map_result {
+            Ok(Ok(())) => {
+                let data = buffer_slice.get_mapped_range();
+                let filename = self.next_filename()?;
 
-            // Remove row padding and copy pixel data
-            let mut pixels = Vec::with_capacity((width * height * bytes_per_pixel) as usize);
-            for row in 0..height {
-                let start = (row * padded_bytes_per_row) as usize;
-                let end = start + unpadded_bytes_per_row as usize;
-                pixels.extend_from_slice(&data[start..end]);
-            }
-            drop(data);
-            staging_buffer.unmap();
+                // Remove row padding and convert to RGBA8 pixels.
+                let mut pixels = Vec::with_capacity((width * height * 4) as usize);
+                for row in 0..height {
+                    let start = (row * padded_bytes_per_row) as usize;
+                    let end = start + unpadded_bytes_per_row as usize;
+                    let row_data = &data[start..end];
 
-            // Handle BGRA surface formats (common on Windows)
-            if matches!(
-                surface_config.format,
-                wgpu::TextureFormat::Bgra8Unorm | wgpu::TextureFormat::Bgra8UnormSrgb
-            ) {
-                for pixel in pixels.chunks_exact_mut(4) {
-                    pixel.swap(0, 2);
-                }
-            }
+                    if is_rgba16f {
+                        for pixel in row_data.chunks_exact(8) {
+                            let r =
+                                f16::from_bits(u16::from_ne_bytes([pixel[0], pixel[1]])).to_f32();
+                            let g =
+                                f16::from_bits(u16::from_ne_bytes([pixel[2], pixel[3]])).to_f32();
+                            let b =
+                                f16::from_bits(u16::from_ne_bytes([pixel[4], pixel[5]])).to_f32();
+                            let a = f16::from_bits(u16::from_ne_bytes([pixel[6], pixel[7]]))
+                                .to_f32()
+                                .clamp(0.0, 1.0);
 
-            match image::save_buffer(&filename, &pixels, width, height, image::ColorType::Rgba8) {
-                Ok(()) => {
-                    info!("Screenshot saved: {}", filename);
-                    Ok(filename)
+                            pixels.extend_from_slice(&[
+                                linear_hdr_to_srgb_u8(r),
+                                linear_hdr_to_srgb_u8(g),
+                                linear_hdr_to_srgb_u8(b),
+                                (a * 255.0).round() as u8,
+                            ]);
+                        }
+                    } else {
+                        for pixel in row_data.chunks_exact(4) {
+                            if is_bgra {
+                                pixels.extend_from_slice(&[pixel[2], pixel[1], pixel[0], pixel[3]]);
+                            } else {
+                                pixels.extend_from_slice(pixel);
+                            }
+                        }
+                    }
                 }
-                Err(e) => {
-                    error!("Failed to save screenshot: {}", e);
-                    Err("Screenshot failed!".to_string())
+
+                drop(data);
+                staging_buffer.unmap();
+
+                match image::save_buffer(&filename, &pixels, width, height, image::ColorType::Rgba8)
+                {
+                    Ok(()) => {
+                        info!("Screenshot saved: {}", filename);
+                        Ok(filename)
+                    }
+                    Err(e) => {
+                        error!("Failed to save screenshot: {}", e);
+                        Err("Screenshot failed!".to_string())
+                    }
                 }
             }
-        } else {
-            let message = match map_result {
-                Ok(Err(e)) => {
-                    error!("Failed to map screenshot buffer: {e}");
-                    "Screenshot failed: GPU map failed.".to_string()
-                }
-                Err(reason) => {
-                    error!("Failed to map screenshot buffer: {reason}");
-                    format!("Screenshot failed: {reason}.")
-                }
-                Ok(Ok(())) => "Screenshot failed!".to_string(),
-            };
-            Err(message)
+            Ok(Err(e)) => {
+                error!("Failed to map screenshot buffer: {e}");
+                Err("Screenshot failed: GPU map failed.".to_string())
+            }
+            Err(reason) => {
+                error!("Failed to map screenshot buffer: {reason}");
+                Err(format!("Screenshot failed: {reason}."))
+            }
         }
     }
 
@@ -196,4 +229,14 @@ impl ScreenshotCapture {
         error!("No free screenshot filename found after {MAX_FILENAME_ATTEMPTS} attempts");
         Err("Screenshot failed!".to_string())
     }
+}
+
+fn linear_hdr_to_srgb_u8(linear: f32) -> u8 {
+    let mapped = linear.max(0.0) / (1.0 + linear.max(0.0));
+    let srgb = if mapped <= 0.003_130_8 {
+        12.92 * mapped
+    } else {
+        1.055 * mapped.powf(1.0 / 2.4) - 0.055
+    };
+    (srgb.clamp(0.0, 1.0) * 255.0).round() as u8
 }
