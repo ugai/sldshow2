@@ -101,14 +101,14 @@ pub fn build_msg_hook(
                 continue;
             }
             let utf16 = &buf[..written];
-            let os_str = match String::from_utf16(utf16) {
+            let path_str = match String::from_utf16(utf16) {
                 Ok(path) => path,
                 Err(e) => {
                     log::warn!("Dropped path has invalid UTF-16 at index {}: {}", i, e);
                     continue;
                 }
             };
-            match Utf8PathBuf::try_from(std::path::PathBuf::from(os_str)) {
+            match Utf8PathBuf::try_from(std::path::PathBuf::from(path_str)) {
                 Ok(p) => paths.push(p),
                 Err(e) => log::warn!("Dropped path is not valid UTF-8 at index {}: {}", i, e),
             }
