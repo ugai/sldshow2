@@ -92,11 +92,25 @@ pub fn build_msg_hook(
         for i in 0..count {
             let len = unsafe { DragQueryFileW(hdrop, i, None) } as usize;
             let mut buf = vec![0u16; len + 1];
-            unsafe { DragQueryFileW(hdrop, i, Some(&mut buf)) };
-            let os_str = String::from_utf16_lossy(&buf[..len]);
-            match Utf8PathBuf::try_from(std::path::PathBuf::from(os_str)) {
+            let written = unsafe { DragQueryFileW(hdrop, i, Some(&mut buf)) } as usize;
+            if written == 0 && len > 0 {
+                log::warn!(
+                    "Dropped path could not be read from WM_DROPFILES at index {}",
+                    i
+                );
+                continue;
+            }
+            let utf16 = &buf[..written];
+            let path_str = match String::from_utf16(utf16) {
+                Ok(path) => path,
+                Err(e) => {
+                    log::warn!("Dropped path has invalid UTF-16 at index {}: {}", i, e);
+                    continue;
+                }
+            };
+            match Utf8PathBuf::try_from(std::path::PathBuf::from(path_str)) {
                 Ok(p) => paths.push(p),
-                Err(e) => log::warn!("Dropped path is not valid UTF-8: {}", e),
+                Err(e) => log::warn!("Dropped path is not valid UTF-8 at index {}: {}", i, e),
             }
         }
         unsafe { DragFinish(hdrop) };
