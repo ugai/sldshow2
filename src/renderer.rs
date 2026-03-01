@@ -71,7 +71,8 @@ impl Renderer {
                 .iter()
                 .copied()
                 .find(|f| f.is_srgb())
-                .unwrap_or(caps.formats[0]);
+                .or_else(|| caps.formats.first().copied())
+                .context("GPU surface reports no supported texture formats")?;
             info!("SDR swapchain selected: {:?}", fmt);
             (fmt, false)
         };
@@ -95,14 +96,18 @@ impl Renderer {
                         .iter()
                         .copied()
                         .find(|m| caps.alpha_modes.contains(m))
-                        .unwrap_or(caps.alpha_modes[0]);
+                        .or_else(|| caps.alpha_modes.first().copied())
+                        .context("GPU surface reports no supported alpha modes")?;
                     info!(
                         "Transparent mode enabled, selected alpha mode: {:?}",
                         selected
                     );
                     selected
                 } else {
-                    caps.alpha_modes[0]
+                    caps.alpha_modes
+                        .first()
+                        .copied()
+                        .context("GPU surface reports no supported alpha modes")?
                 }
             },
             view_formats: vec![],
@@ -152,7 +157,15 @@ impl Renderer {
     }
 
     /// Reconfigure the surface after a resize.
+    ///
+    /// Returns early without reconfiguring if either dimension is zero — wgpu
+    /// panics on zero-dimension surfaces, and the caller in `app.rs` already
+    /// guards against this, but `Renderer::resize` is public so the check
+    /// belongs here too.
     pub fn resize(&mut self, new_size: winit::dpi::PhysicalSize<u32>) {
+        if new_size.width == 0 || new_size.height == 0 {
+            return;
+        }
         self.surface_config.width = new_size.width;
         self.surface_config.height = new_size.height;
         self.surface.configure(&self.device, &self.surface_config);
