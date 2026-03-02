@@ -780,7 +780,26 @@ impl ApplicationState {
         }
         #[cfg(all(unix, not(target_os = "macos")))]
         {
+            // Best-effort reveal/select: try common file managers that support
+            // selecting a specific file, then fall back to opening the directory.
+            //
+            // • nautilus --select <file>  — GNOME Files
+            // • dolphin --select <file>   — KDE Dolphin
+            // • thunar <dir>              — XFCE Thunar (no select flag)
+            // • xdg-open <dir>            — universal fallback
             let dir = path.parent().unwrap_or(path);
+
+            if try_spawn_file_manager("nautilus", &["--select"], path) {
+                return Ok(());
+            }
+            if try_spawn_file_manager("dolphin", &["--select"], path) {
+                return Ok(());
+            }
+            if try_spawn_file_manager("thunar", &[], dir) {
+                return Ok(());
+            }
+
+            // Universal fallback: open the parent directory.
             std::process::Command::new("xdg-open").arg(dir).spawn()?;
         }
         Ok(())
@@ -1287,6 +1306,30 @@ impl ApplicationState {
             || self.texture_manager.is_loading()
             // Cursor visible — update() must run to auto-hide it
             || self.input_handler.cursor_visible
+    }
+}
+
+/// Attempt to launch `cmd` with optional `extra_args` followed by `target`.
+/// Returns `true` when the process was spawned successfully (binary found),
+/// `false` when the binary is not available so the caller can try the next
+/// option.  Only compiled on Linux / non-macOS Unix platforms.
+#[cfg(all(unix, not(target_os = "macos")))]
+fn try_spawn_file_manager(cmd: &str, extra_args: &[&str], target: &std::path::Path) -> bool {
+    let mut command = std::process::Command::new(cmd);
+    for arg in extra_args {
+        command.arg(arg);
+    }
+    command.arg(target);
+    match command.spawn() {
+        Ok(_) => {
+            info!("Opened '{}' for file-reveal", cmd);
+            true
+        }
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => false,
+        Err(e) => {
+            warn!("'{}' failed to spawn: {}", cmd, e);
+            false
+        }
     }
 }
 
