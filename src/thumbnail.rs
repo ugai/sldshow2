@@ -44,9 +44,17 @@ pub struct ThumbnailManager {
 #[allow(dead_code)]
 impl ThumbnailManager {
     /// Create a new thumbnail manager with bounded cache size.
+    ///
+    /// If `max_cache_size` is 0 a warning is emitted and the size is clamped to
+    /// 1 so construction always succeeds without panicking.
     pub fn new(max_cache_size: usize) -> Self {
-        assert!(max_cache_size > 0, "max_cache_size must be greater than 0");
-        let cap = NonZeroUsize::new(max_cache_size).expect("max_cache_size must be greater than 0");
+        let max_cache_size = if max_cache_size == 0 {
+            warn!("ThumbnailManager::new called with max_cache_size=0; clamping to 1");
+            1
+        } else {
+            max_cache_size
+        };
+        let cap = NonZeroUsize::new(max_cache_size).expect("max_cache_size is at least 1");
         let (tx, rx) = channel();
         Self {
             cache: LruCache::new(cap),
@@ -271,9 +279,10 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "max_cache_size must be greater than 0")]
-    fn test_thumbnail_manager_zero_cache_size() {
-        ThumbnailManager::new(0);
+    fn test_thumbnail_manager_zero_cache_size_clamps_to_one() {
+        // Passing 0 must not panic; the cache size is clamped to 1.
+        let manager = ThumbnailManager::new(0);
+        assert_eq!(manager.cache.cap().get(), 1);
     }
 
     #[test]
