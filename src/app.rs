@@ -290,6 +290,144 @@ impl ApplicationState {
         }
     }
 
+    /// Formats and shows an OSD toggle message, e.g. `"Fullscreen: ON"` / `"Fullscreen: OFF"`.
+    fn show_toggle_osd(&mut self, name: &str, enabled: bool) {
+        let suffix = if enabled { "ON" } else { "OFF" };
+        self.show_osd(format!("{name}: {suffix}"));
+    }
+
+    /// Handles window-management actions: fullscreen, decorations, always-on-top, resize, position.
+    fn handle_window_action(&mut self, action: InputAction) {
+        match action {
+            InputAction::ToggleFullscreen => {
+                let new_fullscreen = self.window.fullscreen().is_none();
+                self.config.window.fullscreen = new_fullscreen;
+                self.window.set_fullscreen(if new_fullscreen {
+                    Some(winit::window::Fullscreen::Borderless(None))
+                } else {
+                    None
+                });
+                self.show_toggle_osd("Fullscreen", new_fullscreen);
+            }
+            InputAction::SetFullscreen(fullscreen) => {
+                self.config.window.fullscreen = fullscreen;
+                self.window.set_fullscreen(if fullscreen {
+                    Some(winit::window::Fullscreen::Borderless(None))
+                } else {
+                    None
+                });
+                self.show_toggle_osd("Fullscreen", fullscreen);
+            }
+            InputAction::ToggleDecorations => {
+                let new_decorated = !self.window.is_decorated();
+                self.window.set_decorations(new_decorated);
+                self.show_toggle_osd("Decorations", new_decorated);
+            }
+            InputAction::ToggleAlwaysOnTop => {
+                let always_on_top = !self.config.window.always_on_top;
+                self.config.window.always_on_top = always_on_top;
+                self.window.set_window_level(if always_on_top {
+                    winit::window::WindowLevel::AlwaysOnTop
+                } else {
+                    winit::window::WindowLevel::Normal
+                });
+                self.show_toggle_osd("Always On Top", always_on_top);
+            }
+            InputAction::ResizeWindow { width, height } => {
+                let _ = self
+                    .window
+                    .request_inner_size(winit::dpi::LogicalSize::new(width, height));
+                self.show_osd(format!("Resize: {}x{}", width, height));
+            }
+            InputAction::SetWindowPosition { x, y } => {
+                self.window
+                    .set_outer_position(winit::dpi::PhysicalPosition::new(x, y));
+            }
+            _ => {}
+        }
+    }
+
+    /// Handles display-toggle actions: info overlay, filename display, fit mode, loop.
+    fn handle_display_toggle(&mut self, action: InputAction) {
+        match action {
+            InputAction::ToggleInfoOverlay => {
+                let visible = self.egui_overlay.toggle_info_overlay();
+                self.info_temp_expiry = None;
+                if !visible {
+                    self.egui_overlay.set_info_text("");
+                }
+                self.show_toggle_osd("Info", visible);
+            }
+            InputAction::ShowInfoTemporary => {
+                if !self.egui_overlay.info_overlay_visible() {
+                    let info = self.build_info_string();
+                    self.egui_overlay.set_info_text(&info);
+                    self.info_temp_expiry = Some(Instant::now() + Duration::from_millis(1500));
+                }
+            }
+            InputAction::ToggleFilenameDisplay => {
+                self.show_filename_text = !self.show_filename_text;
+                self.filename_bar_temp_expiry = None;
+                self.show_toggle_osd("Filename", self.show_filename_text);
+            }
+            InputAction::ShowFilenameTemporary => {
+                if !self.show_filename_text {
+                    self.filename_bar_temp_expiry =
+                        Some(Instant::now() + Duration::from_millis(1500));
+                }
+            }
+            InputAction::ToggleFitMode => {
+                self.config.viewer.fit_mode.toggle();
+                self.show_osd(
+                    match self.config.viewer.fit_mode {
+                        config::FitMode::Fit => "Fit: Normal",
+                        config::FitMode::AmbientFit => "Fit: Ambient",
+                    }
+                    .to_string(),
+                );
+            }
+            InputAction::ToggleLoop => {
+                self.config.viewer.pause_at_last = !self.config.viewer.pause_at_last;
+                // Loop is ON when pause_at_last is OFF
+                let looping = !self.config.viewer.pause_at_last;
+                let status = if looping { "Loop: ON" } else { "Loop: OFF" };
+                info!("{}", status);
+                self.show_osd(status.to_string());
+            }
+            _ => {}
+        }
+    }
+
+    /// Handles zoom and pan actions: zoom in/out, pan, reset zoom.
+    fn handle_zoom(&mut self, action: InputAction) {
+        match action {
+            InputAction::Zoom { delta } => {
+                let factor = if delta > 0.0 { 1.1f32 } else { 1.0 / 1.1 };
+                self.zoom_scale = (self.zoom_scale * factor).clamp(1.0, 10.0);
+                // Keep input_handler in sync so drag behavior is correct
+                self.input_handler.zoom_scale = self.zoom_scale;
+                // Clamp pan so image stays within viewport when zooming out
+                self.clamp_zoom_pan();
+                self.show_osd(format!("Zoom: {:.1}x", self.zoom_scale));
+            }
+            InputAction::Pan { dx, dy } => {
+                // Convert physical pixel delta to UV-space delta
+                let uv_dx = -dx / self.size.width as f32;
+                let uv_dy = -dy / self.size.height as f32;
+                self.zoom_pan[0] += uv_dx;
+                self.zoom_pan[1] += uv_dy;
+                self.clamp_zoom_pan();
+            }
+            InputAction::ResetZoom => {
+                self.zoom_scale = 1.0;
+                self.zoom_pan = [0.0, 0.0];
+                self.input_handler.zoom_scale = 1.0;
+                self.show_osd("Zoom: Reset".to_string());
+            }
+            _ => {}
+        }
+    }
+
     /// Executes an input action. Returns `true` if the application should exit.
     fn execute_input_action(&mut self, action: InputAction) -> bool {
         match action {
@@ -329,69 +467,12 @@ impl ApplicationState {
                     );
                 }
             }
-            InputAction::ToggleFullscreen => {
-                let fullscreen = self.window.fullscreen().is_some();
-                let new_fullscreen = !fullscreen;
-                self.config.window.fullscreen = new_fullscreen;
-                self.window.set_fullscreen(if new_fullscreen {
-                    Some(winit::window::Fullscreen::Borderless(None))
-                } else {
-                    None
-                });
-                self.show_osd(
-                    if !new_fullscreen {
-                        "Fullscreen: OFF"
-                    } else {
-                        "Fullscreen: ON"
-                    }
-                    .to_string(),
-                );
-            }
-            InputAction::SetFullscreen(fullscreen) => {
-                self.config.window.fullscreen = fullscreen;
-                self.window.set_fullscreen(if fullscreen {
-                    Some(winit::window::Fullscreen::Borderless(None))
-                } else {
-                    None
-                });
-                self.show_osd(
-                    if fullscreen {
-                        "Fullscreen: ON"
-                    } else {
-                        "Fullscreen: OFF"
-                    }
-                    .to_string(),
-                );
-            }
-            InputAction::ToggleDecorations => {
-                let decorated = self.window.is_decorated();
-                self.window.set_decorations(!decorated);
-                self.show_osd(
-                    if !decorated {
-                        "Decorations: ON"
-                    } else {
-                        "Decorations: OFF"
-                    }
-                    .to_string(),
-                );
-            }
-            InputAction::ToggleAlwaysOnTop => {
-                let always_on_top = !self.config.window.always_on_top;
-                self.config.window.always_on_top = always_on_top;
-                self.window.set_window_level(if always_on_top {
-                    winit::window::WindowLevel::AlwaysOnTop
-                } else {
-                    winit::window::WindowLevel::Normal
-                });
-                self.show_osd(
-                    if always_on_top {
-                        "Always On Top: ON"
-                    } else {
-                        "Always On Top: OFF"
-                    }
-                    .to_string(),
-                );
-            }
+            InputAction::ToggleFullscreen
+            | InputAction::SetFullscreen(_)
+            | InputAction::ToggleDecorations
+            | InputAction::ToggleAlwaysOnTop
+            | InputAction::ResizeWindow { .. }
+            | InputAction::SetWindowPosition { .. } => self.handle_window_action(action),
             InputAction::AdjustTimer(mut delta) => {
                 // Recalculate delta for non-Shift keys
                 if delta.abs() == 1.0 {
@@ -407,63 +488,12 @@ impl ApplicationState {
             InputAction::Screenshot => self.screenshot_requested = true,
             InputAction::ColorAdjust { key } => self.handle_color_key(key),
             InputAction::ResetColorAdjustments => self.reset_color_adjustments(),
-            InputAction::ToggleInfoOverlay => {
-                let visible = self.egui_overlay.toggle_info_overlay();
-                self.info_temp_expiry = None;
-                if !visible {
-                    self.egui_overlay.set_info_text("");
-                }
-                self.show_osd(if visible { "Info: ON" } else { "Info: OFF" }.to_string());
-            }
-            InputAction::ShowInfoTemporary => {
-                if !self.egui_overlay.info_overlay_visible() {
-                    let info = self.build_info_string();
-                    self.egui_overlay.set_info_text(&info);
-                    self.info_temp_expiry = Some(Instant::now() + Duration::from_millis(1500));
-                }
-            }
-            InputAction::ToggleFilenameDisplay => {
-                self.show_filename_text = !self.show_filename_text;
-                self.filename_bar_temp_expiry = None;
-                self.show_osd(
-                    if self.show_filename_text {
-                        "Filename: ON"
-                    } else {
-                        "Filename: OFF"
-                    }
-                    .to_string(),
-                );
-            }
-            InputAction::ShowFilenameTemporary => {
-                if !self.show_filename_text {
-                    self.filename_bar_temp_expiry =
-                        Some(Instant::now() + Duration::from_millis(1500));
-                }
-            }
-            InputAction::ToggleLoop => {
-                self.config.viewer.pause_at_last = !self.config.viewer.pause_at_last;
-                let status = if self.config.viewer.pause_at_last {
-                    "Loop: OFF"
-                } else {
-                    "Loop: ON"
-                };
-                info!("{}", status);
-                self.show_osd(status.to_string());
-            }
-            InputAction::ToggleFitMode => {
-                self.config.viewer.fit_mode.toggle();
-                self.show_osd(
-                    match self.config.viewer.fit_mode {
-                        config::FitMode::Fit => "Fit: Normal",
-                        config::FitMode::AmbientFit => "Fit: Ambient",
-                    }
-                    .to_string(),
-                );
-            }
-            InputAction::SetWindowPosition { x, y } => {
-                self.window
-                    .set_outer_position(winit::dpi::PhysicalPosition::new(x, y));
-            }
+            InputAction::ToggleInfoOverlay
+            | InputAction::ShowInfoTemporary
+            | InputAction::ToggleFilenameDisplay
+            | InputAction::ShowFilenameTemporary
+            | InputAction::ToggleFitMode
+            | InputAction::ToggleLoop => self.handle_display_toggle(action),
             InputAction::CopyImageToClipboard => {
                 if self.texture_manager.paths.is_empty() {
                     self.show_osd("No Image Loaded".to_string());
@@ -493,12 +523,6 @@ impl ApplicationState {
                 self.egui_overlay.toggle_gallery();
             }
             InputAction::Exit => return true,
-            InputAction::ResizeWindow { width, height } => {
-                let _ = self
-                    .window
-                    .request_inner_size(winit::dpi::LogicalSize::new(width, height));
-                self.show_osd(format!("Resize: {}x{}", width, height));
-            }
             InputAction::CopyPathToClipboard => {
                 if let Some(path) = self.texture_manager.current_path() {
                     match arboard::Clipboard::new() {
@@ -518,28 +542,8 @@ impl ApplicationState {
                 }
             }
             InputAction::OpenInExplorer => self.open_explorer(),
-            InputAction::Zoom { delta } => {
-                let factor = if delta > 0.0 { 1.1f32 } else { 1.0 / 1.1 };
-                self.zoom_scale = (self.zoom_scale * factor).clamp(1.0, 10.0);
-                // Keep input_handler in sync so drag behavior is correct
-                self.input_handler.zoom_scale = self.zoom_scale;
-                // Clamp pan so image stays within viewport when zooming out
-                self.clamp_zoom_pan();
-                self.show_osd(format!("Zoom: {:.1}x", self.zoom_scale));
-            }
-            InputAction::Pan { dx, dy } => {
-                // Convert physical pixel delta to UV-space delta
-                let uv_dx = -dx / self.size.width as f32;
-                let uv_dy = -dy / self.size.height as f32;
-                self.zoom_pan[0] += uv_dx;
-                self.zoom_pan[1] += uv_dy;
-                self.clamp_zoom_pan();
-            }
-            InputAction::ResetZoom => {
-                self.zoom_scale = 1.0;
-                self.zoom_pan = [0.0, 0.0];
-                self.input_handler.zoom_scale = 1.0;
-                self.show_osd("Zoom: Reset".to_string());
+            InputAction::Zoom { .. } | InputAction::Pan { .. } | InputAction::ResetZoom => {
+                self.handle_zoom(action)
             }
         }
         false
