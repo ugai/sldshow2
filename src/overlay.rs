@@ -644,19 +644,20 @@ impl EguiOverlay {
     /// Must call prepare_render() first to get clipped_primitives
     pub fn render<'rp>(
         &mut self,
-        render_pass: &mut wgpu::RenderPass<'rp>,
+        render_pass: wgpu::RenderPass<'rp>,
         clipped_primitives: &[egui::ClippedPrimitive],
         screen_descriptor: &egui_wgpu::ScreenDescriptor,
     ) {
-        // SAFETY: The egui_wgpu::Renderer::render signature uses RenderPass<'static>
-        // for API simplicity, but it doesn't actually require a 'static lifetime.
-        // The render pass is only used during this function call and doesn't escape.
-        // We transmute the lifetime to match the expected signature.
-        let render_pass_static: &mut wgpu::RenderPass<'static> =
-            unsafe { std::mem::transmute(render_pass) };
-
+        // `egui_wgpu::Renderer::render` requires `RenderPass<'static>`. We take
+        // the render pass by value and call the safe `forget_lifetime()` helper
+        // provided by wgpu to erase the lifetime. The only consequence of
+        // `forget_lifetime` is that any operation on the parent command encoder
+        // while this render pass is still alive produces a runtime error instead
+        // of a compile-time error; we do not touch the encoder here, so the
+        // invariant is trivially upheld.
+        let mut rp = render_pass.forget_lifetime();
         self.renderer
-            .render(render_pass_static, clipped_primitives, screen_descriptor);
+            .render(&mut rp, clipped_primitives, screen_descriptor);
     }
 
     /// Handle window resize
