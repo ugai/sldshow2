@@ -14,7 +14,7 @@ use std::collections::{HashSet, VecDeque};
 use std::num::NonZeroUsize;
 use std::sync::mpsc::{Receiver, Sender, channel};
 
-use crate::image_loader::apply_exif_rotation;
+use crate::image_loader::{apply_exif_rotation, fast_resize};
 
 /// Fixed thumbnail dimensions (square, aspect-preserving)
 const THUMBNAIL_SIZE: u32 = 256;
@@ -186,32 +186,6 @@ impl ThumbnailManager {
     }
 }
 
-// Helper to perform fast resizing using fast_image_resize
-fn fast_resize_exact(
-    src_img: fast_image_resize::images::Image,
-    dst_width: u32,
-    dst_height: u32,
-    filter: fast_image_resize::FilterType,
-) -> anyhow::Result<RgbaImage> {
-    let mut dst_img = fast_image_resize::images::Image::new(
-        dst_width,
-        dst_height,
-        fast_image_resize::PixelType::U8x4,
-    );
-
-    let mut resizer = fast_image_resize::Resizer::new();
-    let resize_opts = fast_image_resize::ResizeOptions::new()
-        .resize_alg(fast_image_resize::ResizeAlg::Convolution(filter));
-
-    resizer
-        .resize(&src_img, &mut dst_img, &resize_opts)
-        .map_err(|e| anyhow::anyhow!("{e:?}"))?;
-
-    let buffer = dst_img.into_vec();
-    RgbaImage::from_raw(dst_width, dst_height, buffer)
-        .ok_or_else(|| anyhow::anyhow!("from_raw failed"))
-}
-
 /// Generate a 256x256 thumbnail from an image file.
 /// Preserves aspect ratio with letterboxing.
 #[allow(dead_code)]
@@ -238,7 +212,7 @@ fn generate_thumbnail(path: &Utf8Path) -> anyhow::Result<RgbaImage> {
     )
     .map_err(|e| anyhow::anyhow!("{e:?}"))?;
 
-    let resized = fast_resize_exact(
+    let resized = fast_resize(
         src_image,
         new_w,
         new_h,
