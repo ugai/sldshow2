@@ -20,6 +20,26 @@ use crate::thumbnail::ThumbnailManager;
 use crate::timer::{SequenceTimer, SlideshowTimer};
 use crate::transition::{TransitionPipeline, TransitionUniform};
 
+/// Color adjustment parameters (mpv-like).
+#[derive(Debug, Clone, Copy)]
+pub struct ColorAdjustments {
+    pub brightness: f32,
+    pub contrast: f32,
+    pub gamma: f32,
+    pub saturation: f32,
+}
+
+impl Default for ColorAdjustments {
+    fn default() -> Self {
+        Self {
+            brightness: 0.0,
+            contrast: 1.0,
+            gamma: 1.0,
+            saturation: 1.0,
+        }
+    }
+}
+
 pub struct ApplicationState {
     config: Config,
     size: winit::dpi::PhysicalSize<u32>,
@@ -51,10 +71,7 @@ pub struct ApplicationState {
     info_temp_expiry: Option<Instant>,         // i temp → same top-left as I persistent
 
     // Color adjustments (mpv-like)
-    color_brightness: f32,
-    color_contrast: f32,
-    color_gamma: f32,
-    color_saturation: f32,
+    color: ColorAdjustments,
 
     // Screenshot
     screenshot_requested: bool,
@@ -190,10 +207,7 @@ impl ApplicationState {
             show_filename_text,
             filename_bar_temp_expiry: None,
             info_temp_expiry: None,
-            color_brightness: 0.0,
-            color_contrast: 1.0,
-            color_gamma: 1.0,
-            color_saturation: 1.0,
+            color: ColorAdjustments::default(),
             screenshot_requested: false,
             screenshot: ScreenshotCapture::new(),
             drag_drop,
@@ -648,14 +662,14 @@ impl ApplicationState {
 
     fn handle_color_key(&mut self, key: KeyCode) {
         let (value, delta, name, fmt) = match key {
-            KeyCode::Digit1 => (&mut self.color_contrast, -0.05f32, "Contrast", "{:.2}"),
-            KeyCode::Digit2 => (&mut self.color_contrast, 0.05, "Contrast", "{:.2}"),
-            KeyCode::Digit3 => (&mut self.color_brightness, -0.05, "Brightness", "{:.2}"),
-            KeyCode::Digit4 => (&mut self.color_brightness, 0.05, "Brightness", "{:.2}"),
-            KeyCode::Digit5 => (&mut self.color_gamma, -0.1, "Gamma", "{:.1}"),
-            KeyCode::Digit6 => (&mut self.color_gamma, 0.1, "Gamma", "{:.1}"),
-            KeyCode::Digit7 => (&mut self.color_saturation, -0.05, "Saturation", "{:.2}"),
-            KeyCode::Digit8 => (&mut self.color_saturation, 0.05, "Saturation", "{:.2}"),
+            KeyCode::Digit1 => (&mut self.color.contrast, -0.05f32, "Contrast", "{:.2}"),
+            KeyCode::Digit2 => (&mut self.color.contrast, 0.05, "Contrast", "{:.2}"),
+            KeyCode::Digit3 => (&mut self.color.brightness, -0.05, "Brightness", "{:.2}"),
+            KeyCode::Digit4 => (&mut self.color.brightness, 0.05, "Brightness", "{:.2}"),
+            KeyCode::Digit5 => (&mut self.color.gamma, -0.1, "Gamma", "{:.1}"),
+            KeyCode::Digit6 => (&mut self.color.gamma, 0.1, "Gamma", "{:.1}"),
+            KeyCode::Digit7 => (&mut self.color.saturation, -0.05, "Saturation", "{:.2}"),
+            KeyCode::Digit8 => (&mut self.color.saturation, 0.05, "Saturation", "{:.2}"),
             _ => return,
         };
         let (min, max) = match key {
@@ -675,10 +689,7 @@ impl ApplicationState {
     }
 
     fn reset_color_adjustments(&mut self) {
-        self.color_brightness = 0.0;
-        self.color_contrast = 1.0;
-        self.color_gamma = 1.0;
-        self.color_saturation = 1.0;
+        self.color = ColorAdjustments::default();
         self.show_osd("Color Reset".to_string());
     }
 
@@ -1115,10 +1126,10 @@ impl ApplicationState {
                 window_size: [self.size.width as f32, self.size.height as f32],
                 image_a_size: [tex_a.width as f32, tex_a.height as f32],
                 image_b_size: [tex_b.width as f32, tex_b.height as f32],
-                brightness: self.color_brightness,
-                contrast: self.color_contrast,
-                gamma: self.color_gamma,
-                saturation: self.color_saturation,
+                brightness: self.color.brightness,
+                contrast: self.color.contrast,
+                gamma: self.color.gamma,
+                saturation: self.color.saturation,
                 fit_mode: self.config.viewer.fit_mode.to_uniform_value(),
                 ambient_blur: self.config.viewer.ambient_blur,
                 zoom_scale: self.zoom_scale,
