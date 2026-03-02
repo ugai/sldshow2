@@ -78,6 +78,13 @@ They are **not yet approved** for autonomous implementation. Agents must wait un
 
 > **Note**: `agent:proposed` is an origin label, not a status. It stays on the issue even after `agent:ready` is added, so you can always filter AI-proposed issues with `--label agent:proposed`.
 
+### Issue Creation Protocol
+
+When creating new issues, an agent MUST:
+
+1. Add the `agent:proposed` label to every issue it creates
+2. Never add `agent:ready` — that label is reserved for human maintainers
+
 ### Eligibility Criteria
 
 An agent may only work on an issue if **ALL** of the following are true:
@@ -86,6 +93,13 @@ An agent may only work on an issue if **ALL** of the following are true:
 2. Is Open
 3. Is Unassigned
 4. Does **NOT** have a `pending` label
+
+### Issue Pickup Protocol
+
+Before writing any code, an agent MUST:
+
+1. Self-assign the issue to itself
+2. Post a comment on the issue announcing that work has started
 
 ### Priority
 
