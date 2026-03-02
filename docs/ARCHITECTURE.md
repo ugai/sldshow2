@@ -22,7 +22,7 @@ This document describes the high-level architecture and key components of `sldsh
 | `image_loader.rs` | **Asset Management**. Asynchronous image loading using `rayon` (up to 4 concurrent tasks). `MipData` enum supports both SDR (`Rgba8`) and HDR (`Rgba16Float` via `half` crate) texture paths. Full mip chain generation. Supports EXR, PNG, JPEG, GIF, WebP, BMP, TGA, TIFF, ICO, HDR, AVIF, PNM, DDS. |
 | `thumbnail.rs` | **Thumbnails**. Generates and caches 256px thumbnails on background threads for the gallery view. Tracks stale textures via `drain_newly_cached()`. |
 | `overlay.rs` | **UI Layer**. Manages the `egui` context. Draws the filename bar, OSD, info overlay, help overlay (keyboard shortcut reference), settings panel (playback/transition/display/window controls), and gallery view (thumbnail grid with virtual scrolling). |
-| `config.rs` | **Configuration**. `serde::Deserialize` structs for parsing `.sldshow` TOML files with defaults and validation. |
+| `config.rs` | **Configuration**. `serde::Deserialize` structs for parsing `.sldshow` TOML files with defaults and validation. Config is loaded once at startup; there is no hot-reload or file watching. The `save()` method exists but is not called — runtime changes are in-memory only and are not persisted to disk. |
 | `timer.rs` | **Slideshow Timer**. State machine for auto-advancing slides with pause/resume. |
 | `clipboard.rs` | **System Integration**. Async image-to-clipboard copy using `arboard`. Re-reads image from disk to avoid GPU readback. |
 | `osc.rs` | **On-Screen Controller**. Floating auto-hide playback bar with scrub timeline, play/pause, next/prev, shuffle, and settings buttons. Uses Phosphor icon font. |
@@ -47,6 +47,7 @@ This document describes the high-level architecture and key components of `sldsh
 The `ApplicationHandler` trait implementation in `app.rs` drives the application:
 -   `window_event()`: Dispatches events to `egui`, then `InputHandler`. Processes `InputAction`s including zoom/pan, color adjustments, gallery toggle, and clipboard operations.
 -   `about_to_wait()`: Requests redraw only when animating (transition in progress), overlay is active, or slideshow timer fires — otherwise idle.
+-   `update()`: Calls `build_ui(&mut self.config, …)` each frame so the settings panel can mutate the in-memory `Config` directly. Changes take effect immediately (next redraw or action) but are **not written back to the `.sldshow` file**.
 
 ### 3. Rendering Frame (`app.rs` -> `transition.rs` -> `overlay.rs`)
 On `WindowEvent::RedrawRequested`:
