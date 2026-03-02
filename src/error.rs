@@ -56,6 +56,9 @@ pub enum SldshowError {
 
     #[error("Image error: {0}")]
     ImageError(#[from] image::ImageError),
+
+    #[error("Invalid transition mode {0}: must be in range 0..=19")]
+    InvalidTransitionMode(i32),
 }
 
 pub type Result<T> = std::result::Result<T, SldshowError>;

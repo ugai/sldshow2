@@ -8,7 +8,7 @@ use winit::{
 };
 
 use crate::clipboard;
-use crate::config::{self, Config};
+use crate::config::{self, Config, TransitionMode};
 use crate::drag_drop::DragDropHandler;
 use crate::image_loader::{self, TextureManager};
 use crate::input::{InputAction, InputContext, InputHandler};
@@ -90,7 +90,7 @@ pub struct ApplicationState {
 struct ActiveTransition {
     start_time: Instant,
     duration: Duration,
-    mode: i32,
+    mode: TransitionMode,
     from_index: usize,
     to_index: usize,
 }
@@ -1084,10 +1084,10 @@ impl ApplicationState {
             let progress = t.start_time.elapsed().as_secs_f32() / t.duration.as_secs_f32();
             (t.from_index, t.to_index, progress.min(1.0), t.mode)
         } else if let Some(idx) = self.current_texture_index {
-            (idx, idx, 0.0, 0)
+            (idx, idx, 0.0, TransitionMode::default())
         } else {
             // No images uploaded yet
-            (0, 0, 0.0, 0)
+            (0, 0, 0.0, TransitionMode::default())
         };
 
         // If textures are not loaded yet, we can't create bind group.
@@ -1109,7 +1109,7 @@ impl ApplicationState {
             // Update Uniforms
             let uniform = TransitionUniform {
                 blend,
-                mode,
+                mode: mode.into(),
                 aspect_ratio: [1.0, 1.0],
                 bg_color: self.config.bg_color_f32(),
                 window_size: [self.size.width as f32, self.size.height as f32],
