@@ -59,6 +59,10 @@ egui-phosphor = "0.10"
 fast_image_resize = "5.1.4"
 half = "2"
 
+[[test]]
+name = "gpu_transition_invariants"
+path = "tests/gpu/transition_invariants.rs"
+
 [target.'cfg(windows)'.dependencies]
 windows = { version = "0.58", features = [
     "Win32_System_Power",
