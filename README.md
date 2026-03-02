@@ -34,7 +34,7 @@ See [`example.sldshow`](example.sldshow) for all options — window, viewer (pla
 
 ## Supported Formats
 
-PNG, JPEG, GIF, BMP, TIFF, WebP, ICO, TGA, HDR, PNM, DDS, AVIF, OpenEXR
+PNG, JPEG, GIF, BMP, TIFF, WebP, ICO, TGA, HDR, PNM, DDS, QOI, AVIF, OpenEXR
 
 ## Development
 
