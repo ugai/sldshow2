@@ -33,6 +33,10 @@ filter_mode = "linear"           # Texture filtering: "linear" (smooth) or "near
 fit_mode = "AmbientFit"          # "Fit" = black bars, "AmbientFit" = blurred background
                                  # Toggle at runtime with 'A' key
 ambient_blur = 5.0               # Mip LOD level for AmbientFit blur (0-10, higher = blurrier)
+# hdr = false                    # Enable Rgba16Float swapchain for HDR displays (Windows Advanced Color).
+                                 # Default false — keeps correct SDR brightness on most displays.
+                                 # Set true only if your display has HDR mode enabled and you need
+                                 # full dynamic range for EXR files.
 
 [transition]
 time = 0.5              # Transition duration in seconds

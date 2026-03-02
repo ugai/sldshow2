@@ -133,6 +133,10 @@ pub struct ViewerConfig {
     /// Mip LOD level for ambient fit blur (higher = blurrier, default 5.0)
     #[validate(range(min = 0.0, max = 10.0))]
     pub ambient_blur: f32,
+    /// Enable HDR output (Rgba16Float swapchain) for HDR displays with Windows Advanced Color.
+    /// When false (default), uses Rgba8UnormSrgb for correct SDR image brightness.
+    /// Set to true only if your display has HDR enabled and you need full HDR range for EXR files.
+    pub hdr: bool,
 }
 
 impl Default for ViewerConfig {
@@ -150,6 +154,7 @@ impl Default for ViewerConfig {
             filter_mode: FilterMode::Linear,
             fit_mode: FitMode::Fit,
             ambient_blur: 5.0,
+            hdr: false,
         }
     }
 }

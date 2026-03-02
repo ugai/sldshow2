@@ -62,7 +62,7 @@ impl Renderer {
 
         let caps = surface.get_capabilities(&adapter);
         let hdr_fmt = wgpu::TextureFormat::Rgba16Float;
-        let (config_format, is_hdr) = if caps.formats.contains(&hdr_fmt) {
+        let (config_format, is_hdr) = if config.viewer.hdr && caps.formats.contains(&hdr_fmt) {
             info!("HDR swapchain selected: Rgba16Float");
             (hdr_fmt, true)
         } else {
