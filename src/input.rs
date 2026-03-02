@@ -44,6 +44,7 @@ pub enum InputAction {
     },
     CopyImageToClipboard,
     ToggleHelpOverlay,
+    ToggleSettings,
     ToggleGallery,
     Exit,
     ResizeWindow {
@@ -70,6 +71,8 @@ pub struct InputContext {
     pub fullscreen: bool,
     pub image_count: usize,
     pub help_visible: bool,
+    pub settings_visible: bool,
+    pub gallery_visible: bool,
     /// Size of the currently displayed image in pixels, if any.
     pub current_image_size: Option<(u32, u32)>,
 }
@@ -134,13 +137,9 @@ impl InputHandler {
             WindowEvent::MouseWheel { delta, .. } => self.handle_mouse_wheel(delta, modifiers),
             WindowEvent::KeyboardInput {
                 event: key_event, ..
-            } if key_event.state == ElementState::Pressed => self.handle_keyboard_pressed(
-                &key_event.physical_key,
-                modifiers,
-                ctx.image_count,
-                ctx.help_visible,
-                ctx.current_image_size,
-            ),
+            } if key_event.state == ElementState::Pressed => {
+                self.handle_keyboard_pressed(&key_event.physical_key, modifiers, ctx)
+            }
             _ => (false, None),
         }
     }
@@ -303,126 +302,130 @@ impl InputHandler {
         &mut self,
         physical_key: &PhysicalKey,
         modifiers: &ModifiersState,
-        image_count: usize,
-        help_visible: bool,
-        current_image_size: Option<(u32, u32)>,
+        ctx: &InputContext,
     ) -> (bool, Option<InputAction>) {
         self.last_cursor_move = Instant::now();
 
-        let action =
-            match physical_key {
-                PhysicalKey::Code(KeyCode::Escape) => {
-                    if help_visible {
-                        Some(InputAction::ToggleHelpOverlay)
-                    } else {
-                        Some(InputAction::Exit)
-                    }
-                }
-                PhysicalKey::Code(KeyCode::KeyQ) => Some(InputAction::Exit),
-                PhysicalKey::Code(KeyCode::ArrowRight) | PhysicalKey::Code(KeyCode::Space) => {
-                    let steps = if modifiers.shift_key() { 10 } else { 1 };
-                    Some(InputAction::NextImage { steps })
-                }
-                PhysicalKey::Code(KeyCode::ArrowLeft) => {
-                    let steps = if modifiers.shift_key() { 10 } else { 1 };
-                    Some(InputAction::PrevImage { steps })
-                }
-                PhysicalKey::Code(KeyCode::Home) => Some(InputAction::JumpTo(0)),
-                PhysicalKey::Code(KeyCode::End) => {
-                    Some(InputAction::JumpTo(image_count.saturating_sub(1)))
-                }
-                PhysicalKey::Code(KeyCode::KeyP) => Some(InputAction::TogglePause),
-                PhysicalKey::Code(KeyCode::KeyF) => Some(InputAction::ToggleFullscreen),
-                PhysicalKey::Code(KeyCode::KeyD) => Some(InputAction::ToggleDecorations),
-                PhysicalKey::Code(KeyCode::KeyT) => Some(InputAction::ToggleAlwaysOnTop),
-                PhysicalKey::Code(KeyCode::BracketLeft) => {
-                    let delta = if modifiers.shift_key() {
-                        -60.0
-                    } else {
-                        // Timer step calculation deferred to ApplicationState
-                        -1.0 // Placeholder, will be recalculated
-                    };
-                    Some(InputAction::AdjustTimer(delta))
-                }
-                PhysicalKey::Code(KeyCode::BracketRight) => {
-                    let delta = if modifiers.shift_key() {
-                        60.0
-                    } else {
-                        1.0 // Placeholder
-                    };
-                    Some(InputAction::AdjustTimer(delta))
-                }
-                PhysicalKey::Code(KeyCode::Backspace) => {
-                    if modifiers.shift_key() {
-                        Some(InputAction::ResetColorAdjustments)
-                    } else {
-                        Some(InputAction::ResetTimer)
-                    }
-                }
-                PhysicalKey::Code(KeyCode::KeyS) => Some(InputAction::Screenshot),
-                PhysicalKey::Code(
-                    key @ (KeyCode::Digit1
-                    | KeyCode::Digit2
-                    | KeyCode::Digit3
-                    | KeyCode::Digit4
-                    | KeyCode::Digit5
-                    | KeyCode::Digit6
-                    | KeyCode::Digit7
-                    | KeyCode::Digit8),
-                ) if !modifiers.alt_key() && !modifiers.shift_key() && !modifiers.control_key() => {
-                    Some(InputAction::ColorAdjust { key: *key })
-                }
-                PhysicalKey::Code(KeyCode::Digit0) if modifiers.alt_key() => current_image_size
-                    .map(|(w, h)| InputAction::ResizeWindow {
-                        width: (w / 2).max(1),
-                        height: (h / 2).max(1),
-                    }),
-                PhysicalKey::Code(KeyCode::Digit1) if modifiers.alt_key() => current_image_size
-                    .map(|(w, h)| InputAction::ResizeWindow {
-                        width: w,
-                        height: h,
-                    }),
-                PhysicalKey::Code(KeyCode::Digit2) if modifiers.alt_key() => current_image_size
-                    .map(|(w, h)| InputAction::ResizeWindow {
-                        width: w * 2,
-                        height: h * 2,
-                    }),
-                PhysicalKey::Code(KeyCode::KeyI) => {
-                    if modifiers.shift_key() {
-                        Some(InputAction::ToggleInfoOverlay)
-                    } else {
-                        Some(InputAction::ShowInfoTemporary)
-                    }
-                }
-                PhysicalKey::Code(KeyCode::KeyO) => {
-                    if modifiers.shift_key() {
-                        Some(InputAction::ToggleFilenameDisplay)
-                    } else {
-                        Some(InputAction::ShowFilenameTemporary)
-                    }
-                }
-                PhysicalKey::Code(KeyCode::KeyL) => Some(InputAction::ToggleLoop),
-                PhysicalKey::Code(KeyCode::KeyA) => Some(InputAction::ToggleFitMode),
-                PhysicalKey::Code(KeyCode::KeyC)
-                    if modifiers.control_key() && modifiers.shift_key() =>
-                {
-                    Some(InputAction::CopyImageToClipboard)
-                }
-                PhysicalKey::Code(KeyCode::KeyC)
-                    if modifiers.control_key() && !modifiers.shift_key() =>
-                {
-                    Some(InputAction::CopyPathToClipboard)
-                }
-                PhysicalKey::Code(KeyCode::KeyE) if modifiers.alt_key() => {
-                    Some(InputAction::OpenInExplorer)
-                }
-                PhysicalKey::Code(KeyCode::Slash) if modifiers.shift_key() => {
+        let action = match physical_key {
+            PhysicalKey::Code(KeyCode::Escape) => {
+                if ctx.gallery_visible {
+                    Some(InputAction::ToggleGallery)
+                } else if ctx.settings_visible {
+                    Some(InputAction::ToggleSettings)
+                } else if ctx.help_visible {
                     Some(InputAction::ToggleHelpOverlay)
+                } else {
+                    Some(InputAction::Exit)
                 }
-                PhysicalKey::Code(KeyCode::KeyG) => Some(InputAction::ToggleGallery),
-                PhysicalKey::Code(KeyCode::KeyZ) => Some(InputAction::ResetZoom),
-                _ => None,
-            };
+            }
+            PhysicalKey::Code(KeyCode::KeyQ) => Some(InputAction::Exit),
+            PhysicalKey::Code(KeyCode::ArrowRight) | PhysicalKey::Code(KeyCode::Space) => {
+                let steps = if modifiers.shift_key() { 10 } else { 1 };
+                Some(InputAction::NextImage { steps })
+            }
+            PhysicalKey::Code(KeyCode::ArrowLeft) => {
+                let steps = if modifiers.shift_key() { 10 } else { 1 };
+                Some(InputAction::PrevImage { steps })
+            }
+            PhysicalKey::Code(KeyCode::Home) => Some(InputAction::JumpTo(0)),
+            PhysicalKey::Code(KeyCode::End) => {
+                Some(InputAction::JumpTo(ctx.image_count.saturating_sub(1)))
+            }
+            PhysicalKey::Code(KeyCode::KeyP) => Some(InputAction::TogglePause),
+            PhysicalKey::Code(KeyCode::KeyF) => Some(InputAction::ToggleFullscreen),
+            PhysicalKey::Code(KeyCode::KeyD) => Some(InputAction::ToggleDecorations),
+            PhysicalKey::Code(KeyCode::KeyT) => Some(InputAction::ToggleAlwaysOnTop),
+            PhysicalKey::Code(KeyCode::BracketLeft) => {
+                let delta = if modifiers.shift_key() {
+                    -60.0
+                } else {
+                    // Timer step calculation deferred to ApplicationState
+                    -1.0 // Placeholder, will be recalculated
+                };
+                Some(InputAction::AdjustTimer(delta))
+            }
+            PhysicalKey::Code(KeyCode::BracketRight) => {
+                let delta = if modifiers.shift_key() {
+                    60.0
+                } else {
+                    1.0 // Placeholder
+                };
+                Some(InputAction::AdjustTimer(delta))
+            }
+            PhysicalKey::Code(KeyCode::Backspace) => {
+                if modifiers.shift_key() {
+                    Some(InputAction::ResetColorAdjustments)
+                } else {
+                    Some(InputAction::ResetTimer)
+                }
+            }
+            PhysicalKey::Code(KeyCode::KeyS) => Some(InputAction::Screenshot),
+            PhysicalKey::Code(
+                key @ (KeyCode::Digit1
+                | KeyCode::Digit2
+                | KeyCode::Digit3
+                | KeyCode::Digit4
+                | KeyCode::Digit5
+                | KeyCode::Digit6
+                | KeyCode::Digit7
+                | KeyCode::Digit8),
+            ) if !modifiers.alt_key() && !modifiers.shift_key() && !modifiers.control_key() => {
+                Some(InputAction::ColorAdjust { key: *key })
+            }
+            PhysicalKey::Code(KeyCode::Digit0) if modifiers.alt_key() => ctx
+                .current_image_size
+                .map(|(w, h)| InputAction::ResizeWindow {
+                    width: (w / 2).max(1),
+                    height: (h / 2).max(1),
+                }),
+            PhysicalKey::Code(KeyCode::Digit1) if modifiers.alt_key() => ctx
+                .current_image_size
+                .map(|(w, h)| InputAction::ResizeWindow {
+                    width: w,
+                    height: h,
+                }),
+            PhysicalKey::Code(KeyCode::Digit2) if modifiers.alt_key() => ctx
+                .current_image_size
+                .map(|(w, h)| InputAction::ResizeWindow {
+                    width: w * 2,
+                    height: h * 2,
+                }),
+            PhysicalKey::Code(KeyCode::KeyI) => {
+                if modifiers.shift_key() {
+                    Some(InputAction::ToggleInfoOverlay)
+                } else {
+                    Some(InputAction::ShowInfoTemporary)
+                }
+            }
+            PhysicalKey::Code(KeyCode::KeyO) => {
+                if modifiers.shift_key() {
+                    Some(InputAction::ToggleFilenameDisplay)
+                } else {
+                    Some(InputAction::ShowFilenameTemporary)
+                }
+            }
+            PhysicalKey::Code(KeyCode::KeyL) => Some(InputAction::ToggleLoop),
+            PhysicalKey::Code(KeyCode::KeyA) => Some(InputAction::ToggleFitMode),
+            PhysicalKey::Code(KeyCode::KeyC)
+                if modifiers.control_key() && modifiers.shift_key() =>
+            {
+                Some(InputAction::CopyImageToClipboard)
+            }
+            PhysicalKey::Code(KeyCode::KeyC)
+                if modifiers.control_key() && !modifiers.shift_key() =>
+            {
+                Some(InputAction::CopyPathToClipboard)
+            }
+            PhysicalKey::Code(KeyCode::KeyE) if modifiers.alt_key() => {
+                Some(InputAction::OpenInExplorer)
+            }
+            PhysicalKey::Code(KeyCode::Slash) if modifiers.shift_key() => {
+                Some(InputAction::ToggleHelpOverlay)
+            }
+            PhysicalKey::Code(KeyCode::KeyG) => Some(InputAction::ToggleGallery),
+            PhysicalKey::Code(KeyCode::KeyZ) => Some(InputAction::ResetZoom),
+            _ => None,
+        };
 
         (action.is_some(), action)
     }

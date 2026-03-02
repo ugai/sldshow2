@@ -232,6 +232,8 @@ impl ApplicationState {
             fullscreen: self.window.fullscreen().is_some(),
             image_count: self.texture_manager.len(),
             help_visible: self.egui_overlay.help_overlay_visible(),
+            settings_visible: self.egui_overlay.settings_visible(),
+            gallery_visible: self.egui_overlay.gallery_visible(),
             current_image_size,
         };
         let (consumed, action) =
@@ -488,6 +490,9 @@ impl ApplicationState {
             }
             InputAction::ToggleHelpOverlay => {
                 self.egui_overlay.toggle_help_overlay();
+            }
+            InputAction::ToggleSettings => {
+                self.egui_overlay.toggle_settings();
             }
             InputAction::ToggleGallery => {
                 self.egui_overlay.toggle_gallery();
