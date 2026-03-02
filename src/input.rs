@@ -309,14 +309,12 @@ impl InputHandler {
         self.last_cursor_move = Instant::now();
 
         let action = match physical_key {
-            PhysicalKey::Code(KeyCode::Escape) => {
-                match ctx.front_overlay {
-                    Some(OverlayKind::Gallery) => Some(InputAction::ToggleGallery),
-                    Some(OverlayKind::Help) => Some(InputAction::ToggleHelpOverlay),
-                    Some(OverlayKind::Settings) => Some(InputAction::ToggleSettings),
-                    None => Some(InputAction::Exit),
-                }
-            }
+            PhysicalKey::Code(KeyCode::Escape) => match ctx.front_overlay {
+                Some(OverlayKind::Gallery) => Some(InputAction::ToggleGallery),
+                Some(OverlayKind::Help) => Some(InputAction::ToggleHelpOverlay),
+                Some(OverlayKind::Settings) => Some(InputAction::ToggleSettings),
+                None => Some(InputAction::Exit),
+            },
             PhysicalKey::Code(KeyCode::KeyQ) => Some(InputAction::Exit),
             PhysicalKey::Code(KeyCode::ArrowRight) | PhysicalKey::Code(KeyCode::Space) => {
                 let steps = if modifiers.shift_key() { 10 } else { 1 };

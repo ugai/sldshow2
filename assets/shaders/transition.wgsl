@@ -214,20 +214,28 @@ fn ts_sliding_door(uv: vec2<f32>, progress: f32, opening: bool) -> vec4<f32> {
     }
 }
 
-// 12-15: Blind effects (horizontal/vertical)
+// 12-15: Blind effects (horizontal/vertical, open outward/close inward)
 fn ts_blind(uv: vec2<f32>, progress: f32, direction: i32) -> vec4<f32> {
     let slices = 10.0;
     var slice_progress: f32;
+    var open_outward: bool;
 
     if direction == 0 || direction == 1 { // horizontal
-        let slice_idx = floor(uv.y * slices);
         slice_progress = fract(uv.y * slices);
+        open_outward = direction == 0;
     } else { // vertical
-        let slice_idx = floor(uv.x * slices);
         slice_progress = fract(uv.x * slices);
+        open_outward = direction == 2;
     }
 
-    if slice_progress < progress {
+    var show_new: bool;
+    if open_outward {
+        show_new = slice_progress < progress;
+    } else {
+        show_new = slice_progress > (1.0 - progress);
+    }
+
+    if show_new {
         return sample_with_fit(texture_b, sampler_b, uv, material.image_b_size, material.window_size);
     } else {
         return sample_with_fit(texture_a, sampler_a, uv, material.image_a_size, material.window_size);
