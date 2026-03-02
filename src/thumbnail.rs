@@ -10,11 +10,11 @@ use camino::{Utf8Path, Utf8PathBuf};
 use image::{GenericImageView, RgbaImage};
 use log::{debug, warn};
 use lru::LruCache;
-use std::collections::{HashSet, VecDeque};
+use std::collections::{HashMap, VecDeque};
 use std::num::NonZeroUsize;
 use std::sync::mpsc::{Receiver, Sender, channel};
 
-use crate::image_loader::{apply_exif_rotation, fast_resize};
+use crate::image_loader::{apply_orientation, fast_resize, read_exif_orientation};
 
 /// Fixed thumbnail dimensions (square, aspect-preserving)
 const THUMBNAIL_SIZE: u32 = 256;
@@ -26,12 +26,18 @@ pub struct ThumbnailManager {
     /// LRU cache: index → thumbnail image (O(1) access and eviction)
     cache: LruCache<usize, RgbaImage>,
 
-    /// Async generation tracking
-    loading_tasks: HashSet<usize>,
+    /// Async generation tracking: index → epoch the task was spawned in.
+    /// Storing the epoch allows `update()` to detect and discard results from
+    /// tasks that were spawned before a `clear()` call (stale epoch).
+    loading_tasks: HashMap<usize, u64>,
     /// Queue of requests waiting for a free concurrent slot
     pending_queue: VecDeque<(usize, Utf8PathBuf)>,
-    tx: Sender<(usize, anyhow::Result<RgbaImage>)>,
-    rx: Receiver<(usize, anyhow::Result<RgbaImage>)>,
+    /// Generation counter — incremented on every `clear()` so that in-flight
+    /// rayon tasks from a previous generation are silently discarded when their
+    /// results arrive.  Mirrors the epoch guard in `TextureManager`.
+    epoch: u64,
+    tx: Sender<(u64, usize, anyhow::Result<RgbaImage>)>,
+    rx: Receiver<(u64, usize, anyhow::Result<RgbaImage>)>,
 
     /// Indices of thumbnails that were newly inserted into the cache since the
     /// last call to `drain_newly_cached()`. Used by the overlay to invalidate
@@ -55,8 +61,9 @@ impl ThumbnailManager {
         let (tx, rx) = channel();
         Self {
             cache: LruCache::new(cap),
-            loading_tasks: HashSet::new(),
+            loading_tasks: HashMap::new(),
             pending_queue: VecDeque::new(),
+            epoch: 0,
             tx,
             rx,
             newly_cached: Vec::new(),
@@ -68,7 +75,7 @@ impl ThumbnailManager {
     pub fn request_thumbnail(&mut self, index: usize, path: &Utf8Path) {
         // Already cached or loading or pending
         if self.cache.contains(&index)
-            || self.loading_tasks.contains(&index)
+            || self.loading_tasks.contains_key(&index)
             || self.pending_queue.iter().any(|(i, _)| *i == index)
         {
             return;
@@ -86,12 +93,13 @@ impl ThumbnailManager {
     /// Spawn a thumbnail generation task on a rayon thread-pool worker.
     fn spawn_generation(&mut self, index: usize, path: Utf8PathBuf) {
         let tx = self.tx.clone();
+        let epoch = self.epoch;
 
-        self.loading_tasks.insert(index);
+        self.loading_tasks.insert(index, epoch);
 
         rayon::spawn(move || {
             let result = generate_thumbnail(&path);
-            if tx.send((index, result)).is_err() {
+            if tx.send((epoch, index, result)).is_err() {
                 warn!("Failed to send thumbnail {} (receiver dropped)", path);
             }
         });
@@ -100,8 +108,16 @@ impl ThumbnailManager {
     /// Process completed thumbnail generation tasks.
     /// Call this from the main event loop.
     pub fn update(&mut self) {
-        while let Ok((index, result)) = self.rx.try_recv() {
-            self.loading_tasks.remove(&index);
+        while let Ok((msg_epoch, index, result)) = self.rx.try_recv() {
+            // Discard results from a previous generation (stale after clear()).
+            // Only remove from loading_tasks when the epoch matches to avoid
+            // accidentally evicting a new task that reused the same index.
+            if msg_epoch != self.epoch {
+                continue;
+            }
+            if self.loading_tasks.get(&index) == Some(&msg_epoch) {
+                self.loading_tasks.remove(&index);
+            }
 
             match result {
                 Ok(thumbnail) => {
@@ -123,7 +139,7 @@ impl ThumbnailManager {
             match self.pending_queue.pop_front() {
                 Some((index, path)) => {
                     // Skip if already cached or already loading in the meantime
-                    if self.cache.contains(&index) || self.loading_tasks.contains(&index) {
+                    if self.cache.contains(&index) || self.loading_tasks.contains_key(&index) {
                         continue;
                     }
                     self.spawn_generation(index, path);
@@ -140,19 +156,20 @@ impl ThumbnailManager {
     }
 
     /// Clear all cached thumbnails and cancel pending tasks.
-    // Not currently called from app code, but retained as a complete cache-management API
-    // that will be needed when full slideshow reload support is added.
+    ///
+    /// Increments the internal epoch so any in-flight rayon tasks spawned
+    /// before this call are treated as stale: their results are silently
+    /// discarded in `update()` without touching the refreshed cache.
+    // Not currently called from app code, but retained as a complete cache-management API.
     #[allow(dead_code)]
     pub fn clear(&mut self) {
         self.cache.clear();
         self.loading_tasks.clear();
         self.pending_queue.clear();
         self.newly_cached.clear();
-        // Recreate channel so old threads' tx handles are orphaned;
-        // their sends will silently fail without leaking loading_tasks.
-        let (tx, rx) = channel();
-        self.tx = tx;
-        self.rx = rx;
+        // Bump epoch: results arriving from pre-clear tasks carry the old
+        // epoch and will be discarded by the guard in update().
+        self.epoch = self.epoch.wrapping_add(1);
     }
 
     /// Clear only the pending queue.
@@ -197,7 +214,11 @@ fn generate_thumbnail(path: &Utf8Path) -> anyhow::Result<RgbaImage> {
         .map_err(|e| anyhow::anyhow!("Failed to open image: {}", e))?;
 
     // Apply EXIF rotation (shared with image_loader)
-    let img = apply_exif_rotation(img, path);
+    let orientation = std::fs::File::open(path.as_std_path())
+        .ok()
+        .map(|f| read_exif_orientation(&mut std::io::BufReader::new(f)))
+        .unwrap_or(None);
+    let img = apply_orientation(img, orientation);
 
     // Resize to fit within 256x256, preserving aspect ratio
     let (orig_w, orig_h) = img.dimensions();
@@ -247,7 +268,7 @@ mod tests {
     fn test_thumbnail_manager_clear() {
         let mut manager = ThumbnailManager::new(100);
         manager.cache.put(0, RgbaImage::new(256, 256));
-        manager.loading_tasks.insert(1);
+        manager.loading_tasks.insert(1, 0);
 
         manager.clear();
 
@@ -260,6 +281,55 @@ mod tests {
         // Passing 0 must not panic; the cache size is clamped to 1.
         let manager = ThumbnailManager::new(0);
         assert_eq!(manager.cache.cap().get(), 1);
+    }
+
+    #[test]
+    fn test_epoch_incremented_on_clear() {
+        let mut manager = ThumbnailManager::new(100);
+        assert_eq!(manager.epoch, 0);
+        manager.clear();
+        assert_eq!(manager.epoch, 1);
+        manager.clear();
+        assert_eq!(manager.epoch, 2);
+    }
+
+    #[test]
+    fn test_stale_epoch_result_discarded() {
+        // Simulate a result arriving from before a clear() — it should be
+        // discarded and must not be inserted into the cache.
+        let mut manager = ThumbnailManager::new(100);
+
+        // Inject a stale (epoch=0) message directly into the channel.
+        let stale_epoch = 0u64;
+        manager
+            .tx
+            .send((stale_epoch, 42, Ok(RgbaImage::new(256, 256))))
+            .unwrap();
+
+        // Advance epoch so the injected message is stale.
+        manager.clear();
+        assert_eq!(manager.epoch, 1);
+
+        // update() should discard the stale result.
+        manager.update();
+        assert_eq!(manager.cache_size(), 0, "stale result must not be cached");
+        assert!(manager.drain_newly_cached().is_empty());
+    }
+
+    #[test]
+    fn test_current_epoch_result_accepted() {
+        // A result with the current epoch should be inserted normally.
+        let mut manager = ThumbnailManager::new(100);
+
+        let current_epoch = manager.epoch;
+        manager
+            .tx
+            .send((current_epoch, 7, Ok(RgbaImage::new(256, 256))))
+            .unwrap();
+
+        manager.update();
+        assert_eq!(manager.cache_size(), 1);
+        assert_eq!(manager.drain_newly_cached(), vec![7]);
     }
 
     #[test]

@@ -10,6 +10,8 @@ use winit::{
     window::Window,
 };
 
+use crate::overlay::OverlayKind;
+
 /// Actions that can be triggered by input events.
 #[derive(Debug, Clone)]
 pub enum InputAction {
@@ -70,9 +72,9 @@ pub enum InputAction {
 pub struct InputContext {
     pub fullscreen: bool,
     pub image_count: usize,
-    pub help_visible: bool,
-    pub settings_visible: bool,
-    pub gallery_visible: bool,
+    /// The topmost overlay by open order (z-order proxy). Used to determine
+    /// which overlay Escape should close first.
+    pub front_overlay: Option<OverlayKind>,
     /// Size of the currently displayed image in pixels, if any.
     pub current_image_size: Option<(u32, u32)>,
 }
@@ -308,14 +310,11 @@ impl InputHandler {
 
         let action = match physical_key {
             PhysicalKey::Code(KeyCode::Escape) => {
-                if ctx.gallery_visible {
-                    Some(InputAction::ToggleGallery)
-                } else if ctx.settings_visible {
-                    Some(InputAction::ToggleSettings)
-                } else if ctx.help_visible {
-                    Some(InputAction::ToggleHelpOverlay)
-                } else {
-                    Some(InputAction::Exit)
+                match ctx.front_overlay {
+                    Some(OverlayKind::Gallery) => Some(InputAction::ToggleGallery),
+                    Some(OverlayKind::Help) => Some(InputAction::ToggleHelpOverlay),
+                    Some(OverlayKind::Settings) => Some(InputAction::ToggleSettings),
+                    None => Some(InputAction::Exit),
                 }
             }
             PhysicalKey::Code(KeyCode::KeyQ) => Some(InputAction::Exit),

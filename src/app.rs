@@ -71,7 +71,6 @@ pub struct ApplicationState {
     info_temp_expiry: Option<Instant>,         // i temp → same top-left as I persistent
 
     // Color adjustments (mpv-like)
-    // Color adjustments (mpv-like)
     color: ColorAdjustments,
 
     // Screenshot
@@ -246,9 +245,7 @@ impl ApplicationState {
         let ctx = InputContext {
             fullscreen: self.window.fullscreen().is_some(),
             image_count: self.texture_manager.len(),
-            help_visible: self.egui_overlay.help_overlay_visible(),
-            settings_visible: self.egui_overlay.settings_visible(),
-            gallery_visible: self.egui_overlay.gallery_visible(),
+            front_overlay: self.egui_overlay.front_overlay(),
             current_image_size,
         };
         let (consumed, action) =

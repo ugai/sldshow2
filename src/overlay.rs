@@ -33,6 +33,14 @@ pub enum OverlayAction {
     JumpTo(usize),
 }
 
+/// Identifies which overlay panel is currently on top (z-order proxy).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum OverlayKind {
+    Gallery,
+    Help,
+    Settings,
+}
+
 pub struct EguiOverlay {
     context: Context,
     state: State,
@@ -63,6 +71,8 @@ pub struct EguiOverlay {
     // Gallery state
     show_gallery: bool,
     gallery_textures: HashMap<usize, egui::TextureHandle>,
+    /// Open-order stack for z-order tracking. Last element is the frontmost overlay.
+    overlay_stack: Vec<OverlayKind>,
 }
 
 impl EguiOverlay {
@@ -150,6 +160,7 @@ impl EguiOverlay {
             text_color: Color32::WHITE,
             show_gallery: false,
             gallery_textures: HashMap::new(),
+            overlay_stack: Vec::new(),
         }
     }
 
@@ -200,13 +211,33 @@ impl EguiOverlay {
         self.show_info_overlay
     }
 
+    fn push_overlay(&mut self, kind: OverlayKind) {
+        self.overlay_stack.retain(|k| *k != kind);
+        self.overlay_stack.push(kind);
+    }
+
+    fn pop_overlay(&mut self, kind: OverlayKind) {
+        self.overlay_stack.retain(|k| *k != kind);
+    }
+
+    /// Returns the topmost visible overlay based on open order (z-order proxy).
+    pub fn front_overlay(&self) -> Option<OverlayKind> {
+        self.overlay_stack.last().copied()
+    }
+
     /// Toggle help overlay visibility
     pub fn toggle_help_overlay(&mut self) -> bool {
         self.show_help_overlay = !self.show_help_overlay;
+        if self.show_help_overlay {
+            self.push_overlay(OverlayKind::Help);
+        } else {
+            self.pop_overlay(OverlayKind::Help);
+        }
         self.show_help_overlay
     }
 
     /// Check if help overlay is visible
+    #[allow(dead_code)]
     pub fn help_overlay_visible(&self) -> bool {
         self.show_help_overlay
     }
@@ -214,10 +245,16 @@ impl EguiOverlay {
     /// Toggle settings overlay visibility
     pub fn toggle_settings(&mut self) -> bool {
         self.show_settings = !self.show_settings;
+        if self.show_settings {
+            self.push_overlay(OverlayKind::Settings);
+        } else {
+            self.pop_overlay(OverlayKind::Settings);
+        }
         self.show_settings
     }
 
     /// Check if settings overlay is visible
+    #[allow(dead_code)]
     pub fn settings_visible(&self) -> bool {
         self.show_settings
     }
@@ -225,9 +262,15 @@ impl EguiOverlay {
     /// Toggle gallery visibility
     pub fn toggle_gallery(&mut self) {
         self.show_gallery = !self.show_gallery;
+        if self.show_gallery {
+            self.push_overlay(OverlayKind::Gallery);
+        } else {
+            self.pop_overlay(OverlayKind::Gallery);
+        }
     }
 
     /// Check if gallery is visible
+    #[allow(dead_code)]
     pub fn gallery_visible(&self) -> bool {
         self.show_gallery
     }
@@ -596,10 +639,16 @@ impl EguiOverlay {
             action = Some(OverlayAction::Osc(osc_action));
         }
 
+        // Sync stack for egui-driven closes (e.g., X-button on Settings window).
+        if !self.show_settings {
+            self.pop_overlay(OverlayKind::Settings);
+        }
+        if !self.show_help_overlay {
+            self.pop_overlay(OverlayKind::Help);
+        }
+
         action
     }
-
-    /// End frame and prepare render data
     /// Returns egui primitives ready for rendering
     pub fn end_frame(&mut self, window: &Window) -> egui::FullOutput {
         let output = self.context.end_pass();
@@ -761,6 +810,7 @@ impl EguiOverlay {
                             if resp.clicked() {
                                 action = Some(OverlayAction::JumpTo(index));
                                 self.show_gallery = false;
+                                self.pop_overlay(OverlayKind::Gallery);
                             }
                         }
                     });
@@ -771,6 +821,7 @@ impl EguiOverlay {
         // Close on Escape
         if ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
             self.show_gallery = false;
+            self.pop_overlay(OverlayKind::Gallery);
         }
 
         action
