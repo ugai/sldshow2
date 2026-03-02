@@ -1282,6 +1282,11 @@ impl ApplicationHandler for ApplicationState {
         // Forward event to egui first
         let egui_consumed = self.egui_overlay.handle_event(&self.window, &event);
 
+        // Track whether this event produced a visual state change that
+        // requires an immediate redraw. Animation-driven redraws are
+        // handled separately in `about_to_wait`.
+        let mut needs_redraw = egui_consumed;
+
         // Try input handler only if egui didn't consume the event
         let modifiers = self.modifiers;
         if !egui_consumed {
@@ -1289,6 +1294,9 @@ impl ApplicationHandler for ApplicationState {
             if should_exit {
                 event_loop.exit();
                 return;
+            }
+            if consumed {
+                needs_redraw = true;
             }
             if !consumed {
                 match event {
@@ -1331,14 +1339,19 @@ impl ApplicationHandler for ApplicationState {
                     #[cfg(not(windows))]
                     WindowEvent::DroppedFile(path) => {
                         self.drag_drop.queue_dropped_file(path);
+                        needs_redraw = true;
                     }
                     _ => {}
                 }
             }
         }
 
-        // Ensure the result of any window event is reflected on screen.
-        self.window.request_redraw();
+        // Only request a redraw when this event caused a visual state change.
+        // Idle events (cursor moves with no action, unbound keys, etc.) are
+        // skipped here; continuous animation is driven by `about_to_wait`.
+        if needs_redraw {
+            self.window.request_redraw();
+        }
     }
 
     fn about_to_wait(&mut self, _event_loop: &ActiveEventLoop) {
