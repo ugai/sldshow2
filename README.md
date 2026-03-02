@@ -28,6 +28,8 @@ Press `?` in-app for the full keyboard shortcut reference.
 
 TOML files with `.sldshow` extension. Lookup: CLI arg → `~/.sldshow` → defaults.
 
+Configuration is loaded **once at startup**. There is no hot-reload or file watching — to apply changes to the `.sldshow` file, restart the application. Runtime adjustments made through the Settings panel take effect immediately but are not saved back to disk.
+
 See [`example.sldshow`](example.sldshow) for all options — window, viewer (playback mode, fit mode, texture limits, scan subfolders, …), transition, and style (background, font, transparency).
 
 ## Supported Formats
