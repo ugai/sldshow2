@@ -245,23 +245,4 @@ impl Osc {
 
         None
     }
-
-    /// Check if OSC is currently visible
-    #[allow(dead_code)]
-    pub fn is_visible(&self) -> bool {
-        self.visible
-    }
-
-    /// Force OSC to show (e.g., on window focus)
-    #[allow(dead_code)]
-    pub fn show(&mut self) {
-        self.visible = true;
-        self.last_interaction = Instant::now();
-    }
-
-    /// Force OSC to hide
-    #[allow(dead_code)]
-    pub fn hide(&mut self) {
-        self.visible = false;
-    }
 }

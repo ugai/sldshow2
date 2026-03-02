@@ -20,10 +20,8 @@ use crate::image_loader::apply_exif_rotation;
 const THUMBNAIL_SIZE: u32 = 256;
 
 /// Maximum number of concurrent thumbnail generation tasks
-#[allow(dead_code)]
 const MAX_CONCURRENT_GENERATION: usize = 4;
 
-#[allow(dead_code)]
 pub struct ThumbnailManager {
     /// LRU cache: index → thumbnail image (O(1) access and eviction)
     cache: LruCache<usize, RgbaImage>,
@@ -41,7 +39,6 @@ pub struct ThumbnailManager {
     newly_cached: Vec<usize>,
 }
 
-#[allow(dead_code)]
 impl ThumbnailManager {
     /// Create a new thumbnail manager with bounded cache size.
     pub fn new(max_cache_size: usize) -> Self {
@@ -135,6 +132,9 @@ impl ThumbnailManager {
     }
 
     /// Clear all cached thumbnails and cancel pending tasks.
+    // Not currently called from app code, but retained as a complete cache-management API
+    // that will be needed when full slideshow reload support is added.
+    #[allow(dead_code)]
     pub fn clear(&mut self) {
         self.cache.clear();
         self.loading_tasks.clear();
@@ -163,11 +163,15 @@ impl ThumbnailManager {
     }
 
     /// Returns the number of cached thumbnails.
+    // Used in unit tests to assert cache state; not called from app code.
+    #[allow(dead_code)]
     pub fn cache_size(&self) -> usize {
         self.cache.len()
     }
 
     /// Returns the number of thumbnails currently being generated.
+    // Used in unit tests to assert loading-task state; not called from app code.
+    #[allow(dead_code)]
     pub fn pending_count(&self) -> usize {
         self.loading_tasks.len()
     }
@@ -206,7 +210,6 @@ fn fast_resize_exact(
 
 /// Generate a 256x256 thumbnail from an image file.
 /// Preserves aspect ratio with letterboxing.
-#[allow(dead_code)]
 fn generate_thumbnail(path: &Utf8Path) -> anyhow::Result<RgbaImage> {
     let img = image::open(path.as_std_path())
         .map_err(|e| anyhow::anyhow!("Failed to open image: {}", e))?;
