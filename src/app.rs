@@ -1081,8 +1081,12 @@ impl ApplicationState {
         // Prepare BindGroup and Uniforms
         // Determine which textures to use
         let (tex_a_idx, tex_b_idx, blend, mode) = if let Some(ref t) = self.transition {
-            let progress = t.start_time.elapsed().as_secs_f32() / t.duration.as_secs_f32();
-            (t.from_index, t.to_index, progress.min(1.0), t.mode)
+            let ratio = t.start_time.elapsed().as_secs_f32() / t.duration.as_secs_f32();
+            // Guard against NaN: a near-zero duration can produce a zero-length
+            // Duration after f32 → Duration conversion, causing 0/0 = NaN.
+            // `.min(1.0)` catches infinity but not NaN, so we handle it explicitly.
+            let progress = if ratio.is_nan() { 1.0 } else { ratio.min(1.0) };
+            (t.from_index, t.to_index, progress, t.mode)
         } else if let Some(idx) = self.current_texture_index {
             (idx, idx, 0.0, 0)
         } else {
