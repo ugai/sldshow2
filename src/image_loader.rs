@@ -248,140 +248,51 @@ impl TextureManager {
                 Ok(mip_data) => {
                     match mip_data {
                         MipData::Sdr(mips) => {
-                            let Some(base) = mips.first() else {
+                            let Some(_base) = mips.first() else {
                                 error!("Image {} returned empty SDR mip chain", idx);
                                 self.errors.insert(idx, "empty mip chain".to_string());
                                 continue;
                             };
-                            let width = base.width();
-                            let height = base.height();
-
-                            let texture = device.create_texture(&wgpu::TextureDescriptor {
-                                label: Some(&format!("Image Texture {}", idx)),
-                                size: wgpu::Extent3d {
-                                    width,
-                                    height,
-                                    depth_or_array_layers: 1,
-                                },
-                                mip_level_count: mips.len() as u32,
-                                sample_count: 1,
-                                dimension: wgpu::TextureDimension::D2,
-                                format: wgpu::TextureFormat::Rgba8UnormSrgb,
-                                usage: wgpu::TextureUsages::TEXTURE_BINDING
-                                    | wgpu::TextureUsages::COPY_DST,
-                                view_formats: &[],
+                            // SDR: 4 channels × 1 byte (u8), uploaded as-is
+                            let mip_iter = mips.iter().map(|mip| {
+                                (
+                                    mip.width(),
+                                    mip.height(),
+                                    4 * mip.width(),
+                                    mip.as_raw().clone(),
+                                )
                             });
-
-                            for (level, mip) in mips.iter().enumerate() {
-                                queue.write_texture(
-                                    wgpu::TexelCopyTextureInfo {
-                                        texture: &texture,
-                                        mip_level: level as u32,
-                                        origin: wgpu::Origin3d::ZERO,
-                                        aspect: wgpu::TextureAspect::All,
-                                    },
-                                    mip,
-                                    wgpu::TexelCopyBufferLayout {
-                                        offset: 0,
-                                        bytes_per_row: Some(4 * mip.width()),
-                                        rows_per_image: Some(mip.height()),
-                                    },
-                                    wgpu::Extent3d {
-                                        width: mip.width(),
-                                        height: mip.height(),
-                                        depth_or_array_layers: 1,
-                                    },
-                                );
-                            }
-
-                            let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
-                            self.textures.insert(
+                            self.upload_mip_chain(
+                                device,
+                                queue,
                                 idx,
-                                LoadedTexture {
-                                    texture,
-                                    view,
-                                    width,
-                                    height,
-                                },
-                            );
-                            debug!(
-                                "Uploaded SDR image {} ({}x{}, {} mips)",
-                                idx,
-                                width,
-                                height,
-                                mips.len()
+                                wgpu::TextureFormat::Rgba8UnormSrgb,
+                                "SDR",
+                                mip_iter,
                             );
                         }
                         MipData::Hdr(mips) => {
-                            let Some(base) = mips.first() else {
+                            let Some(_base) = mips.first() else {
                                 error!("Image {} returned empty HDR mip chain", idx);
                                 self.errors.insert(idx, "empty mip chain".to_string());
                                 continue;
                             };
-                            let width = base.width();
-                            let height = base.height();
-
-                            let texture = device.create_texture(&wgpu::TextureDescriptor {
-                                label: Some(&format!("Image Texture {} (HDR)", idx)),
-                                size: wgpu::Extent3d {
-                                    width,
-                                    height,
-                                    depth_or_array_layers: 1,
-                                },
-                                mip_level_count: mips.len() as u32,
-                                sample_count: 1,
-                                dimension: wgpu::TextureDimension::D2,
-                                format: wgpu::TextureFormat::Rgba16Float,
-                                usage: wgpu::TextureUsages::TEXTURE_BINDING
-                                    | wgpu::TextureUsages::COPY_DST,
-                                view_formats: &[],
-                            });
-
-                            for (level, mip) in mips.iter().enumerate() {
-                                // Convert f32 → f16 for Rgba16Float GPU upload
+                            // HDR: convert f32 → f16; 4 channels × 2 bytes per pixel
+                            let mip_iter = mips.iter().map(|mip| {
                                 let f16_bytes: Vec<u8> = mip
                                     .as_raw()
                                     .iter()
                                     .flat_map(|&f| half::f16::from_f32(f).to_ne_bytes())
                                     .collect();
-                                queue.write_texture(
-                                    wgpu::TexelCopyTextureInfo {
-                                        texture: &texture,
-                                        mip_level: level as u32,
-                                        origin: wgpu::Origin3d::ZERO,
-                                        aspect: wgpu::TextureAspect::All,
-                                    },
-                                    &f16_bytes,
-                                    wgpu::TexelCopyBufferLayout {
-                                        offset: 0,
-                                        // 4 channels × 2 bytes (f16)
-                                        bytes_per_row: Some(8 * mip.width()),
-                                        rows_per_image: Some(mip.height()),
-                                    },
-                                    wgpu::Extent3d {
-                                        width: mip.width(),
-                                        height: mip.height(),
-                                        depth_or_array_layers: 1,
-                                    },
-                                );
-                            }
-
-                            let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
-                            self.textures.insert(
+                                (mip.width(), mip.height(), 8 * mip.width(), f16_bytes)
+                            });
+                            self.upload_mip_chain(
+                                device,
+                                queue,
                                 idx,
-                                LoadedTexture {
-                                    texture,
-                                    view,
-                                    width,
-                                    height,
-                                },
-                            );
-                            debug!(
-                                "Uploaded HDR image {} ({}x{}, {} mips)",
-                                idx,
-                                width,
-                                height,
-                                mips.len()
+                                wgpu::TextureFormat::Rgba16Float,
+                                "HDR",
+                                mip_iter,
                             );
                         }
                     }
@@ -450,6 +361,82 @@ impl TextureManager {
                 }
             }
         }
+    }
+
+    /// Upload a mip chain to the GPU and insert the resulting [`LoadedTexture`] into the cache.
+    ///
+    /// `mips` yields `(mip_width, mip_height, bytes_per_row, pixel_bytes)` for each mip level
+    /// in ascending order (level 0 first).  The `kind` string (`"SDR"` or `"HDR"`) is used for
+    /// the wgpu texture label and the debug log line.
+    fn upload_mip_chain(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        idx: usize,
+        format: wgpu::TextureFormat,
+        kind: &str,
+        mips: impl Iterator<Item = (u32, u32, u32, Vec<u8>)>,
+    ) {
+        let mips: Vec<(u32, u32, u32, Vec<u8>)> = mips.collect();
+        let mip_count = mips.len();
+
+        // Base dimensions come from the first (largest) mip level.
+        let (width, height) = mips.first().map_or((0, 0), |&(w, h, _, _)| (w, h));
+
+        let texture_label = if kind == "SDR" {
+            format!("Image Texture {idx}")
+        } else {
+            format!("Image Texture {idx} ({kind})")
+        };
+
+        let texture = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some(&texture_label),
+            size: wgpu::Extent3d {
+                width,
+                height,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: mip_count as u32,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+            view_formats: &[],
+        });
+
+        for (level, (mip_w, mip_h, bytes_per_row, data)) in mips.iter().enumerate() {
+            queue.write_texture(
+                wgpu::TexelCopyTextureInfo {
+                    texture: &texture,
+                    mip_level: level as u32,
+                    origin: wgpu::Origin3d::ZERO,
+                    aspect: wgpu::TextureAspect::All,
+                },
+                data,
+                wgpu::TexelCopyBufferLayout {
+                    offset: 0,
+                    bytes_per_row: Some(*bytes_per_row),
+                    rows_per_image: Some(*mip_h),
+                },
+                wgpu::Extent3d {
+                    width: *mip_w,
+                    height: *mip_h,
+                    depth_or_array_layers: 1,
+                },
+            );
+        }
+
+        let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+        self.textures.insert(
+            idx,
+            LoadedTexture {
+                texture,
+                view,
+                width,
+                height,
+            },
+        );
+        debug!("Uploaded {kind} image {idx} ({width}x{height}, {mip_count} mips)");
     }
 }
 
