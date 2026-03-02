@@ -1188,7 +1188,7 @@ impl ApplicationState {
 
         // Render egui into a dedicated pass
         {
-            let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            let render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("Egui Render Pass"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                     view: &view,
@@ -1204,7 +1204,7 @@ impl ApplicationState {
             });
 
             self.egui_overlay
-                .render(&mut render_pass, &clipped_primitives, &screen_descriptor);
+                .render(render_pass, &clipped_primitives, &screen_descriptor);
         }
 
         if self.screenshot_requested {
