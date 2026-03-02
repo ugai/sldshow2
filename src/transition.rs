@@ -1,6 +1,6 @@
 //! WGPU render pipeline for image transitions with 20 WGSL shader effects.
 
-use crate::config::FilterMode;
+use crate::config::{FilterMode, TransitionMode};
 use bytemuck::{Pod, Zeroable};
 use std::borrow::Cow;
 
@@ -192,9 +192,11 @@ impl TransitionPipeline {
     }
 
     /// Pick a random transition mode from available effects
-    pub fn random_mode() -> i32 {
+    pub fn random_mode() -> TransitionMode {
         use rand::Rng;
         let mut rng = rand::rng();
-        rng.random_range(0..TRANSITION_MODE_COUNT)
+        // SAFETY: TRANSITION_MODE_COUNT is 20, so range is 0..20 i.e. 0..=19 which is valid
+        TransitionMode::try_from(rng.random_range(0..TRANSITION_MODE_COUNT))
+            .expect("random_range(0..20) always produces a valid TransitionMode")
     }
 }

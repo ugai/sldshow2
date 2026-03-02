@@ -2,7 +2,7 @@
 
 use crate::error::{Result, SldshowError};
 use camino::{Utf8Path, Utf8PathBuf};
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use validator::Validate;
 
 /// Texture filtering mode
@@ -154,6 +154,57 @@ impl Default for ViewerConfig {
     }
 }
 
+/// A validated transition mode index in the range `0..=19`.
+///
+/// Enforces the range invariant at construction time via [`TryFrom<i32>`].
+/// Serializes and deserializes as a plain integer for TOML compatibility.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct TransitionMode(i32);
+
+impl TransitionMode {
+    /// The minimum valid mode index.
+    pub const MIN: i32 = 0;
+    /// The maximum valid mode index.
+    pub const MAX: i32 = 19;
+
+    /// Returns the inner `i32` value.
+    #[inline]
+    pub fn value(self) -> i32 {
+        self.0
+    }
+}
+
+impl TryFrom<i32> for TransitionMode {
+    type Error = SldshowError;
+
+    fn try_from(value: i32) -> std::result::Result<Self, Self::Error> {
+        if (Self::MIN..=Self::MAX).contains(&value) {
+            Ok(Self(value))
+        } else {
+            Err(SldshowError::InvalidTransitionMode(value))
+        }
+    }
+}
+
+impl From<TransitionMode> for i32 {
+    fn from(m: TransitionMode) -> i32 {
+        m.0
+    }
+}
+
+impl Serialize for TransitionMode {
+    fn serialize<S: Serializer>(&self, s: S) -> std::result::Result<S::Ok, S::Error> {
+        self.0.serialize(s)
+    }
+}
+
+impl<'de> Deserialize<'de> for TransitionMode {
+    fn deserialize<D: Deserializer<'de>>(d: D) -> std::result::Result<Self, D::Error> {
+        let value = i32::deserialize(d)?;
+        TransitionMode::try_from(value).map_err(serde::de::Error::custom)
+    }
+}
+
 /// Transition configuration
 #[derive(Debug, Clone, Serialize, Deserialize, Validate)]
 #[serde(default)]
@@ -161,8 +212,7 @@ pub struct TransitionConfig {
     #[validate(range(min = 0.0, max = 10.0))]
     pub time: f32,
     pub random: bool,
-    #[validate(range(min = 0, max = 19))]
-    pub mode: i32,
+    pub mode: TransitionMode,
 }
 
 impl Default for TransitionConfig {
@@ -170,7 +220,7 @@ impl Default for TransitionConfig {
         Self {
             time: 0.5,
             random: true,
-            mode: 0,
+            mode: TransitionMode::default(),
         }
     }
 }
@@ -300,6 +350,46 @@ mod tests {
 
         assert_eq!(config.window.width, deserialized.window.width);
         assert_eq!(config.viewer.timer, deserialized.viewer.timer);
+    }
+
+    #[test]
+    fn test_transition_mode_valid_range() {
+        assert!(TransitionMode::try_from(0).is_ok());
+        assert!(TransitionMode::try_from(19).is_ok());
+        assert!(TransitionMode::try_from(10).is_ok());
+    }
+
+    #[test]
+    fn test_transition_mode_invalid_range() {
+        assert!(TransitionMode::try_from(-1).is_err());
+        assert!(TransitionMode::try_from(20).is_err());
+        assert!(TransitionMode::try_from(100).is_err());
+    }
+
+    #[test]
+    fn test_transition_mode_roundtrip() {
+        let m = TransitionMode::try_from(7).unwrap();
+        assert_eq!(i32::from(m), 7);
+        assert_eq!(m.value(), 7);
+    }
+
+    #[test]
+    fn test_transition_mode_serde() {
+        // Test round-trip through TransitionConfig (TOML requires a table at root)
+        let config = TransitionConfig {
+            mode: TransitionMode::try_from(5).unwrap(),
+            ..TransitionConfig::default()
+        };
+        let serialized = toml::to_string(&config).unwrap();
+        let deserialized: TransitionConfig = toml::from_str(&serialized).unwrap();
+        assert_eq!(config.mode, deserialized.mode);
+    }
+
+    #[test]
+    fn test_transition_mode_serde_invalid() {
+        let result: std::result::Result<TransitionConfig, _> =
+            toml::from_str("mode = 99\ntime = 0.5\nrandom = false");
+        assert!(result.is_err());
     }
 
     #[test]

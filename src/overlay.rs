@@ -8,7 +8,7 @@ use wgpu::{Device, Queue, TextureFormat};
 use winit::event::WindowEvent;
 use winit::window::Window;
 
-use crate::config::{Config, FitMode};
+use crate::config::{Config, FitMode, TransitionMode};
 use crate::osc::{Osc, OscAction};
 use crate::thumbnail::ThumbnailManager;
 use std::collections::HashMap;
@@ -25,7 +25,7 @@ pub enum OverlayAction {
     ToggleScanSubfolders(bool),
     SetTransitionTime(f32),
     ToggleRandomTransition(bool),
-    SetTransitionMode(i32),
+    SetTransitionMode(TransitionMode),
     SetFitMode(FitMode),
     SetAmbientBlur(f32),
     ToggleAlwaysOnTop(bool),
@@ -513,12 +513,13 @@ impl EguiOverlay {
                     if !config.transition.random {
                         ui.horizontal(|ui| {
                             ui.label("Transition Mode:");
-                            if ui
-                                .add(egui::Slider::new(&mut config.transition.mode, 0..=19))
-                                .changed()
-                            {
-                                action =
-                                    Some(OverlayAction::SetTransitionMode(config.transition.mode));
+                            let mut mode_val: i32 = config.transition.mode.into();
+                            if ui.add(egui::Slider::new(&mut mode_val, 0..=19)).changed() {
+                                // Value comes from a bounded slider so try_from always succeeds.
+                                if let Ok(m) = TransitionMode::try_from(mode_val) {
+                                    config.transition.mode = m;
+                                    action = Some(OverlayAction::SetTransitionMode(m));
+                                }
                             }
                         });
                     }
