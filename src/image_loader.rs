@@ -599,7 +599,9 @@ fn mip_level_count(width: u32, height: u32) -> u32 {
 }
 
 /// Read the EXIF orientation tag from a reader without consuming the whole stream.
-fn read_exif_orientation<R: std::io::BufRead + std::io::Seek>(reader: &mut R) -> Option<u32> {
+pub(crate) fn read_exif_orientation<R: std::io::BufRead + std::io::Seek>(
+    reader: &mut R,
+) -> Option<u32> {
     exif::Reader::new()
         .read_from_container(reader)
         .ok()?
@@ -609,7 +611,10 @@ fn read_exif_orientation<R: std::io::BufRead + std::io::Seek>(reader: &mut R) ->
 }
 
 /// Apply a raw EXIF orientation value to an image.
-fn apply_orientation(img: image::DynamicImage, orientation: Option<u32>) -> image::DynamicImage {
+pub(crate) fn apply_orientation(
+    img: image::DynamicImage,
+    orientation: Option<u32>,
+) -> image::DynamicImage {
     match orientation {
         Some(2) => img.fliph(),
         Some(3) => img.rotate180(),
@@ -619,37 +624,6 @@ fn apply_orientation(img: image::DynamicImage, orientation: Option<u32>) -> imag
         Some(7) => img.rotate270().fliph(),
         Some(8) => img.rotate270(),
         _ => img,
-    }
-}
-
-pub fn apply_exif_rotation(img: image::DynamicImage, path: &Utf8Path) -> image::DynamicImage {
-    use std::fs::File;
-    use std::io::BufReader;
-
-    let file = match File::open(path.as_std_path()) {
-        Ok(f) => f,
-        Err(_) => return img,
-    };
-
-    let mut reader = BufReader::new(&file);
-    let exifreader = exif::Reader::new();
-    let exif = match exifreader.read_from_container(&mut reader) {
-        Ok(exif) => exif,
-        Err(_) => return img,
-    };
-
-    match exif.get_field(exif::Tag::Orientation, exif::In::PRIMARY) {
-        Some(field) => match field.value.get_uint(0) {
-            Some(2) => img.fliph(),
-            Some(3) => img.rotate180(),
-            Some(4) => img.flipv(),
-            Some(5) => img.rotate90().fliph(),
-            Some(6) => img.rotate90(),
-            Some(7) => img.rotate270().fliph(),
-            Some(8) => img.rotate270(),
-            _ => img,
-        },
-        None => img,
     }
 }
 

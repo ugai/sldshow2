@@ -14,7 +14,7 @@ use std::collections::{HashSet, VecDeque};
 use std::num::NonZeroUsize;
 use std::sync::mpsc::{Receiver, Sender, channel};
 
-use crate::image_loader::apply_exif_rotation;
+use crate::image_loader::{apply_orientation, read_exif_orientation};
 
 /// Fixed thumbnail dimensions (square, aspect-preserving)
 const THUMBNAIL_SIZE: u32 = 256;
@@ -212,7 +212,11 @@ fn generate_thumbnail(path: &Utf8Path) -> anyhow::Result<RgbaImage> {
         .map_err(|e| anyhow::anyhow!("Failed to open image: {}", e))?;
 
     // Apply EXIF rotation (shared with image_loader)
-    let img = apply_exif_rotation(img, path);
+    let orientation = std::fs::File::open(path.as_std_path())
+        .ok()
+        .map(|f| read_exif_orientation(&mut std::io::BufReader::new(f)))
+        .unwrap_or(None);
+    let img = apply_orientation(img, orientation);
 
     // Resize to fit within 256x256, preserving aspect ratio
     let (orig_w, orig_h) = img.dimensions();
