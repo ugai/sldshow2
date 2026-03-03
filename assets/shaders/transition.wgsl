@@ -138,14 +138,18 @@ fn sample_ambient_bg(tex: texture_2d<f32>, smp: sampler, uv: vec2<f32>,
     return vec4<f32>(color.rgb * vignette, 1.0);
 }
 
-// Unified sampling: contain-fit image with ambient background or solid color for out-of-bounds
-fn sample_with_fit(tex: texture_2d<f32>, smp: sampler, uv: vec2<f32>,
-                   image_size: vec2<f32>, window_size: vec2<f32>) -> vec4<f32> {
+// Unified sampling: contain-fit image with ambient background or solid color for out-of-bounds.
+// The scale is applied only to actual texture/ambient samples, not to the solid bg_color fallback.
+fn sample_with_fit_scaled(tex: texture_2d<f32>, smp: sampler, uv: vec2<f32>,
+                          image_size: vec2<f32>, window_size: vec2<f32>,
+                          scale: f32) -> vec4<f32> {
     let fit_uv = adjust_uv(uv, image_size, window_size);
     if is_uv_in_bounds(fit_uv) {
-        return textureSample(tex, smp, fit_uv);
+        let c = textureSample(tex, smp, fit_uv);
+        return vec4<f32>(c.rgb * scale, c.a);
     } else if material.fit_mode == 1 {
-        return sample_ambient_bg(tex, smp, uv, image_size, window_size);
+        let c = sample_ambient_bg(tex, smp, uv, image_size, window_size);
+        return vec4<f32>(c.rgb * scale, c.a);
     } else {
         return material.bg_color;
     }
@@ -153,15 +157,13 @@ fn sample_with_fit(tex: texture_2d<f32>, smp: sampler, uv: vec2<f32>,
 
 // Per-texture sampling with SDR brightness compensation on HDR swapchains.
 fn sample_a(uv: vec2<f32>) -> vec4<f32> {
-    var c = sample_with_fit(texture_a, sampler_a, uv, material.image_a_size, material.window_size);
-    c = vec4<f32>(c.rgb * material.sdr_scale_a, c.a);
-    return c;
+    return sample_with_fit_scaled(texture_a, sampler_a, uv,
+        material.image_a_size, material.window_size, material.sdr_scale_a);
 }
 
 fn sample_b(uv: vec2<f32>) -> vec4<f32> {
-    var c = sample_with_fit(texture_b, sampler_b, uv, material.image_b_size, material.window_size);
-    c = vec4<f32>(c.rgb * material.sdr_scale_b, c.a);
-    return c;
+    return sample_with_fit_scaled(texture_b, sampler_b, uv,
+        material.image_b_size, material.window_size, material.sdr_scale_b);
 }
 
 // 0: Basic crossfade

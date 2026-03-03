@@ -7,6 +7,9 @@ use std::borrow::Cow;
 /// Number of available transition modes (must match TRANSITION_MAX_MODE_IDX in WGSL)
 const TRANSITION_MODE_COUNT: i32 = 20; // Modes 0..=19
 
+/// SDR reference white on an scRGB (Rgba16Float) swapchain: 203 nits / 80 nits (BT.2408).
+pub const SDR_WHITE_SCALE: f32 = 203.0 / 80.0;
+
 #[repr(C)]
 #[derive(Copy, Clone, Debug, Pod, Zeroable)]
 pub struct TransitionUniform {
