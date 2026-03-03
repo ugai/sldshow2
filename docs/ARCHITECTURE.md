@@ -18,7 +18,7 @@ This document describes the high-level architecture and key components of `sldsh
 | `app.rs` | **Application Logic**. Contains `ApplicationState` struct. Handles the `winit` event loop (`ApplicationHandler`), input processing, update loop, rendering coordination, zoom/pan state, and color adjustments. |
 | `renderer.rs` | **GPU Renderer**. Owns the wgpu surface, device, queue, transition pipeline, uniform buffer, and bind group. Detects HDR display support and selects `Rgba16Float` or sRGB swapchain format. Manages transparent window composite alpha. |
 | `input.rs` | **Input Handling**. Translates raw winit events into abstract `InputAction`s. Handles keyboard shortcuts, mouse clicks, scroll wheel zoom, drag-to-pan, double-click fullscreen, and cursor auto-hide. |
-| `transition.rs` | **Rendering Pipeline**. Manages the WGPU render pipeline for image transitions. `TransitionUniform` (96 bytes) carries blend, mode, image sizes, color adjustments, fit mode, ambient blur, zoom/pan, and display mode to the shader. |
+| `transition.rs` | **Rendering Pipeline**. Manages the WGPU render pipeline for image transitions. `TransitionUniform` (112 bytes) carries blend, mode, image sizes, color adjustments, fit mode, ambient blur, zoom/pan, display mode, and per-texture SDR brightness scale factors to the shader. |
 | `image_loader.rs` | **Asset Management**. Asynchronous image loading using `rayon` (up to 4 concurrent tasks). `MipData` enum supports both SDR (`Rgba8`) and HDR (`Rgba16Float` via `half` crate) texture paths. Full mip chain generation. Supports EXR, PNG, JPEG, GIF, WebP, BMP, TGA, TIFF, ICO, HDR, AVIF, PNM, DDS, QOI. |
 | `thumbnail.rs` | **Thumbnails**. Generates and caches 256px thumbnails on background threads for the gallery view. Tracks stale textures via `drain_newly_cached()`. |
 | `overlay.rs` | **UI Layer**. Manages the `egui` context. Draws the filename bar, OSD, info overlay, help overlay (keyboard shortcut reference), settings panel (playback/transition/display/window controls), and gallery view (thumbnail grid with virtual scrolling). |
@@ -71,6 +71,6 @@ On `WindowEvent::RedrawRequested`:
 ### 5. HDR Pipeline
 When the wgpu surface supports `Rgba16Float`:
 1.  `Renderer` sets `is_hdr = true` and configures the swapchain with `Rgba16Float`.
-2.  `TextureManager` uses the HDR decode path for `.exr` files, producing `MipData::Hdr` with linear float pixels.
+2.  `TextureManager` uses the HDR decode path for `.exr` files, producing `MipData::Hdr` with linear float pixels. Each `LoadedTexture` tracks `is_hdr_content` so the shader can apply per-texture brightness scaling.
 3.  The `TransitionUniform.display_mode` is set to `1` (HDR), telling the shader to pass linear values through without clamping.
-4.  Non-EXR images still use the SDR path and are displayed normally.
+4.  SDR images on an HDR swapchain are scaled by `sdr_scale_a/b` (203/80 ≈ 2.54, BT.2408 reference white) in the shader to restore correct brightness. HDR content and SDR swapchains use a scale of 1.0.

@@ -39,6 +39,8 @@ struct TransitionUniform {
     zoom_pan_x: f32,     // UV-space pan offset X (split to avoid vec2 alignment padding)
     zoom_pan_y: f32,     // UV-space pan offset Y
     display_mode: i32,   // 0 = SDR (clamp to [0,1]), 1 = HDR (allow > 1.0)
+    sdr_scale_a: f32,    // SDR brightness scale for texture A (1.0 or ~2.54)
+    sdr_scale_b: f32,    // SDR brightness scale for texture B (1.0 or ~2.54)
 }
 
 @group(0) @binding(0)
@@ -149,17 +151,30 @@ fn sample_with_fit(tex: texture_2d<f32>, smp: sampler, uv: vec2<f32>,
     }
 }
 
+// Per-texture sampling with SDR brightness compensation on HDR swapchains.
+fn sample_a(uv: vec2<f32>) -> vec4<f32> {
+    var c = sample_with_fit(texture_a, sampler_a, uv, material.image_a_size, material.window_size);
+    c = vec4<f32>(c.rgb * material.sdr_scale_a, c.a);
+    return c;
+}
+
+fn sample_b(uv: vec2<f32>) -> vec4<f32> {
+    var c = sample_with_fit(texture_b, sampler_b, uv, material.image_b_size, material.window_size);
+    c = vec4<f32>(c.rgb * material.sdr_scale_b, c.a);
+    return c;
+}
+
 // 0: Basic crossfade
 fn ts_crossfading(uv: vec2<f32>, progress: f32) -> vec4<f32> {
-    let color_a = sample_with_fit(texture_a, sampler_a, uv, material.image_a_size, material.window_size);
-    let color_b = sample_with_fit(texture_b, sampler_b, uv, material.image_b_size, material.window_size);
+    let color_a = sample_a(uv);
+    let color_b = sample_b(uv);
     return mix(color_a, color_b, progress);
 }
 
 // 1: Smooth crossfade with smoothstep
 fn ts_smooth_crossfading(uv: vec2<f32>, progress: f32) -> vec4<f32> {
-    let color_a = sample_with_fit(texture_a, sampler_a, uv, material.image_a_size, material.window_size);
-    let color_b = sample_with_fit(texture_b, sampler_b, uv, material.image_b_size, material.window_size);
+    let color_a = sample_a(uv);
+    let color_b = sample_b(uv);
     let smooth_progress = smoothstep(0.0, 1.0, progress);
     return mix(color_a, color_b, smooth_progress);
 }
@@ -187,9 +202,9 @@ fn ts_roll(uv: vec2<f32>, progress: f32, direction: i32) -> vec4<f32> {
     }
 
     if progress > threshold {
-        return sample_with_fit(texture_b, sampler_b, uv, material.image_b_size, material.window_size);
+        return sample_b(uv);
     } else {
-        return sample_with_fit(texture_a, sampler_a, uv, material.image_a_size, material.window_size);
+        return sample_a(uv);
     }
 }
 
@@ -200,16 +215,16 @@ fn ts_sliding_door(uv: vec2<f32>, progress: f32, opening: bool) -> vec4<f32> {
     if opening {
         // Open: B expands from center outward
         if center_distance < progress {
-            return sample_with_fit(texture_b, sampler_b, uv, material.image_b_size, material.window_size);
+            return sample_b(uv);
         } else {
-            return sample_with_fit(texture_a, sampler_a, uv, material.image_a_size, material.window_size);
+            return sample_a(uv);
         }
     } else {
         // Close: B appears from edges inward
         if center_distance > (1.0 - progress) {
-            return sample_with_fit(texture_b, sampler_b, uv, material.image_b_size, material.window_size);
+            return sample_b(uv);
         } else {
-            return sample_with_fit(texture_a, sampler_a, uv, material.image_a_size, material.window_size);
+            return sample_a(uv);
         }
     }
 }
@@ -236,9 +251,9 @@ fn ts_blind(uv: vec2<f32>, progress: f32, direction: i32) -> vec4<f32> {
     }
 
     if show_new {
-        return sample_with_fit(texture_b, sampler_b, uv, material.image_b_size, material.window_size);
+        return sample_b(uv);
     } else {
-        return sample_with_fit(texture_a, sampler_a, uv, material.image_a_size, material.window_size);
+        return sample_a(uv);
     }
 }
 
@@ -255,9 +270,9 @@ fn ts_box(uv: vec2<f32>, progress: f32, expanding: bool) -> vec4<f32> {
     }
 
     if show_new {
-        return sample_with_fit(texture_b, sampler_b, uv, material.image_b_size, material.window_size);
+        return sample_b(uv);
     } else {
-        return sample_with_fit(texture_a, sampler_a, uv, material.image_a_size, material.window_size);
+        return sample_a(uv);
     }
 }
 
@@ -269,8 +284,8 @@ fn ts_randomsquares(uv: vec2<f32>, progress: f32) -> vec4<f32> {
     let r = fract(sin(dot(floor(uv * size), vec2<f32>(12.9898, 78.233))) * 43758.5453);
     let m = smoothstep(0.0, -smoothness, r - (progress * (1.0 + smoothness)));
 
-    let color_a = sample_with_fit(texture_a, sampler_a, uv, material.image_a_size, material.window_size);
-    let color_b = sample_with_fit(texture_b, sampler_b, uv, material.image_b_size, material.window_size);
+    let color_a = sample_a(uv);
+    let color_b = sample_b(uv);
 
     return mix(color_a, color_b, m);
 }
@@ -294,9 +309,9 @@ fn ts_angular(uv: vec2<f32>, progress: f32) -> vec4<f32> {
     normalized_angle = fract(normalized_angle);
 
     if normalized_angle - progress > 0.0 {
-        return sample_with_fit(texture_a, sampler_a, uv, material.image_a_size, material.window_size);
+        return sample_a(uv);
     } else {
-        return sample_with_fit(texture_b, sampler_b, uv, material.image_b_size, material.window_size);
+        return sample_b(uv);
     }
 }
 
@@ -334,15 +349,11 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
 
     // Early exit optimization for static images (no blending needed)
     if progress <= 0.0 {
-        return apply_color_adjustments(
-            sample_with_fit(texture_a, sampler_a, in.uv, material.image_a_size, material.window_size)
-        );
+        return apply_color_adjustments(sample_a(in.uv));
     }
 
     if progress >= 1.0 {
-        return apply_color_adjustments(
-            sample_with_fit(texture_b, sampler_b, in.uv, material.image_b_size, material.window_size)
-        );
+        return apply_color_adjustments(sample_b(in.uv));
     }
 
     // Route to appropriate transition effect

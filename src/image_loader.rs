@@ -21,6 +21,8 @@ pub struct LoadedTexture {
     pub view: wgpu::TextureView,
     pub width: u32,
     pub height: u32,
+    /// True when the texture contains HDR content (e.g. EXR in linear light).
+    pub is_hdr_content: bool,
 }
 
 /// Mip-chain data returned from the loader thread to the GPU upload path.
@@ -268,6 +270,7 @@ impl TextureManager {
                                 idx,
                                 wgpu::TextureFormat::Rgba8UnormSrgb,
                                 "SDR",
+                                false,
                                 mip_iter,
                             );
                         }
@@ -292,6 +295,7 @@ impl TextureManager {
                                 idx,
                                 wgpu::TextureFormat::Rgba16Float,
                                 "HDR",
+                                true,
                                 mip_iter,
                             );
                         }
@@ -368,6 +372,7 @@ impl TextureManager {
     /// `mips` yields `(mip_width, mip_height, bytes_per_row, pixel_bytes)` for each mip level
     /// in ascending order (level 0 first).  The `kind` string (`"SDR"` or `"HDR"`) is used for
     /// the wgpu texture label and the debug log line.
+    #[allow(clippy::too_many_arguments)]
     fn upload_mip_chain(
         &mut self,
         device: &wgpu::Device,
@@ -375,6 +380,7 @@ impl TextureManager {
         idx: usize,
         format: wgpu::TextureFormat,
         kind: &str,
+        is_hdr_content: bool,
         mips: impl Iterator<Item = (u32, u32, u32, Vec<u8>)>,
     ) {
         let mips: Vec<(u32, u32, u32, Vec<u8>)> = mips.collect();
@@ -434,6 +440,7 @@ impl TextureManager {
                 view,
                 width,
                 height,
+                is_hdr_content,
             },
         );
         debug!("Uploaded {kind} image {idx} ({width}x{height}, {mip_count} mips)");

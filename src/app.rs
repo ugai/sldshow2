@@ -1172,6 +1172,17 @@ impl ApplicationState {
                 zoom_scale: self.zoom_scale,
                 zoom_pan: self.zoom_pan,
                 display_mode: if self.renderer.is_hdr { 1 } else { 0 },
+                sdr_scale_a: if self.renderer.is_hdr && !tex_a.is_hdr_content {
+                    203.0_f32 / 80.0
+                } else {
+                    1.0
+                },
+                sdr_scale_b: if self.renderer.is_hdr && !tex_b.is_hdr_content {
+                    203.0_f32 / 80.0
+                } else {
+                    1.0
+                },
+                _pad: [0.0; 2],
             };
 
             self.renderer.queue.write_buffer(
