@@ -136,6 +136,9 @@ impl Renderer {
             zoom_scale: 1.0,
             zoom_pan: [0.0, 0.0],
             display_mode: 0,
+            sdr_scale_a: 1.0,
+            sdr_scale_b: 1.0,
+            _pad: [0.0; 2],
         };
 
         let uniform_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {

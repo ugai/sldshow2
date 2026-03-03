@@ -7,6 +7,9 @@ use std::borrow::Cow;
 /// Number of available transition modes (must match TRANSITION_MAX_MODE_IDX in WGSL)
 const TRANSITION_MODE_COUNT: i32 = 20; // Modes 0..=19
 
+/// SDR reference white on an scRGB (Rgba16Float) swapchain: 203 nits / 80 nits (BT.2408).
+pub const SDR_WHITE_SCALE: f32 = 203.0 / 80.0;
+
 #[repr(C)]
 #[derive(Copy, Clone, Debug, Pod, Zeroable)]
 pub struct TransitionUniform {
@@ -29,6 +32,12 @@ pub struct TransitionUniform {
     pub zoom_scale: f32,
     pub zoom_pan: [f32; 2],
     pub display_mode: i32, // 0 = SDR (clamp), 1 = HDR (pass-through)
+    // SDR brightness compensation on HDR (Rgba16Float) swapchains.
+    // SDR content: 203.0 / 80.0 ≈ 2.54 (BT.2408 reference white).
+    // HDR content or SDR swapchain: 1.0 (no scaling).
+    pub sdr_scale_a: f32,
+    pub sdr_scale_b: f32,
+    pub _pad: [f32; 2],
 }
 
 pub struct TransitionPipeline {

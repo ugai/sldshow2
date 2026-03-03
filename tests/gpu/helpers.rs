@@ -123,6 +123,9 @@ pub fn default_uniform(mode: i32, blend: f32) -> TransitionUniform {
         zoom_scale: 1.0,
         zoom_pan: [0.0, 0.0],
         display_mode: 0, // SDR
+        sdr_scale_a: 1.0,
+        sdr_scale_b: 1.0,
+        _pad: [0.0; 2],
     }
 }
 
@@ -345,7 +348,7 @@ fn align_up(value: u32, alignment: u32) -> u32 {
 // considers "used", but some fields might only be read by the GPU.
 #[allow(dead_code)]
 const _: () = {
-    // Compile-time size check: must match WGSL struct size (96 bytes).
+    // Compile-time size check: must match WGSL struct size (112 bytes).
     // If this fails, the Rust repr(C) layout diverged from the shader.
-    const _SIZE_CHECK: [u8; 96] = [0u8; std::mem::size_of::<TransitionUniform>()];
+    const _SIZE_CHECK: [u8; 112] = [0u8; std::mem::size_of::<TransitionUniform>()];
 };

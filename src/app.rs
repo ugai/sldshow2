@@ -18,7 +18,7 @@ use crate::renderer::Renderer;
 use crate::screenshot::ScreenshotCapture;
 use crate::thumbnail::ThumbnailManager;
 use crate::timer::{SequenceTimer, SlideshowTimer};
-use crate::transition::{TransitionPipeline, TransitionUniform};
+use crate::transition::{self, TransitionPipeline, TransitionUniform};
 
 /// Color adjustment parameters (mpv-like).
 #[derive(Debug, Clone, Copy)]
@@ -1172,6 +1172,17 @@ impl ApplicationState {
                 zoom_scale: self.zoom_scale,
                 zoom_pan: self.zoom_pan,
                 display_mode: if self.renderer.is_hdr { 1 } else { 0 },
+                sdr_scale_a: if self.renderer.is_hdr && !tex_a.is_hdr_content {
+                    transition::SDR_WHITE_SCALE
+                } else {
+                    1.0
+                },
+                sdr_scale_b: if self.renderer.is_hdr && !tex_b.is_hdr_content {
+                    transition::SDR_WHITE_SCALE
+                } else {
+                    1.0
+                },
+                _pad: [0.0; 2],
             };
 
             self.renderer.queue.write_buffer(
