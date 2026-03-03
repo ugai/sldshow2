@@ -158,6 +158,10 @@ impl Default for ViewerConfig {
 ///
 /// Enforces the range invariant at construction time via [`TryFrom<i32>`].
 /// Serializes and deserializes as a plain integer for TOML compatibility.
+///
+/// The mode index must stay in sync with the WGSL router and the mode list
+/// comment at the top of `assets/shaders/transition.wgsl`. When adding or
+/// renaming a mode, update both files together.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct TransitionMode(i32);
 
@@ -171,6 +175,35 @@ impl TransitionMode {
     #[inline]
     pub fn value(self) -> i32 {
         self.0
+    }
+
+    /// Human-readable name for this transition mode.
+    ///
+    /// Must stay in sync with the WGSL router in `assets/shaders/transition.wgsl`.
+    pub fn name(self) -> &'static str {
+        match self.0 {
+            0 => "Crossfade",
+            1 => "Smooth Crossfade",
+            2 => "Roll from Top",
+            3 => "Roll from Bottom",
+            4 => "Roll from Left",
+            5 => "Roll from Right",
+            6 => "Roll from Top-Left",
+            7 => "Roll from Top-Right",
+            8 => "Roll from Bottom-Left",
+            9 => "Roll from Bottom-Right",
+            10 => "Sliding Door Open",
+            11 => "Sliding Door Close",
+            12 => "Blinds H Open",
+            13 => "Blinds H Close",
+            14 => "Blinds V Open",
+            15 => "Blinds V Close",
+            16 => "Box Expand",
+            17 => "Box Contract",
+            18 => "Random Squares",
+            19 => "Angular Wipe",
+            _ => "Unknown",
+        }
     }
 }
 

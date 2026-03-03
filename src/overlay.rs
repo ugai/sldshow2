@@ -561,7 +561,18 @@ impl EguiOverlay {
                         ui.horizontal(|ui| {
                             ui.label("Transition Mode:");
                             let mut mode_val: i32 = config.transition.mode.into();
-                            if ui.add(egui::Slider::new(&mut mode_val, 0..=19)).changed() {
+                            if ui
+                                .add(
+                                    egui::Slider::new(&mut mode_val, 0..=19)
+                                        .custom_formatter(|n, _| {
+                                            TransitionMode::try_from(n as i32)
+                                                .map(|m| format!("{} — {}", n as i32, m.name()))
+                                                .unwrap_or_else(|_| format!("{}", n as i32))
+                                        })
+                                        .custom_parser(|s| s.trim().parse::<f64>().ok()),
+                                )
+                                .changed()
+                            {
                                 // Value comes from a bounded slider so try_from always succeeds.
                                 if let Ok(m) = TransitionMode::try_from(mode_val) {
                                     config.transition.mode = m;
