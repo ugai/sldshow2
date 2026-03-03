@@ -1,6 +1,8 @@
 // Transition shader for sldshow2
 // Ported from original sldshow with updated WGSL syntax
-// 20 different transition effects
+//
+// Mode indices assigned here must stay in sync with TransitionMode::name()
+// and TransitionMode::MAX in src/config.rs.
 
 // Vertex output structure
 struct VertexOutput {
@@ -358,7 +360,8 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
         return apply_color_adjustments(sample_b(in.uv));
     }
 
-    // Route to appropriate transition effect
+    // Route to appropriate transition effect.
+    // Mode assignments mirror TransitionMode::name() in src/config.rs.
     var result: vec4<f32>;
     if mode == 0 {
         result = ts_crossfading(in.uv, progress);
