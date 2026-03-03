@@ -20,7 +20,7 @@ jobs:
       - name: Install Linux dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y libasound2-dev libudev-dev libxkbcommon-dev libwayland-dev
+          sudo apt-get install -y libasound2-dev libudev-dev libxkbcommon-dev libwayland-dev libfontconfig1-dev
       - uses: Swatinem/rust-cache@v2
       - run: cargo check --all-features
 
@@ -45,7 +45,7 @@ jobs:
       - name: Install Linux dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y libasound2-dev libudev-dev libxkbcommon-dev libwayland-dev
+          sudo apt-get install -y libasound2-dev libudev-dev libxkbcommon-dev libwayland-dev libfontconfig1-dev
       - uses: Swatinem/rust-cache@v2
       - run: cargo clippy --all-features -- -D warnings
 
@@ -58,7 +58,7 @@ jobs:
       - name: Install Linux dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y libasound2-dev libudev-dev libxkbcommon-dev libwayland-dev
+          sudo apt-get install -y libasound2-dev libudev-dev libxkbcommon-dev libwayland-dev libfontconfig1-dev
       - uses: Swatinem/rust-cache@v2
       - run: cargo test --all-features
 
