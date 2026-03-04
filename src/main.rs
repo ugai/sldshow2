@@ -12,6 +12,7 @@ mod clipboard;
 mod config;
 mod drag_drop;
 mod error;
+mod hdr_ui_composite;
 mod image_loader;
 mod input;
 mod osc;
