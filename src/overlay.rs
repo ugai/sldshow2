@@ -800,12 +800,9 @@ impl EguiOverlay {
                                                 .as_slice()
                                                 .chunks(4)
                                                 .flat_map(|rgba| {
-                                                    [
-                                                        sdr_scale_channel(rgba[0]),
-                                                        sdr_scale_channel(rgba[1]),
-                                                        sdr_scale_channel(rgba[2]),
-                                                        rgba[3],
-                                                    ]
+                                                    scale_hdr_pixel(
+                                                        rgba[0], rgba[1], rgba[2], rgba[3],
+                                                    )
                                                 })
                                                 .collect();
                                             egui::ColorImage::from_rgba_unmultiplied(size, &pixels)
@@ -860,26 +857,42 @@ impl EguiOverlay {
     }
 }
 
-/// Applies the SDR-to-HDR brightness scale to a single sRGB u8 channel.
+/// Applies the SDR brightness scale to an sRGB pixel for HDR (Rgba16Float) swapchains.
 ///
-/// Converts from sRGB to linear light, multiplies by [`crate::transition::SDR_WHITE_SCALE`],
-/// clamps to [0, 1], then re-encodes to sRGB. Used to match gallery thumbnail brightness
-/// to the main display on Rgba16Float (HDR) swapchains.
-fn sdr_scale_channel(c: u8) -> u8 {
-    let norm = c as f32 / 255.0;
-    // sRGB decode → linear
-    let linear = if norm <= 0.04045 {
-        norm / 12.92
+/// Scales each channel by [`crate::transition::SDR_WHITE_SCALE`] in linear light. If any
+/// channel would exceed 1.0, all three channels are divided by the maximum to preserve hue
+/// while avoiding per-channel clipping that would shift colours. Dark and mid-tones are
+/// brightened to match the main display; saturated highlights retain their hue.
+fn scale_hdr_pixel(r: u8, g: u8, b: u8, a: u8) -> [u8; 4] {
+    fn decode(c: u8) -> f32 {
+        let n = c as f32 / 255.0;
+        if n <= 0.04045 {
+            n / 12.92
+        } else {
+            ((n + 0.055) / 1.055).powf(2.4)
+        }
+    }
+    fn encode(linear: f32) -> u8 {
+        let e = if linear <= 0.0031308 {
+            linear * 12.92
+        } else {
+            1.055 * linear.powf(1.0 / 2.4) - 0.055
+        };
+        (e * 255.0).round() as u8
+    }
+
+    let scale = crate::transition::SDR_WHITE_SCALE;
+    let rs = decode(r) * scale;
+    let gs = decode(g) * scale;
+    let bs = decode(b) * scale;
+
+    // Preserve hue: if any channel clips, normalise all by the maximum.
+    let max_ch = rs.max(gs).max(bs);
+    let (ro, go, bo) = if max_ch > 1.0 {
+        (rs / max_ch, gs / max_ch, bs / max_ch)
     } else {
-        ((norm + 0.055) / 1.055).powf(2.4)
+        (rs, gs, bs)
     };
-    // Scale and clamp
-    let scaled = (linear * crate::transition::SDR_WHITE_SCALE).min(1.0);
-    // sRGB encode → u8
-    let encoded = if scaled <= 0.0031308 {
-        scaled * 12.92
-    } else {
-        1.055 * scaled.powf(1.0 / 2.4) - 0.055
-    };
-    (encoded * 255.0).round() as u8
+
+    [encode(ro), encode(go), encode(bo), a]
 }
