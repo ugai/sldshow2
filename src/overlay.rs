@@ -71,6 +71,8 @@ pub struct EguiOverlay {
     // Gallery state
     show_gallery: bool,
     gallery_textures: HashMap<usize, egui::TextureHandle>,
+    /// Whether the swapchain is HDR (Rgba16Float). Used to apply SDR brightness scale to thumbnails.
+    pub is_hdr: bool,
     /// Open-order stack for z-order tracking. Last element is the frontmost overlay.
     overlay_stack: Vec<OverlayKind>,
 }
@@ -160,6 +162,7 @@ impl EguiOverlay {
             text_color: Color32::WHITE,
             show_gallery: false,
             gallery_textures: HashMap::new(),
+            is_hdr: false,
             overlay_stack: Vec::new(),
         }
     }
@@ -787,13 +790,31 @@ impl EguiOverlay {
                                 // Create or get TextureHandle
                                 let handle =
                                     self.gallery_textures.entry(index).or_insert_with(|| {
-                                        // Convert RgbaImage to ColorImage
+                                        // Convert RgbaImage to ColorImage.
+                                        // On HDR swapchains, apply SDR brightness scale CPU-side
+                                        // so thumbnails match the main display brightness.
                                         let size = [img.width() as usize, img.height() as usize];
-                                        let pixels = img.as_flat_samples();
-                                        let color_image = egui::ColorImage::from_rgba_unmultiplied(
-                                            size,
-                                            pixels.as_slice(),
-                                        );
+                                        let color_image = if self.is_hdr {
+                                            let pixels: Vec<u8> = img
+                                                .as_flat_samples()
+                                                .as_slice()
+                                                .chunks(4)
+                                                .flat_map(|rgba| {
+                                                    [
+                                                        sdr_scale_channel(rgba[0]),
+                                                        sdr_scale_channel(rgba[1]),
+                                                        sdr_scale_channel(rgba[2]),
+                                                        rgba[3],
+                                                    ]
+                                                })
+                                                .collect();
+                                            egui::ColorImage::from_rgba_unmultiplied(size, &pixels)
+                                        } else {
+                                            egui::ColorImage::from_rgba_unmultiplied(
+                                                size,
+                                                img.as_flat_samples().as_slice(),
+                                            )
+                                        };
                                         ctx.load_texture(
                                             format!("thumb_{}", index),
                                             color_image,
@@ -837,4 +858,28 @@ impl EguiOverlay {
 
         action
     }
+}
+
+/// Applies the SDR-to-HDR brightness scale to a single sRGB u8 channel.
+///
+/// Converts from sRGB to linear light, multiplies by [`crate::transition::SDR_WHITE_SCALE`],
+/// clamps to [0, 1], then re-encodes to sRGB. Used to match gallery thumbnail brightness
+/// to the main display on Rgba16Float (HDR) swapchains.
+fn sdr_scale_channel(c: u8) -> u8 {
+    let norm = c as f32 / 255.0;
+    // sRGB decode → linear
+    let linear = if norm <= 0.04045 {
+        norm / 12.92
+    } else {
+        ((norm + 0.055) / 1.055).powf(2.4)
+    };
+    // Scale and clamp
+    let scaled = (linear * crate::transition::SDR_WHITE_SCALE).min(1.0);
+    // sRGB encode → u8
+    let encoded = if scaled <= 0.0031308 {
+        scaled * 12.92
+    } else {
+        1.055 * scaled.powf(1.0 / 2.4) - 0.055
+    };
+    (encoded * 255.0).round() as u8
 }

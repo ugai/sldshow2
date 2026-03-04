@@ -178,6 +178,7 @@ impl ApplicationState {
         );
         // Apply style config
         egui_overlay.set_style(config.style.font_size, config.style.text_color);
+        egui_overlay.is_hdr = renderer.is_hdr;
 
         // Initialize state
         let show_filename_text = config.style.show_image_path;
