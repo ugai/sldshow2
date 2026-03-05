@@ -63,11 +63,8 @@ pub const EGUI_HDR_INTERMEDIATE_FORMAT: TextureFormat = TextureFormat::Rgba8Unor
 
 /// Owns the intermediate Rgba8UnormSrgb texture and the composite render pipeline.
 pub struct HdrUiComposite {
-    /// Intermediate texture that egui renders into (pass `texture_view` as the
-    /// colour attachment of the egui render pass).
-    pub texture: wgpu::Texture,
-    /// View into `texture`.  Use as the render-pass colour attachment for egui.
-    pub texture_view: wgpu::TextureView,
+    texture: wgpu::Texture,
+    texture_view: wgpu::TextureView,
 
     pipeline: wgpu::RenderPipeline,
     bind_group: wgpu::BindGroup,
@@ -193,9 +190,19 @@ impl HdrUiComposite {
         );
     }
 
+    /// The colour-attachment view for the egui intermediate render pass.
+    ///
+    /// Pass this as `view` in `RenderPassColorAttachment` when rendering egui.
+    pub fn egui_render_target(&self) -> &wgpu::TextureView {
+        &self.texture_view
+    }
+
     /// Draw the intermediate texture onto the current render pass, applying
     /// `SDR_WHITE_SCALE`.  The render pass must target the Rgba16Float swapchain
     /// with `LoadOp::Load` so the main image is preserved underneath.
+    ///
+    /// `forget_lifetime()` is used internally to satisfy the borrow checker while
+    /// keeping a single `&self` borrow across both sub-passes.
     pub fn composite<'rp>(&'rp self, render_pass: wgpu::RenderPass<'rp>) {
         let mut rp = render_pass.forget_lifetime();
         rp.set_pipeline(&self.pipeline);

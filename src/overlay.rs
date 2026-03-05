@@ -749,7 +749,7 @@ impl EguiOverlay {
                 let rp = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                     label: Some("Egui HDR Intermediate Pass"),
                     color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                        view: &hdr.texture_view,
+                        view: hdr.egui_render_target(),
                         resolve_target: None,
                         ops: wgpu::Operations {
                             load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
