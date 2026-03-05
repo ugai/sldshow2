@@ -14,11 +14,20 @@ use wgpu::{Device, TextureFormat, TextureUsages};
 
 /// The render-target format for the egui intermediate texture in HDR mode.
 ///
-/// `Rgba8Unorm` stores egui's premultiplied-alpha linear output with 8-bit
-/// precision per channel — sufficient for UI rendering.
-pub const EGUI_HDR_INTERMEDIATE_FORMAT: TextureFormat = TextureFormat::Rgba8Unorm;
+/// `Rgba8UnormSrgb` is chosen deliberately: egui_wgpu checks `format.is_srgb()`
+/// and, when true, outputs **linear** values (letting the GPU apply the sRGB
+/// transfer function on write).  For non-sRGB formats such as `Rgba8Unorm` or
+/// `Rgba16Float`, egui applies `linear_to_gamma` itself before writing, which
+/// would store gamma-encoded values — causing incorrect results when the
+/// composite shader multiplies them by `SDR_WHITE_SCALE`.
+///
+/// With `Rgba8UnormSrgb`:
+/// - egui writes **linear** values → GPU encodes to sRGB on write.
+/// - The composite shader samples the texture → GPU decodes sRGB to linear.
+/// - The shader multiplies by `SDR_WHITE_SCALE` → correct HDR brightness.
+pub const EGUI_HDR_INTERMEDIATE_FORMAT: TextureFormat = TextureFormat::Rgba8UnormSrgb;
 
-/// Owns the intermediate Rgba8Unorm texture and the composite render pipeline.
+/// Owns the intermediate Rgba8UnormSrgb texture and the composite render pipeline.
 pub struct HdrUiComposite {
     /// Intermediate texture that egui renders into (pass `texture_view` as the
     /// colour attachment of the egui render pass).
