@@ -4,9 +4,34 @@
 //! \[0, 80 nit\] — darker than the SDR reference white of 203 nits used by the main
 //! transition shader.  This module bridges the gap:
 //!
-//! 1. Provides an `Rgba8Unorm` intermediate render target for egui.
+//! 1. Provides an `Rgba8UnormSrgb` intermediate render target for egui.
 //! 2. Composites that target onto the `Rgba16Float` swapchain, scaling RGB by
 //!    `SDR_WHITE_SCALE` so UI content appears at the correct perceived brightness.
+//!
+//! # Implementation Note — egui_wgpu Coupling
+//!
+//! **This is a workaround for egui_wgpu's internal gamma-handling behaviour.**
+//!
+//! `egui_wgpu` decides how to gamma-encode output based on `format.is_srgb()`:
+//! - `is_srgb() == true`  → egui writes **linear** values; the GPU applies sRGB
+//!   encoding on write (correct for this composite pipeline).
+//! - `is_srgb() == false` → egui calls `linear_to_gamma()` in its fragment shader
+//!   before writing (would store gamma-encoded values, making the subsequent
+//!   ×SDR_WHITE_SCALE multiplication produce badly over-bright results).
+//!
+//! We exploit the first case by using `Rgba8UnormSrgb` as the intermediate format,
+//! even though `Rgba8Unorm` would otherwise be a more obvious choice.
+//!
+//! **Regression risk on egui_wgpu upgrades:**
+//! If egui_wgpu changes its `is_srgb()` heuristic, adds native HDR support, or
+//! alters its gamma path in any way, this module will likely break silently (UI
+//! will appear over-bright, washed out, or incorrect in HDR mode).
+//!
+//! When upgrading egui_wgpu, verify:
+//! 1. Gallery thumbnails match the perceived brightness of the main slide image.
+//! 2. White UI elements (panels, text backgrounds) are not blown out.
+//! 3. Check `egui_wgpu` source for any changes to `format.is_srgb()` usage or
+//!    gamma handling in the renderer's fragment shader.
 
 use std::borrow::Cow;
 
@@ -14,17 +39,26 @@ use wgpu::{Device, TextureFormat, TextureUsages};
 
 /// The render-target format for the egui intermediate texture in HDR mode.
 ///
-/// `Rgba8UnormSrgb` is chosen deliberately: egui_wgpu checks `format.is_srgb()`
-/// and, when true, outputs **linear** values (letting the GPU apply the sRGB
-/// transfer function on write).  For non-sRGB formats such as `Rgba8Unorm` or
-/// `Rgba16Float`, egui applies `linear_to_gamma` itself before writing, which
-/// would store gamma-encoded values — causing incorrect results when the
-/// composite shader multiplies them by `SDR_WHITE_SCALE`.
+/// # Why `Rgba8UnormSrgb` and not `Rgba8Unorm`?
+///
+/// `egui_wgpu` inspects `format.is_srgb()` to decide gamma handling:
+/// - **sRGB format** (`is_srgb() == true`): egui writes linear values and lets
+///   the GPU apply sRGB encoding on write.  This is what we need.
+/// - **non-sRGB format** (`is_srgb() == false`): egui calls `linear_to_gamma()`
+///   in its own fragment shader, storing gamma-encoded values.  Multiplying those
+///   by `SDR_WHITE_SCALE` (≈ 2.54) would produce badly over-bright output.
 ///
 /// With `Rgba8UnormSrgb`:
-/// - egui writes **linear** values → GPU encodes to sRGB on write.
-/// - The composite shader samples the texture → GPU decodes sRGB to linear.
-/// - The shader multiplies by `SDR_WHITE_SCALE` → correct HDR brightness.
+/// 1. egui writes **linear** values → GPU encodes sRGB on write.
+/// 2. Composite shader samples texture → GPU decodes sRGB back to linear.
+/// 3. Shader multiplies by `SDR_WHITE_SCALE` → correct HDR brightness on output.
+///
+/// # WARNING — egui_wgpu version coupling
+///
+/// This relies on egui_wgpu's `is_srgb()` heuristic (validated against
+/// egui_wgpu 0.32.x).  If egui_wgpu changes its gamma-handling logic or adds
+/// native HDR-format support, this constant may need to be revisited.  See the
+/// module-level doc for the full regression checklist.
 pub const EGUI_HDR_INTERMEDIATE_FORMAT: TextureFormat = TextureFormat::Rgba8UnormSrgb;
 
 /// Owns the intermediate Rgba8UnormSrgb texture and the composite render pipeline.
