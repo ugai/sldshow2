@@ -154,7 +154,7 @@ fn sanitize_fps(fps: f32) -> f32 {
     if !fps.is_finite() || fps <= 0.0 {
         1.0
     } else {
-        fps.max(1.0)
+        fps.clamp(1.0, 240.0)
     }
 }
 
