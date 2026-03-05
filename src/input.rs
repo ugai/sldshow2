@@ -384,8 +384,8 @@ impl InputHandler {
             PhysicalKey::Code(KeyCode::Digit2) if modifiers.alt_key() => ctx
                 .current_image_size
                 .map(|(w, h)| InputAction::ResizeWindow {
-                    width: w * 2,
-                    height: h * 2,
+                    width: w.saturating_mul(2),
+                    height: h.saturating_mul(2),
                 }),
             PhysicalKey::Code(KeyCode::KeyI) => {
                 if modifiers.shift_key() {
