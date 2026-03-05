@@ -9,6 +9,7 @@ use winit::event::WindowEvent;
 use winit::window::Window;
 
 use crate::config::{Config, FitMode, TransitionMode};
+use crate::hdr_ui_composite::{EGUI_HDR_INTERMEDIATE_FORMAT, HdrUiComposite};
 use crate::osc::{Osc, OscAction};
 use crate::thumbnail::ThumbnailManager;
 use std::collections::HashMap;
@@ -71,6 +72,8 @@ pub struct EguiOverlay {
     // Gallery state
     show_gallery: bool,
     gallery_textures: HashMap<usize, egui::TextureHandle>,
+    /// HDR composite pass.  `Some` only when the swapchain is `Rgba16Float`.
+    hdr_composite: Option<HdrUiComposite>,
     /// Open-order stack for z-order tracking. Last element is the frontmost overlay.
     overlay_stack: Vec<OverlayKind>,
 }
@@ -141,8 +144,28 @@ impl EguiOverlay {
             None, // No custom max_texture_side
         );
 
-        // Create egui_wgpu renderer
-        let renderer = Renderer::new(device, surface_format, None, 1, false);
+        // On HDR swapchains (Rgba16Float), configure the egui renderer to write
+        // to an Rgba8Unorm intermediate texture.  A composite pass then scales
+        // the result up to SDR reference white before writing to the swapchain.
+        let is_hdr = surface_format == TextureFormat::Rgba16Float;
+        let egui_render_format = if is_hdr {
+            EGUI_HDR_INTERMEDIATE_FORMAT
+        } else {
+            surface_format
+        };
+        let renderer = Renderer::new(device, egui_render_format, None, 1, false);
+
+        let hdr_composite = if is_hdr {
+            let size = window.inner_size();
+            Some(HdrUiComposite::new(
+                device,
+                size.width.max(1),
+                size.height.max(1),
+                surface_format,
+            ))
+        } else {
+            None
+        };
 
         Self {
             context,
@@ -160,6 +183,7 @@ impl EguiOverlay {
             text_color: Color32::WHITE,
             show_gallery: false,
             gallery_textures: HashMap::new(),
+            hdr_composite,
             overlay_stack: Vec::new(),
         }
     }
@@ -705,33 +729,90 @@ impl EguiOverlay {
         clipped_primitives
     }
 
-    /// Render egui primitives into a render pass
-    /// Must call prepare_render() first to get clipped_primitives
-    pub fn render<'rp>(
+    /// Render egui onto the swapchain, handling HDR mode transparently.
+    ///
+    /// In SDR mode this is a single render pass directly to `swapchain_view`.
+    /// In HDR mode (Rgba16Float swapchain) it:
+    /// 1. Renders egui into an Rgba8Unorm intermediate texture.
+    /// 2. Composites that texture onto `swapchain_view` scaled by `SDR_WHITE_SCALE`,
+    ///    so UI elements appear at SDR reference-white brightness (203 nits).
+    pub fn render_overlay(
         &mut self,
-        render_pass: wgpu::RenderPass<'rp>,
+        encoder: &mut wgpu::CommandEncoder,
         clipped_primitives: &[egui::ClippedPrimitive],
         screen_descriptor: &egui_wgpu::ScreenDescriptor,
+        swapchain_view: &wgpu::TextureView,
     ) {
-        // `egui_wgpu::Renderer::render` requires `RenderPass<'static>`. We take
-        // the render pass by value and call the safe `forget_lifetime()` helper
-        // provided by wgpu to erase the lifetime. The only consequence of
-        // `forget_lifetime` is that any operation on the parent command encoder
-        // while this render pass is still alive produces a runtime error instead
-        // of a compile-time error; we do not touch the encoder here, so the
-        // invariant is trivially upheld.
-        let mut rp = render_pass.forget_lifetime();
-        self.renderer
-            .render(&mut rp, clipped_primitives, screen_descriptor);
+        if let Some(ref hdr) = self.hdr_composite {
+            // Pass 1: render egui into the intermediate Rgba8Unorm texture.
+            {
+                let rp = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                    label: Some("Egui HDR Intermediate Pass"),
+                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                        view: hdr.egui_render_target(),
+                        resolve_target: None,
+                        ops: wgpu::Operations {
+                            load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
+                            store: wgpu::StoreOp::Store,
+                        },
+                    })],
+                    depth_stencil_attachment: None,
+                    timestamp_writes: None,
+                    occlusion_query_set: None,
+                });
+                let mut rp = rp.forget_lifetime();
+                self.renderer
+                    .render(&mut rp, clipped_primitives, screen_descriptor);
+            }
+            // Pass 2: composite the intermediate texture onto the HDR swapchain.
+            {
+                let rp = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                    label: Some("Egui HDR Composite Pass"),
+                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                        view: swapchain_view,
+                        resolve_target: None,
+                        ops: wgpu::Operations {
+                            load: wgpu::LoadOp::Load,
+                            store: wgpu::StoreOp::Store,
+                        },
+                    })],
+                    depth_stencil_attachment: None,
+                    timestamp_writes: None,
+                    occlusion_query_set: None,
+                });
+                hdr.composite(rp);
+            }
+        } else {
+            // SDR: render egui directly to the swapchain.
+            let rp = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("Egui Render Pass"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: swapchain_view,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Load,
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
+            });
+            let mut rp = rp.forget_lifetime();
+            self.renderer
+                .render(&mut rp, clipped_primitives, screen_descriptor);
+        }
     }
 
-    /// Handle window resize
-    pub fn resize(&mut self, _width: u32, _height: u32) {
+    /// Handle window resize.
+    pub fn resize(&mut self, device: &Device, width: u32, height: u32) {
         // egui_winit handles DPI scaling automatically via State::take_egui_input()
         // which queries the window's scale_factor() on each frame.
         // ScaleFactorChanged events trigger a window resize, which updates the surface,
         // and egui automatically adapts to the new scale factor on the next frame.
-        // No manual intervention needed here.
+        if let Some(ref mut hdr) = self.hdr_composite {
+            hdr.resize(device, width.max(1), height.max(1));
+        }
     }
 
     fn render_gallery(
@@ -787,7 +868,7 @@ impl EguiOverlay {
                                 // Create or get TextureHandle
                                 let handle =
                                     self.gallery_textures.entry(index).or_insert_with(|| {
-                                        // Convert RgbaImage to ColorImage
+                                        // Convert RgbaImage to ColorImage.
                                         let size = [img.width() as usize, img.height() as usize];
                                         let pixels = img.as_flat_samples();
                                         let color_image = egui::ColorImage::from_rgba_unmultiplied(

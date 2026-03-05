@@ -229,7 +229,8 @@ impl ApplicationState {
         if new_size.width > 0 && new_size.height > 0 {
             self.size = new_size;
             self.renderer.resize(new_size);
-            self.egui_overlay.resize(new_size.width, new_size.height);
+            self.egui_overlay
+                .resize(&self.renderer.device, new_size.width, new_size.height);
         }
     }
 
@@ -1245,26 +1246,13 @@ impl ApplicationState {
             egui_output,
         );
 
-        // Render egui into a dedicated pass
-        {
-            let render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("Egui Render Pass"),
-                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: &view,
-                    resolve_target: None,
-                    ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Load, // Preserve background
-                        store: wgpu::StoreOp::Store,
-                    },
-                })],
-                depth_stencil_attachment: None,
-                timestamp_writes: None,
-                occlusion_query_set: None,
-            });
-
-            self.egui_overlay
-                .render(render_pass, &clipped_primitives, &screen_descriptor);
-        }
+        // Render egui overlay (HDR-aware).
+        self.egui_overlay.render_overlay(
+            &mut encoder,
+            &clipped_primitives,
+            &screen_descriptor,
+            &view,
+        );
 
         if self.screenshot_requested {
             self.screenshot_requested = false;
