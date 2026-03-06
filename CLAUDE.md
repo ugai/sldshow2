@@ -11,7 +11,9 @@ cargo build                           # Compile check only
 
 **IMPORTANT**: Always use `--release` for visual/performance testing. Debug builds of `image` and `wgpu` are slow and cause frame stutters that don't reflect production behavior.
 
-No unit tests — testing is manual only.
+```bash
+cargo test                            # Run unit tests (no GPU required)
+```
 
 ## Architecture
 

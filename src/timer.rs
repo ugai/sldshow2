@@ -182,4 +182,73 @@ mod tests {
         assert_eq!(frames, 3);
         assert!((timer.accumulator - 0.05).abs() < 0.001);
     }
+
+    // --- SlideshowTimer ---
+
+    #[test]
+    fn slideshow_timer_zero_interval_starts_paused() {
+        let timer = SlideshowTimer::new(0.0);
+        assert!(timer.paused);
+    }
+
+    #[test]
+    fn slideshow_timer_negative_interval_starts_paused() {
+        let timer = SlideshowTimer::new(-1.0);
+        assert!(timer.paused);
+    }
+
+    #[test]
+    fn slideshow_timer_positive_interval_not_paused() {
+        let timer = SlideshowTimer::new(5.0);
+        assert!(!timer.paused);
+        assert!((timer.interval_secs() - 5.0).abs() < 1e-5);
+    }
+
+    #[test]
+    fn slideshow_timer_toggle_pause_flips_state() {
+        let mut timer = SlideshowTimer::new(5.0);
+        let now_paused = timer.toggle_pause();
+        assert!(now_paused);
+        assert!(timer.paused);
+        let now_paused = timer.toggle_pause();
+        assert!(!now_paused);
+        assert!(!timer.paused);
+    }
+
+    #[test]
+    fn slideshow_timer_set_duration_zero_pauses() {
+        let mut timer = SlideshowTimer::new(5.0);
+        timer.set_duration(0.0);
+        assert!(timer.paused);
+    }
+
+    #[test]
+    fn slideshow_timer_set_duration_positive_unpauses_and_updates_interval() {
+        let mut timer = SlideshowTimer::new(0.0);
+        assert!(timer.paused);
+        timer.set_duration(3.0);
+        assert!(!timer.paused);
+        assert!((timer.interval_secs() - 3.0).abs() < 1e-5);
+    }
+
+    // --- SequenceTimer ---
+
+    #[test]
+    fn sequence_timer_invalid_fps_defaults_to_one() {
+        assert_eq!(SequenceTimer::new(-5.0).fps, 1.0);
+        assert_eq!(SequenceTimer::new(0.0).fps, 1.0);
+        assert_eq!(SequenceTimer::new(f32::NAN).fps, 1.0);
+    }
+
+    #[test]
+    fn advance_by_zero_dt_returns_no_frames() {
+        let mut timer = SequenceTimer::new(10.0);
+        assert_eq!(timer.advance_by(0.0), 0);
+    }
+
+    #[test]
+    fn advance_by_negative_dt_returns_no_frames() {
+        let mut timer = SequenceTimer::new(10.0);
+        assert_eq!(timer.advance_by(-1.0), 0);
+    }
 }

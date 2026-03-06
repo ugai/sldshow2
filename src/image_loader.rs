@@ -808,3 +808,152 @@ fn scan_directory_recursive_parallel(
 fn is_supported_image(path: &Path) -> bool {
     image::ImageFormat::from_path(path).is_ok()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn make_manager(paths: &[&str]) -> TextureManager {
+        let mut mgr = TextureManager::new(2, (1920, 1080));
+        mgr.paths = paths.iter().map(|&s| Utf8PathBuf::from(s)).collect();
+        mgr.original_paths = mgr.paths.clone();
+        mgr
+    }
+
+    // --- next() ---
+
+    #[test]
+    fn next_advances_index() {
+        let mut mgr = make_manager(&["a.jpg", "b.jpg", "c.jpg"]);
+        assert!(mgr.next(false));
+        assert_eq!(mgr.current_index, 1);
+    }
+
+    #[test]
+    fn next_wraps_to_start_when_not_pause_at_last() {
+        let mut mgr = make_manager(&["a.jpg", "b.jpg"]);
+        mgr.current_index = 1;
+        assert!(mgr.next(false));
+        assert_eq!(mgr.current_index, 0);
+    }
+
+    #[test]
+    fn next_returns_false_and_stays_at_last_when_pause_at_last() {
+        let mut mgr = make_manager(&["a.jpg", "b.jpg"]);
+        mgr.current_index = 1;
+        assert!(!mgr.next(true));
+        assert_eq!(mgr.current_index, 1);
+    }
+
+    #[test]
+    fn next_returns_false_on_empty() {
+        let mut mgr = TextureManager::new(2, (1920, 1080));
+        assert!(!mgr.next(false));
+    }
+
+    // --- previous() ---
+
+    #[test]
+    fn previous_decrements_index() {
+        let mut mgr = make_manager(&["a.jpg", "b.jpg", "c.jpg"]);
+        mgr.current_index = 2;
+        assert!(mgr.previous());
+        assert_eq!(mgr.current_index, 1);
+    }
+
+    #[test]
+    fn previous_wraps_to_last() {
+        let mut mgr = make_manager(&["a.jpg", "b.jpg", "c.jpg"]);
+        mgr.current_index = 0;
+        assert!(mgr.previous());
+        assert_eq!(mgr.current_index, 2);
+    }
+
+    #[test]
+    fn previous_returns_false_on_empty() {
+        let mut mgr = TextureManager::new(2, (1920, 1080));
+        assert!(!mgr.previous());
+    }
+
+    // --- jump_to() ---
+
+    #[test]
+    fn jump_to_valid_index() {
+        let mut mgr = make_manager(&["a.jpg", "b.jpg", "c.jpg"]);
+        mgr.jump_to(2);
+        assert_eq!(mgr.current_index, 2);
+    }
+
+    #[test]
+    fn jump_to_out_of_bounds_is_ignored() {
+        let mut mgr = make_manager(&["a.jpg", "b.jpg"]);
+        mgr.jump_to(99);
+        assert_eq!(mgr.current_index, 0);
+    }
+
+    // --- replace_paths() / append_paths() ---
+
+    #[test]
+    fn replace_paths_resets_to_index_zero() {
+        let mut mgr = make_manager(&["a.jpg", "b.jpg"]);
+        mgr.current_index = 1;
+        mgr.replace_paths(vec![Utf8PathBuf::from("c.jpg")]);
+        assert_eq!(mgr.current_index, 0);
+        assert_eq!(mgr.paths.len(), 1);
+        assert!(mgr.textures.is_empty());
+    }
+
+    #[test]
+    fn append_paths_extends_list_and_preserves_index() {
+        let mut mgr = make_manager(&["a.jpg"]);
+        mgr.append_paths(vec![Utf8PathBuf::from("b.jpg"), Utf8PathBuf::from("c.jpg")]);
+        assert_eq!(mgr.paths.len(), 3);
+        assert_eq!(mgr.current_index, 0);
+    }
+
+    #[test]
+    fn append_paths_to_empty_behaves_like_replace() {
+        let mut mgr = TextureManager::new(2, (1920, 1080));
+        mgr.append_paths(vec![Utf8PathBuf::from("a.jpg"), Utf8PathBuf::from("b.jpg")]);
+        assert_eq!(mgr.paths.len(), 2);
+        assert_eq!(mgr.current_index, 0);
+    }
+
+    // --- mip_level_count() ---
+
+    #[test]
+    fn mip_level_count_1x1() {
+        assert_eq!(mip_level_count(1, 1), 1);
+    }
+
+    #[test]
+    fn mip_level_count_1024x1024() {
+        // ilog2(1024) = 10, so 11 levels
+        assert_eq!(mip_level_count(1024, 1024), 11);
+    }
+
+    #[test]
+    fn mip_level_count_non_square_uses_max_dim() {
+        // max dim = 1920, ilog2(1920) = 10, so 11 levels
+        assert_eq!(mip_level_count(1920, 1080), 11);
+    }
+
+    // --- linear_to_srgb() ---
+
+    #[test]
+    fn linear_to_srgb_zero_maps_to_zero() {
+        assert_eq!(linear_to_srgb(0.0), 0.0);
+    }
+
+    #[test]
+    fn linear_to_srgb_one_maps_to_one() {
+        assert!((linear_to_srgb(1.0) - 1.0).abs() < 1e-5);
+    }
+
+    #[test]
+    fn linear_to_srgb_low_value_uses_linear_segment() {
+        // Values <= 0.003_130_8 use the linear c * 12.92 branch
+        let v = 0.001_f32;
+        assert!((linear_to_srgb(v) - v * 12.92).abs() < 1e-6);
+    }
+}
