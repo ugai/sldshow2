@@ -695,7 +695,10 @@ fn resize_for_gpu(
 }
 
 /// Resize an HDR (Rgba32F) image to fit within max_width×max_height, preserving aspect ratio.
-/// Uses bilinear (Triangle) filter since fast_image_resize does not support float pixels.
+///
+/// Uses `fast_image_resize` with `F32x4` pixel type for SIMD-accelerated bilinear interpolation
+/// directly on f32 data — no precision loss or format conversion overhead.
+/// Falls back to `image::imageops::resize` if the fast path fails.
 fn resize_for_gpu_hdr(
     img: image::Rgba32FImage,
     max_width: u32,
@@ -713,7 +716,36 @@ fn resize_for_gpu_hdr(
     let scale = scale_w.min(scale_h);
     let new_w = ((orig_w as f32 * scale).round() as u32).max(1);
     let new_h = ((orig_h as f32 * scale).round() as u32).max(1);
-    image::imageops::resize(&img, new_w, new_h, image::imageops::FilterType::Triangle)
+
+    let fallback =
+        || image::imageops::resize(&img, new_w, new_h, image::imageops::FilterType::Triangle);
+
+    // Cast the f32 pixel buffer directly to bytes — no conversion needed for F32x4.
+    let f32_bytes: &[u8] = bytemuck::cast_slice(img.as_raw());
+
+    let src = match fast_image_resize::images::ImageRef::new(
+        orig_w,
+        orig_h,
+        f32_bytes,
+        fast_image_resize::PixelType::F32x4,
+    ) {
+        Ok(s) => s,
+        Err(_) => return fallback(),
+    };
+
+    let mut dst =
+        fast_image_resize::images::Image::new(new_w, new_h, fast_image_resize::PixelType::F32x4);
+
+    let mut resizer = fast_image_resize::Resizer::new();
+    let opts = fast_image_resize::ResizeOptions::new().resize_alg(
+        fast_image_resize::ResizeAlg::Convolution(fast_image_resize::FilterType::Bilinear),
+    );
+    if resizer.resize(&src, &mut dst, &opts).is_err() {
+        return fallback();
+    }
+
+    let f32_pixels: Vec<f32> = bytemuck::cast_slice(dst.buffer()).to_vec();
+    image::Rgba32FImage::from_raw(new_w, new_h, f32_pixels).unwrap_or_else(fallback)
 }
 
 pub fn scan_image_paths(
