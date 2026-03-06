@@ -695,7 +695,9 @@ fn resize_for_gpu(
 }
 
 /// Resize an HDR (Rgba32F) image to fit within max_width×max_height, preserving aspect ratio.
-/// Uses bilinear (Triangle) filter since fast_image_resize does not support float pixels.
+///
+/// Converts f32 → f16 → U16x4 for fast_image_resize (SIMD), then converts back.
+/// This is significantly faster than `image::imageops::resize` for large EXR files.
 fn resize_for_gpu_hdr(
     img: image::Rgba32FImage,
     max_width: u32,
@@ -713,7 +715,44 @@ fn resize_for_gpu_hdr(
     let scale = scale_w.min(scale_h);
     let new_w = ((orig_w as f32 * scale).round() as u32).max(1);
     let new_h = ((orig_h as f32 * scale).round() as u32).max(1);
-    image::imageops::resize(&img, new_w, new_h, image::imageops::FilterType::Triangle)
+
+    // Convert f32 → u16 (via f16) for fast_image_resize U16x4
+    let u16_pixels: Vec<u16> = img
+        .as_raw()
+        .iter()
+        .map(|&f| half::f16::from_f32(f).to_bits())
+        .collect();
+    let u16_bytes: &[u8] = bytemuck::cast_slice(&u16_pixels);
+
+    let src = fast_image_resize::images::ImageRef::new(
+        orig_w,
+        orig_h,
+        u16_bytes,
+        fast_image_resize::PixelType::U16x4,
+    )
+    .expect("valid U16x4 image");
+
+    let mut dst =
+        fast_image_resize::images::Image::new(new_w, new_h, fast_image_resize::PixelType::U16x4);
+
+    let mut resizer = fast_image_resize::Resizer::new();
+    let opts = fast_image_resize::ResizeOptions::new().resize_alg(
+        fast_image_resize::ResizeAlg::Convolution(fast_image_resize::FilterType::Bilinear),
+    );
+    resizer
+        .resize(&src, &mut dst, &opts)
+        .expect("U16x4 resize should not fail");
+
+    // Convert u16 (f16 bits) → f32
+    let dst_u16: &[u16] = bytemuck::cast_slice(dst.buffer());
+    let f32_pixels: Vec<f32> = dst_u16
+        .iter()
+        .map(|&bits| half::f16::from_bits(bits).to_f32())
+        .collect();
+
+    image::Rgba32FImage::from_raw(new_w, new_h, f32_pixels).unwrap_or_else(|| {
+        image::imageops::resize(&img, new_w, new_h, image::imageops::FilterType::Triangle)
+    })
 }
 
 pub fn scan_image_paths(
