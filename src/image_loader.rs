@@ -148,14 +148,16 @@ impl TextureManager {
         }
     }
 
-    pub fn previous(&mut self) -> bool {
+    pub fn previous(&mut self, pause_at_last: bool) -> bool {
         if self.paths.is_empty() {
             return false;
         }
         if self.current_index > 0 {
             self.current_index -= 1;
-        } else {
+        } else if !pause_at_last {
             self.current_index = self.paths.len() - 1;
+        } else {
+            return false;
         }
         true
     }
@@ -857,7 +859,7 @@ mod tests {
     fn previous_decrements_index() {
         let mut mgr = make_manager(&["a.jpg", "b.jpg", "c.jpg"]);
         mgr.current_index = 2;
-        assert!(mgr.previous());
+        assert!(mgr.previous(false));
         assert_eq!(mgr.current_index, 1);
     }
 
@@ -865,14 +867,22 @@ mod tests {
     fn previous_wraps_to_last() {
         let mut mgr = make_manager(&["a.jpg", "b.jpg", "c.jpg"]);
         mgr.current_index = 0;
-        assert!(mgr.previous());
+        assert!(mgr.previous(false));
         assert_eq!(mgr.current_index, 2);
+    }
+
+    #[test]
+    fn previous_returns_false_and_stays_at_first_when_pause_at_last() {
+        let mut mgr = make_manager(&["a.jpg", "b.jpg", "c.jpg"]);
+        mgr.current_index = 0;
+        assert!(!mgr.previous(true));
+        assert_eq!(mgr.current_index, 0);
     }
 
     #[test]
     fn previous_returns_false_on_empty() {
         let mut mgr = TextureManager::new(2, (1920, 1080));
-        assert!(!mgr.previous());
+        assert!(!mgr.previous(false));
     }
 
     // --- jump_to() ---

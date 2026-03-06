@@ -260,12 +260,6 @@ impl EguiOverlay {
         self.show_help_overlay
     }
 
-    /// Check if help overlay is visible
-    #[allow(dead_code)]
-    pub fn help_overlay_visible(&self) -> bool {
-        self.show_help_overlay
-    }
-
     /// Toggle settings overlay visibility
     pub fn toggle_settings(&mut self) -> bool {
         self.show_settings = !self.show_settings;
@@ -277,12 +271,6 @@ impl EguiOverlay {
         self.show_settings
     }
 
-    /// Check if settings overlay is visible
-    #[allow(dead_code)]
-    pub fn settings_visible(&self) -> bool {
-        self.show_settings
-    }
-
     /// Toggle gallery visibility
     pub fn toggle_gallery(&mut self) {
         self.show_gallery = !self.show_gallery;
@@ -291,12 +279,6 @@ impl EguiOverlay {
         } else {
             self.pop_overlay(OverlayKind::Gallery);
         }
-    }
-
-    /// Check if gallery is visible
-    #[allow(dead_code)]
-    pub fn gallery_visible(&self) -> bool {
-        self.show_gallery
     }
 
     /// Returns `true` when any overlay or the OSC is currently visible,

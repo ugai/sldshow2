@@ -614,7 +614,10 @@ impl ApplicationState {
 
     fn prev_image(&mut self) {
         let old_index = self.texture_manager.current_index;
-        if self.texture_manager.previous() {
+        if self
+            .texture_manager
+            .previous(self.config.viewer.pause_at_last)
+        {
             self.finish_navigation(old_index);
         }
     }
