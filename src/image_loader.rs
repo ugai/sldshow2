@@ -696,8 +696,9 @@ fn resize_for_gpu(
 
 /// Resize an HDR (Rgba32F) image to fit within max_width×max_height, preserving aspect ratio.
 ///
-/// Converts f32 → f16 → U16x4 for fast_image_resize (SIMD), then converts back.
-/// This is significantly faster than `image::imageops::resize` for large EXR files.
+/// Uses `fast_image_resize` with `F32x4` pixel type for SIMD-accelerated bilinear interpolation
+/// directly on f32 data — no precision loss or format conversion overhead.
+/// Falls back to `image::imageops::resize` if the fast path fails.
 fn resize_for_gpu_hdr(
     img: image::Rgba32FImage,
     max_width: u32,
@@ -716,43 +717,35 @@ fn resize_for_gpu_hdr(
     let new_w = ((orig_w as f32 * scale).round() as u32).max(1);
     let new_h = ((orig_h as f32 * scale).round() as u32).max(1);
 
-    // Convert f32 → u16 (via f16) for fast_image_resize U16x4
-    let u16_pixels: Vec<u16> = img
-        .as_raw()
-        .iter()
-        .map(|&f| half::f16::from_f32(f).to_bits())
-        .collect();
-    let u16_bytes: &[u8] = bytemuck::cast_slice(&u16_pixels);
+    let fallback =
+        || image::imageops::resize(&img, new_w, new_h, image::imageops::FilterType::Triangle);
 
-    let src = fast_image_resize::images::ImageRef::new(
+    // Cast the f32 pixel buffer directly to bytes — no conversion needed for F32x4.
+    let f32_bytes: &[u8] = bytemuck::cast_slice(img.as_raw());
+
+    let src = match fast_image_resize::images::ImageRef::new(
         orig_w,
         orig_h,
-        u16_bytes,
-        fast_image_resize::PixelType::U16x4,
-    )
-    .expect("valid U16x4 image");
+        f32_bytes,
+        fast_image_resize::PixelType::F32x4,
+    ) {
+        Ok(s) => s,
+        Err(_) => return fallback(),
+    };
 
     let mut dst =
-        fast_image_resize::images::Image::new(new_w, new_h, fast_image_resize::PixelType::U16x4);
+        fast_image_resize::images::Image::new(new_w, new_h, fast_image_resize::PixelType::F32x4);
 
     let mut resizer = fast_image_resize::Resizer::new();
     let opts = fast_image_resize::ResizeOptions::new().resize_alg(
         fast_image_resize::ResizeAlg::Convolution(fast_image_resize::FilterType::Bilinear),
     );
-    resizer
-        .resize(&src, &mut dst, &opts)
-        .expect("U16x4 resize should not fail");
+    if resizer.resize(&src, &mut dst, &opts).is_err() {
+        return fallback();
+    }
 
-    // Convert u16 (f16 bits) → f32
-    let dst_u16: &[u16] = bytemuck::cast_slice(dst.buffer());
-    let f32_pixels: Vec<f32> = dst_u16
-        .iter()
-        .map(|&bits| half::f16::from_bits(bits).to_f32())
-        .collect();
-
-    image::Rgba32FImage::from_raw(new_w, new_h, f32_pixels).unwrap_or_else(|| {
-        image::imageops::resize(&img, new_w, new_h, image::imageops::FilterType::Triangle)
-    })
+    let f32_pixels: Vec<f32> = bytemuck::cast_slice(dst.buffer()).to_vec();
+    image::Rgba32FImage::from_raw(new_w, new_h, f32_pixels).unwrap_or_else(fallback)
 }
 
 pub fn scan_image_paths(
