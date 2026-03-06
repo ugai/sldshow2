@@ -984,6 +984,7 @@ impl ApplicationState {
                             info!("Drag & drop: appended {} images", count);
                         } else {
                             self.texture_manager.replace_paths(new_paths);
+                            self.thumbnail_manager.clear();
                             self.transition = None;
                             self.renderer.invalidate_bind_group();
                             self.current_texture_index = if count > 0 { Some(0) } else { None };

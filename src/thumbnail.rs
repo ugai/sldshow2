@@ -160,8 +160,6 @@ impl ThumbnailManager {
     /// Increments the internal epoch so any in-flight rayon tasks spawned
     /// before this call are treated as stale: their results are silently
     /// discarded in `update()` without touching the refreshed cache.
-    // Not currently called from app code, but retained as a complete cache-management API.
-    #[allow(dead_code)]
     pub fn clear(&mut self) {
         self.cache.clear();
         self.loading_tasks.clear();
