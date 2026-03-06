@@ -439,4 +439,52 @@ mod tests {
             _ => panic!("Expected ConfigSaveError, got {:?}", result),
         }
     }
+
+    #[test]
+    fn test_fitmode_toggle() {
+        let mut mode = FitMode::Fit;
+        mode.toggle();
+        assert_eq!(mode, FitMode::AmbientFit);
+        mode.toggle();
+        assert_eq!(mode, FitMode::Fit);
+    }
+
+    #[test]
+    fn test_fitmode_uniform_values() {
+        assert_eq!(FitMode::Fit.to_uniform_value(), 0);
+        assert_eq!(FitMode::AmbientFit.to_uniform_value(), 1);
+    }
+
+    #[test]
+    fn test_bg_color_f32_conversion() {
+        let mut config = Config::default();
+        config.style.bg_color = [0, 128, 255, 255];
+        let c = config.bg_color_f32();
+        assert_eq!(c[0], 0.0);
+        assert!((c[1] - 128.0 / 255.0).abs() < 1e-6);
+        assert!((c[2] - 1.0).abs() < 1e-6);
+        assert_eq!(c[3], 1.0);
+    }
+
+    #[test]
+    fn test_transition_mode_all_names_known() {
+        for i in TransitionMode::MIN..=TransitionMode::MAX {
+            let mode = TransitionMode::try_from(i).unwrap();
+            assert_ne!(
+                mode.name(),
+                "Unknown",
+                "TransitionMode({i}) returned Unknown — update name() to match"
+            );
+        }
+    }
+
+    #[test]
+    fn test_window_config_defaults() {
+        let w = WindowConfig::default();
+        assert_eq!(w.width, 1280);
+        assert_eq!(w.height, 720);
+        assert!(!w.fullscreen);
+        assert!(!w.always_on_top);
+        assert!(w.decorations);
+    }
 }

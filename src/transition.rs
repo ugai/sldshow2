@@ -209,3 +209,33 @@ impl TransitionPipeline {
             .expect("random_range(0..20) always produces a valid TransitionMode")
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::TransitionMode;
+
+    #[test]
+    fn transition_uniform_size_is_multiple_of_16() {
+        // WGSL uniform buffers must be 16-byte aligned.
+        assert_eq!(
+            std::mem::size_of::<TransitionUniform>() % 16,
+            0,
+            "TransitionUniform size must be a multiple of 16 bytes for WGSL alignment"
+        );
+    }
+
+    #[test]
+    fn transition_uniform_size_matches_field_layout() {
+        // Freeze the exact struct size so accidental field changes are caught.
+        // Update this value only when deliberately changing the struct layout.
+        assert_eq!(std::mem::size_of::<TransitionUniform>(), 112);
+    }
+
+    #[test]
+    fn transition_mode_count_matches_config_max() {
+        // TRANSITION_MODE_COUNT must equal TransitionMode::MAX + 1 so that
+        // random_mode() never produces an out-of-range index.
+        assert_eq!(TRANSITION_MODE_COUNT, TransitionMode::MAX + 1);
+    }
+}
