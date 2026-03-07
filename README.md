@@ -48,7 +48,13 @@ MIT — Based on the original [sldshow](https://github.com/ugai/sldshow) by ugai
 
 ## Appendix
 
-### The Guild — Agent Teams
+<summary>
+The Guild — Agent Teams
+</summary>
+
+<details>
+
+### The Guild
 
 *The following is lore.*
 
@@ -59,34 +65,31 @@ Issues labeled `agent:ready` are autonomously implemented and delivered as pull 
 
 <table>
 <tr>
-<td align="center" width="33%">
-<img src="docs/assets/portrait-agent-ranger.png" width="220"><br>
-<strong><code>issue-ranger</code></strong> — <em>No Unknown Unknowns.</em><br>
-Ranges far. Crawls deep. Every wound in the codebase — named, scoped, filed.
-Nothing escapes the board.
-</td>
-<td align="center" width="33%">
-<img src="docs/assets/portrait-agent-slayer.png" width="220"><br>
-<strong><code>issue-slayer</code></strong> — <em>The Blade, The Lone Wolf.</em><br>
-The <code>agent:ready</code> label is the contract. The worktree is where it dies. The PR is the proof.
-Does not theorize. Does not over-engineer. No issue survives.
-</td>
-<td align="center" width="33%">
-<img src="docs/assets/portrait-agent-raid-commander.png" width="220"><br>
-<strong><code>issue-raid-commander</code></strong> — <em>Forged by Sprints, Not Blade.</em><br>
-Reads the ready queue. Spots every conflict before it forms. Charts the sprint plan.
-Once fought on the front lines. Now stands behind them.
-</td>
+<td align="center" width="33%"><img src="docs/assets/portrait-agent-ranger.png" width="220" alt="issue-ranger"></td>
+<td align="center" width="33%"><img src="docs/assets/portrait-agent-slayer.png" width="220" alt="issue-slayer"></td>
+<td align="center" width="33%"><img src="docs/assets/portrait-agent-raid-commander.png" width="220" alt="issue-raid-commander"></td>
+</tr>
+<tr>
+<td align="center"><strong><code>issue-ranger</code></strong></td>
+<td align="center"><strong><code>issue-slayer</code></strong></td>
+<td align="center"><strong><code>issue-raid-commander</code></strong></td>
+</tr>
+<tr>
+<td align="center" valign="top"><br><em>No Unknown Unknowns.</em><br><br>Ranges far. Crawls deep. Every wound in the codebase — named, scoped, filed. Nothing escapes the board.</td>
+<td align="center" valign="top"><br><em>The Blade.</em><br><br>The <code>agent:ready</code> label is the contract. The worktree is where it dies. The PR is the proof. Does not theorize. Does not over-engineer. No issue survives.</td>
+<td align="center" valign="top"><br><em>Forged by Sprints, Not Blade.</em><br><br>Reads the ready queue. Spots every conflict before it forms. Charts the sprint plan. Once fought on the front lines. Now stands behind them.</td>
 </tr>
 </table>
 
 #### Workflow
 
 <div align="center">
+<strong><code>dispatching-guild-expedition</code></strong> — <em>One Command. Full Sprint.</em><br><br>
 <img src="docs/assets/cover-art-epic-expedition.jpg" width="600"><br><br>
-<strong><code>dispatching-guild-expedition</code></strong> — <em>One Command. Full Sprint.</em><br>
 Orchestrates the entire pipeline: Rangers × N scout in parallel, the user
 approves issues at the gate, Raid Commander maps the battlefield, then
 Slayers × N charge in parallel.
 From empty board to open PRs. The whole Guild, at once. Conquered.
 </div>
+
+</details>
