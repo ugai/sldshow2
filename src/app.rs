@@ -424,6 +424,7 @@ impl ApplicationState {
                 // Clamp pan so image stays within viewport when zooming out
                 self.clamp_zoom_pan();
                 self.show_osd(format!("Zoom: {:.1}x", self.zoom_scale));
+                self.cached_info_string = None;
             }
             InputAction::Pan { dx, dy } => {
                 // Convert physical pixel delta to UV-space delta
@@ -438,6 +439,7 @@ impl ApplicationState {
                 self.zoom_pan = [0.0, 0.0];
                 self.input_handler.zoom_scale = 1.0;
                 self.show_osd("Zoom: Reset".to_string());
+                self.cached_info_string = None;
             }
             _ => {}
         }
@@ -704,10 +706,12 @@ impl ApplicationState {
             format!("{}: {:.2}", name, *value)
         };
         self.show_osd(msg);
+        self.cached_info_string = None;
     }
 
     fn reset_color_adjustments(&mut self) {
         self.color = ColorAdjustments::default();
+        self.cached_info_string = None;
         self.show_osd("Color Reset".to_string());
     }
 
@@ -737,7 +741,30 @@ impl ApplicationState {
             })
             .unwrap_or_else(|_| "Unknown size".to_string());
 
-        format!("{}\n{} {}\n{}", path, resolution, format, file_size)
+        let mut info = format!("{}\n{} {}\n{}", path, resolution, format, file_size);
+
+        fn round2(v: f32) -> f32 { (v * 100.0).round() / 100.0 }
+        fn round1(v: f32) -> f32 { (v * 10.0).round() / 10.0 }
+
+        if round1(self.zoom_scale) != 1.0 {
+            info.push_str(&format!("\nZoom: {:.1}x", self.zoom_scale));
+        }
+
+        let defaults = ColorAdjustments::default();
+        if round2(self.color.contrast) != round2(defaults.contrast) {
+            info.push_str(&format!("\nContrast: {:.2}", self.color.contrast));
+        }
+        if round2(self.color.brightness) != round2(defaults.brightness) {
+            info.push_str(&format!("\nBrightness: {:.2}", self.color.brightness));
+        }
+        if round1(self.color.gamma) != round1(defaults.gamma) {
+            info.push_str(&format!("\nGamma: {:.1}", self.color.gamma));
+        }
+        if round2(self.color.saturation) != round2(defaults.saturation) {
+            info.push_str(&format!("\nSaturation: {:.2}", self.color.saturation));
+        }
+
+        info
     }
 
     fn open_explorer(&mut self) {
