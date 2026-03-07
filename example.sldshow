@@ -12,7 +12,7 @@ resizable = true
 [viewer]
 # Image paths - can be directories or individual files
 image_paths = [
-    "D:\\git\\sldshow2\\assets\\test_images",
+    "assets/test_images",
     # "C:\\Users\\YourName\\Pictures",
     # "/home/user/photos",
 ]

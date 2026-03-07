@@ -5,7 +5,7 @@ sldshow2: Rust slideshow viewer with WGSL transition effects (winit + wgpu). See
 ## Build & Test
 
 ```bash
-cargo run --release -- test.sldshow   # Visual testing (ALWAYS use --release)
+cargo run --release -- example.sldshow   # Visual testing (ALWAYS use --release)
 cargo build                           # Compile check only
 ```
 

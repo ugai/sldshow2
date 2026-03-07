@@ -71,7 +71,7 @@ and re-run the build check. Do not proceed to Step 4 until the build passes.
 Tell the user to run:
 
 ```bash
-cargo run -- test.sldshow
+cargo run --release -- example.sldshow
 ```
 
 Ask: *"Visual check complete — did everything look correct? (yes / issue found)"*
