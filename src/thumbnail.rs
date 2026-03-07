@@ -10,7 +10,7 @@ use camino::{Utf8Path, Utf8PathBuf};
 use image::{GenericImageView, RgbaImage};
 use log::{debug, warn};
 use lru::LruCache;
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::num::NonZeroUsize;
 use std::sync::mpsc::{Receiver, Sender, channel};
 
@@ -32,6 +32,8 @@ pub struct ThumbnailManager {
     loading_tasks: HashMap<usize, u64>,
     /// Queue of requests waiting for a free concurrent slot
     pending_queue: VecDeque<(usize, Utf8PathBuf)>,
+    /// O(1) lookup mirror of `pending_queue` indices
+    pending_set: HashSet<usize>,
     /// Generation counter — incremented on every `clear()` so that in-flight
     /// rayon tasks from a previous generation are silently discarded when their
     /// results arrive.  Mirrors the epoch guard in `TextureManager`.
@@ -63,6 +65,7 @@ impl ThumbnailManager {
             cache: LruCache::new(cap),
             loading_tasks: HashMap::new(),
             pending_queue: VecDeque::new(),
+            pending_set: HashSet::new(),
             epoch: 0,
             tx,
             rx,
@@ -76,7 +79,7 @@ impl ThumbnailManager {
         // Already cached or loading or pending
         if self.cache.contains(&index)
             || self.loading_tasks.contains_key(&index)
-            || self.pending_queue.iter().any(|(i, _)| *i == index)
+            || self.pending_set.contains(&index)
         {
             return;
         }
@@ -84,6 +87,7 @@ impl ThumbnailManager {
         // Enforce concurrency limit — queue if at capacity
         if self.loading_tasks.len() >= MAX_CONCURRENT_GENERATION {
             self.pending_queue.push_back((index, path.to_owned()));
+            self.pending_set.insert(index);
             return;
         }
 
@@ -138,6 +142,7 @@ impl ThumbnailManager {
         while self.loading_tasks.len() < MAX_CONCURRENT_GENERATION {
             match self.pending_queue.pop_front() {
                 Some((index, path)) => {
+                    self.pending_set.remove(&index);
                     // Skip if already cached or already loading in the meantime
                     if self.cache.contains(&index) || self.loading_tasks.contains_key(&index) {
                         continue;
@@ -164,6 +169,7 @@ impl ThumbnailManager {
         self.cache.clear();
         self.loading_tasks.clear();
         self.pending_queue.clear();
+        self.pending_set.clear();
         self.newly_cached.clear();
         // Bump epoch: results arriving from pre-clear tasks carry the old
         // epoch and will be discarded by the guard in update().
@@ -174,6 +180,7 @@ impl ThumbnailManager {
     /// Used to reset priorities when the requested set changes (e.g. rapid scrolling).
     pub fn clear_pending(&mut self) {
         self.pending_queue.clear();
+        self.pending_set.clear();
     }
 
     /// Return and clear the list of indices whose thumbnails were newly inserted
