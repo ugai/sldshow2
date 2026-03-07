@@ -19,7 +19,7 @@ High-performance slideshow image viewer with custom [WGSL](https://www.w3.org/TR
 
 ```bash
 cargo run --example generate_test_images
-cargo run --release -- test.sldshow
+cargo run --release -- example.sldshow
 ```
 
 Press `?` in-app for the full keyboard shortcut reference.
@@ -48,11 +48,11 @@ MIT — Based on the original [sldshow](https://github.com/ugai/sldshow) by ugai
 
 ## Appendix
 
+<details>
+
 <summary>
 The Guild — Agent Teams
 </summary>
-
-<details>
 
 ### The Guild
 
@@ -70,9 +70,9 @@ Issues labeled `agent:ready` are autonomously implemented and delivered as pull 
 <td align="center" width="33%"><img src="docs/assets/portrait-agent-raid-commander.png" width="220" alt="issue-raid-commander"></td>
 </tr>
 <tr>
-<td align="center"><strong><code>issue-ranger</code></strong></td>
-<td align="center"><strong><code>issue-slayer</code></strong></td>
-<td align="center"><strong><code>issue-raid-commander</code></strong></td>
+<td align="center"><strong><code>issue-ranger</code></strong><br><sub><a href=".claude/skills/issue-ranger/SKILL.md">SKILL.md</a> | <a href=".claude/agents/issue-ranger.md">Agent</a></sub></td>
+<td align="center"><strong><code>issue-slayer</code></strong><br><sub><a href=".claude/skills/issue-slayer/SKILL.md">SKILL.md</a> | <a href=".claude/agents/issue-slayer.md">Agent</a></sub></td>
+<td align="center"><strong><code>issue-raid-commander</code></strong><br><sub><a href=".claude/skills/issue-raid-commander/SKILL.md">SKILL.md</a> | <a href=".claude/agents/issue-raid-commander.md">Agent</a></sub></td>
 </tr>
 <tr>
 <td align="center" valign="top"><br><em>No Unknown Unknowns.</em><br><br>Ranges far. Crawls deep. Every wound in the codebase — named, scoped, filed. Nothing escapes the board.</td>
@@ -83,13 +83,16 @@ Issues labeled `agent:ready` are autonomously implemented and delivered as pull 
 
 #### Workflow
 
-<div align="center">
-<strong><code>dispatching-guild-expedition</code></strong> — <em>One Command. Full Sprint.</em><br><br>
-<img src="docs/assets/cover-art-epic-expedition.jpg" width="600"><br><br>
-Orchestrates the entire pipeline: Rangers × N scout in parallel, the user
-approves issues at the gate, Raid Commander maps the battlefield, then
-Slayers × N charge in parallel.
-From empty board to open PRs. The whole Guild, at once. Conquered.
-</div>
+<table>
+<tr>
+<td align="center"><strong><code>dispatching-guild-expedition</code></strong><br><sub><a href=".claude/skills/dispatching-guild-expedition/SKILL.md">SKILL.md</a></sub></td>
+</tr>
+<tr>
+<td align="center"><img src="docs/assets/cover-art-epic-expedition.jpg" width="600" alt="dispatching-guild-expedition"></td>
+</tr>
+<tr>
+<td align="center" valign="top"><br><em>One Command. Full Sprint.</em><br><br>Orchestrates the entire pipeline: Rangers × N scout in parallel, the user approves issues at the gate, Raid Commander maps the battlefield, then Slayers × N charge in parallel. From empty board to open PRs. The whole Guild, at once. Conquered.</td>
+</tr>
+</table>
 
 </details>
