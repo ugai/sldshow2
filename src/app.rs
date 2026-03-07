@@ -749,16 +749,16 @@ impl ApplicationState {
 
         let defaults = ColorAdjustments::default();
         if self.color.brightness != defaults.brightness {
-            info.push_str(&format!("\nBrightness: {:+.2}", self.color.brightness));
+            info.push_str(&format!("\nBrightness: {:.2}", self.color.brightness));
         }
         if self.color.contrast != defaults.contrast {
-            info.push_str(&format!("\nContrast: {:.2}x", self.color.contrast));
+            info.push_str(&format!("\nContrast: {:.2}", self.color.contrast));
         }
         if self.color.gamma != defaults.gamma {
             info.push_str(&format!("\nGamma: {:.1}", self.color.gamma));
         }
         if self.color.saturation != defaults.saturation {
-            info.push_str(&format!("\nSaturation: {:.2}x", self.color.saturation));
+            info.push_str(&format!("\nSaturation: {:.2}", self.color.saturation));
         }
 
         info
