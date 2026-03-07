@@ -743,21 +743,23 @@ impl ApplicationState {
 
         let mut info = format!("{}\n{} {}\n{}", path, resolution, format, file_size);
 
-        if self.zoom_scale != 1.0 {
+        const EPS: f32 = 1e-4;
+
+        if (self.zoom_scale - 1.0).abs() > EPS {
             info.push_str(&format!("\nZoom: {:.1}x", self.zoom_scale));
         }
 
         let defaults = ColorAdjustments::default();
-        if self.color.contrast != defaults.contrast {
+        if (self.color.contrast - defaults.contrast).abs() > EPS {
             info.push_str(&format!("\nContrast: {:.2}", self.color.contrast));
         }
-        if self.color.brightness != defaults.brightness {
+        if (self.color.brightness - defaults.brightness).abs() > EPS {
             info.push_str(&format!("\nBrightness: {:.2}", self.color.brightness));
         }
-        if self.color.gamma != defaults.gamma {
+        if (self.color.gamma - defaults.gamma).abs() > EPS {
             info.push_str(&format!("\nGamma: {:.1}", self.color.gamma));
         }
-        if self.color.saturation != defaults.saturation {
+        if (self.color.saturation - defaults.saturation).abs() > EPS {
             info.push_str(&format!("\nSaturation: {:.2}", self.color.saturation));
         }
 
