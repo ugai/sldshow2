@@ -743,23 +743,24 @@ impl ApplicationState {
 
         let mut info = format!("{}\n{} {}\n{}", path, resolution, format, file_size);
 
-        const EPS: f32 = 1e-4;
+        fn round2(v: f32) -> f32 { (v * 100.0).round() / 100.0 }
+        fn round1(v: f32) -> f32 { (v * 10.0).round() / 10.0 }
 
-        if (self.zoom_scale - 1.0).abs() > EPS {
+        if round1(self.zoom_scale) != 1.0 {
             info.push_str(&format!("\nZoom: {:.1}x", self.zoom_scale));
         }
 
         let defaults = ColorAdjustments::default();
-        if (self.color.contrast - defaults.contrast).abs() > EPS {
+        if round2(self.color.contrast) != round2(defaults.contrast) {
             info.push_str(&format!("\nContrast: {:.2}", self.color.contrast));
         }
-        if (self.color.brightness - defaults.brightness).abs() > EPS {
+        if round2(self.color.brightness) != round2(defaults.brightness) {
             info.push_str(&format!("\nBrightness: {:.2}", self.color.brightness));
         }
-        if (self.color.gamma - defaults.gamma).abs() > EPS {
+        if round1(self.color.gamma) != round1(defaults.gamma) {
             info.push_str(&format!("\nGamma: {:.1}", self.color.gamma));
         }
-        if (self.color.saturation - defaults.saturation).abs() > EPS {
+        if round2(self.color.saturation) != round2(defaults.saturation) {
             info.push_str(&format!("\nSaturation: {:.2}", self.color.saturation));
         }
 
