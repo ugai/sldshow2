@@ -27,18 +27,22 @@ jobs:
       - id: filter
         uses: dorny/paths-filter@v3
         with:
-          # Keep the workflow itself running for docs-only PRs so required checks
-          # resolve cleanly, but skip the expensive Rust jobs unless non-doc changes exist.
+          # Keep the workflow itself running for docs-only changes so required
+          # checks resolve cleanly, but only run the expensive Rust jobs when
+          # code, build, workflow, or shader inputs changed.
           filters: |
             run-heavy:
-              - '**'
-              - '!README.md'
-              - '!docs/**'
-              - '!AGENTS.md'
-              - '!CLAUDE.md'
-              - '!CONTRIBUTING.md'
-              - '!GEMINI.md'
-              - '!.claude/**'
+              - '.github/workflows/**'
+              - '.githooks/**'
+              - 'Cargo.toml'
+              - 'Cargo.lock'
+              - 'build.rs'
+              - 'clippy.toml'
+              - 'rustfmt.toml'
+              - 'src/**'
+              - 'tests/**'
+              - 'examples/**'
+              - 'assets/shaders/**'
 
   check:
     name: Check
