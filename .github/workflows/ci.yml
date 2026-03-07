@@ -11,8 +11,35 @@ env:
   RUST_BACKTRACE: 1
 
 jobs:
+  changes:
+    name: Classify changes
+    runs-on: ubuntu-latest
+    outputs:
+      run-heavy: ${{ steps.filter.outputs.run-heavy }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - id: filter
+        uses: dorny/paths-filter@v3
+        with:
+          # Keep the workflow itself running for docs-only PRs so required checks
+          # resolve cleanly, but skip the expensive Rust jobs unless non-doc changes exist.
+          filters: |
+            run-heavy:
+              - '**'
+              - '!README.md'
+              - '!docs/**'
+              - '!AGENTS.md'
+              - '!CLAUDE.md'
+              - '!CONTRIBUTING.md'
+              - '!GEMINI.md'
+              - '!.claude/**'
+
   check:
     name: Check
+    needs: changes
+    if: needs.changes.outputs.run-heavy == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -26,6 +53,8 @@ jobs:
 
   fmt:
     name: Format
+    needs: changes
+    if: needs.changes.outputs.run-heavy == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -36,6 +65,8 @@ jobs:
 
   clippy:
     name: Clippy
+    needs: changes
+    if: needs.changes.outputs.run-heavy == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -57,6 +88,8 @@ jobs:
 
   check-windows:
     name: Check (Windows)
+    needs: changes
+    if: needs.changes.outputs.run-heavy == 'true'
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
