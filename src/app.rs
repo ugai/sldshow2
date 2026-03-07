@@ -22,21 +22,33 @@ use crate::transition::{self, TransitionPipeline, TransitionUniform};
 
 /// Color adjustment parameters (mpv-like).
 #[derive(Debug, Clone, Copy)]
+#[derive(Default)]
 pub struct ColorAdjustments {
-    pub brightness: f32,
-    pub contrast: f32,
-    pub gamma: f32,
-    pub saturation: f32,
+    pub brightness: i32,
+    pub contrast: i32,
+    pub gamma: i32,
+    pub saturation: i32,
 }
 
-impl Default for ColorAdjustments {
-    fn default() -> Self {
-        Self {
-            brightness: 0.0,
-            contrast: 1.0,
-            gamma: 1.0,
-            saturation: 1.0,
-        }
+impl ColorAdjustments {
+    /// Convert brightness (-100..100) to shader float: value / 100.0
+    pub fn shader_brightness(&self) -> f32 {
+        self.brightness as f32 / 100.0
+    }
+
+    /// Convert contrast (-100..100) to shader float: (value + 100) / 100.0
+    pub fn shader_contrast(&self) -> f32 {
+        (self.contrast + 100) as f32 / 100.0
+    }
+
+    /// Convert gamma (-100..100) to shader float: exp(ln(8) * value / 100.0)
+    pub fn shader_gamma(&self) -> f32 {
+        (8.0_f32.ln() * self.gamma as f32 / 100.0).exp()
+    }
+
+    /// Convert saturation (-100..100) to shader float: (value + 100) / 100.0
+    pub fn shader_saturation(&self) -> f32 {
+        (self.saturation + 100) as f32 / 100.0
     }
 }
 
@@ -681,31 +693,20 @@ impl ApplicationState {
     }
 
     fn handle_color_key(&mut self, key: KeyCode) {
-        let (value, delta, name, fmt) = match key {
-            KeyCode::Digit1 => (&mut self.color.contrast, -0.05f32, "Contrast", "{:.2}"),
-            KeyCode::Digit2 => (&mut self.color.contrast, 0.05, "Contrast", "{:.2}"),
-            KeyCode::Digit3 => (&mut self.color.brightness, -0.05, "Brightness", "{:.2}"),
-            KeyCode::Digit4 => (&mut self.color.brightness, 0.05, "Brightness", "{:.2}"),
-            KeyCode::Digit5 => (&mut self.color.gamma, -0.1, "Gamma", "{:.1}"),
-            KeyCode::Digit6 => (&mut self.color.gamma, 0.1, "Gamma", "{:.1}"),
-            KeyCode::Digit7 => (&mut self.color.saturation, -0.05, "Saturation", "{:.2}"),
-            KeyCode::Digit8 => (&mut self.color.saturation, 0.05, "Saturation", "{:.2}"),
+        let (value, delta, name) = match key {
+            KeyCode::Digit1 => (&mut self.color.contrast, -1i32, "Contrast"),
+            KeyCode::Digit2 => (&mut self.color.contrast, 1, "Contrast"),
+            KeyCode::Digit3 => (&mut self.color.brightness, -1, "Brightness"),
+            KeyCode::Digit4 => (&mut self.color.brightness, 1, "Brightness"),
+            KeyCode::Digit5 => (&mut self.color.gamma, -1, "Gamma"),
+            KeyCode::Digit6 => (&mut self.color.gamma, 1, "Gamma"),
+            KeyCode::Digit7 => (&mut self.color.saturation, -1, "Saturation"),
+            KeyCode::Digit8 => (&mut self.color.saturation, 1, "Saturation"),
             _ => return,
         };
-        let (min, max) = match key {
-            KeyCode::Digit1 | KeyCode::Digit2 => (0.0, 3.0),
-            KeyCode::Digit3 | KeyCode::Digit4 => (-1.0, 1.0),
-            KeyCode::Digit5 | KeyCode::Digit6 => (0.1, 5.0),
-            KeyCode::Digit7 | KeyCode::Digit8 => (0.0, 3.0),
-            _ => return,
-        };
-        *value = (*value + delta).clamp(min, max);
-        let msg = if fmt == "{:.1}" {
-            format!("{}: {:.1}", name, *value)
-        } else {
-            format!("{}: {:.2}", name, *value)
-        };
-        self.show_osd(msg);
+        *value = (*value + delta).clamp(-100, 100);
+        let display = *value;
+        self.show_osd(format!("{}: {}", name, display));
         self.cached_info_string = None;
     }
 
@@ -743,25 +744,21 @@ impl ApplicationState {
 
         let mut info = format!("{}\n{} {}\n{}", path, resolution, format, file_size);
 
-        fn round2(v: f32) -> f32 { (v * 100.0).round() / 100.0 }
-        fn round1(v: f32) -> f32 { (v * 10.0).round() / 10.0 }
-
-        if round1(self.zoom_scale) != 1.0 {
+        if (self.zoom_scale * 10.0).round() / 10.0 != 1.0 {
             info.push_str(&format!("\nZoom: {:.1}x", self.zoom_scale));
         }
 
-        let defaults = ColorAdjustments::default();
-        if round2(self.color.contrast) != round2(defaults.contrast) {
-            info.push_str(&format!("\nContrast: {:.2}", self.color.contrast));
+        if self.color.contrast != 0 {
+            info.push_str(&format!("\nContrast: {}", self.color.contrast));
         }
-        if round2(self.color.brightness) != round2(defaults.brightness) {
-            info.push_str(&format!("\nBrightness: {:.2}", self.color.brightness));
+        if self.color.brightness != 0 {
+            info.push_str(&format!("\nBrightness: {}", self.color.brightness));
         }
-        if round1(self.color.gamma) != round1(defaults.gamma) {
-            info.push_str(&format!("\nGamma: {:.1}", self.color.gamma));
+        if self.color.gamma != 0 {
+            info.push_str(&format!("\nGamma: {}", self.color.gamma));
         }
-        if round2(self.color.saturation) != round2(defaults.saturation) {
-            info.push_str(&format!("\nSaturation: {:.2}", self.color.saturation));
+        if self.color.saturation != 0 {
+            info.push_str(&format!("\nSaturation: {}", self.color.saturation));
         }
 
         info
@@ -1195,10 +1192,10 @@ impl ApplicationState {
                 window_size: [self.size.width as f32, self.size.height as f32],
                 image_a_size: [tex_a.width as f32, tex_a.height as f32],
                 image_b_size: [tex_b.width as f32, tex_b.height as f32],
-                brightness: self.color.brightness,
-                contrast: self.color.contrast,
-                gamma: self.color.gamma,
-                saturation: self.color.saturation,
+                brightness: self.color.shader_brightness(),
+                contrast: self.color.shader_contrast(),
+                gamma: self.color.shader_gamma(),
+                saturation: self.color.shader_saturation(),
                 fit_mode: self.config.viewer.fit_mode.to_uniform_value(),
                 ambient_blur: self.config.viewer.ambient_blur,
                 zoom_scale: self.zoom_scale,
