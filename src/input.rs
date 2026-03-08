@@ -199,8 +199,8 @@ impl InputHandler {
                 // position. This works even when inner_position() fails on the
                 // current frame because we only need outer_position() here.
                 if let Ok(outer_pos) = window.outer_position() {
-                    let new_x = outer_pos.x + dx as i32;
-                    let new_y = outer_pos.y + dy as i32;
+                    let new_x = outer_pos.x + dx.round() as i32;
+                    let new_y = outer_pos.y + dy.round() as i32;
                     self.drag_start_cursor = Some(client_pos);
                     return (
                         false,
