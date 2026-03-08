@@ -912,3 +912,41 @@ impl EguiOverlay {
         action
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn toggle_overlay_enables_and_pushes() {
+        let mut stack = Vec::new();
+        let shown = toggle_overlay(&mut stack, OverlayKind::Help, false);
+        assert!(shown);
+        assert_eq!(stack, vec![OverlayKind::Help]);
+    }
+
+    #[test]
+    fn toggle_overlay_disables_and_removes() {
+        let mut stack = vec![OverlayKind::Help];
+        let shown = toggle_overlay(&mut stack, OverlayKind::Help, true);
+        assert!(!shown);
+        assert!(stack.is_empty());
+    }
+
+    #[test]
+    fn toggle_overlay_pushes_to_top_of_stack() {
+        let mut stack = vec![OverlayKind::Settings];
+        let shown = toggle_overlay(&mut stack, OverlayKind::Help, false);
+        assert!(shown);
+        assert_eq!(stack, vec![OverlayKind::Settings, OverlayKind::Help]);
+    }
+
+    #[test]
+    fn toggle_overlay_removes_duplicates_before_push() {
+        let mut stack = vec![OverlayKind::Help, OverlayKind::Settings];
+        // Re-enable Help (already in stack) — should move to top
+        let shown = toggle_overlay(&mut stack, OverlayKind::Help, false);
+        assert!(shown);
+        assert_eq!(stack, vec![OverlayKind::Settings, OverlayKind::Help]);
+    }
+}
