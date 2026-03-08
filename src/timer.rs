@@ -5,6 +5,7 @@ use std::time::{Duration, Instant};
 pub struct SlideshowTimer {
     pub interval: Duration,
     pub paused: bool,
+    paused_by_user: bool,
     last_tick: Instant,
 }
 
@@ -13,6 +14,7 @@ impl SlideshowTimer {
         Self {
             interval: Duration::from_secs_f32(interval_secs.max(0.1)),
             paused: interval_secs <= 0.0,
+            paused_by_user: false,
             last_tick: Instant::now(),
         }
     }
@@ -33,6 +35,7 @@ impl SlideshowTimer {
 
     pub fn toggle_pause(&mut self) -> bool {
         self.paused = !self.paused;
+        self.paused_by_user = self.paused;
         if !self.paused {
             self.last_tick = Instant::now();
         }
@@ -46,10 +49,13 @@ impl SlideshowTimer {
     pub fn set_duration(&mut self, duration_secs: f32) {
         if duration_secs <= 0.0 {
             self.paused = true;
+            self.paused_by_user = false;
         } else {
             self.interval = Duration::from_secs_f32(duration_secs);
-            self.paused = false;
             self.last_tick = Instant::now();
+            if !self.paused_by_user {
+                self.paused = false;
+            }
         }
     }
 
@@ -223,9 +229,35 @@ mod tests {
     }
 
     #[test]
-    fn slideshow_timer_set_duration_positive_unpauses_and_updates_interval() {
-        let mut timer = SlideshowTimer::new(0.0);
+    fn slideshow_timer_set_duration_positive_preserves_pause_state() {
+        let mut timer = SlideshowTimer::new(5.0);
+        timer.toggle_pause(); // manually pause
         assert!(timer.paused);
+        timer.set_duration(3.0);
+        assert!(
+            timer.paused,
+            "set_duration must not unpause a user-paused timer"
+        );
+        assert!((timer.interval_secs() - 3.0).abs() < 1e-5);
+    }
+
+    #[test]
+    fn slideshow_timer_set_duration_positive_unpauses_timer_paused_by_zero() {
+        let mut timer = SlideshowTimer::new(5.0);
+        timer.set_duration(0.0);
+        assert!(timer.paused, "timer should be paused after set_duration(0)");
+        timer.set_duration(3.0);
+        assert!(
+            !timer.paused,
+            "set_duration with positive value must unpause a timer-paused timer"
+        );
+        assert!((timer.interval_secs() - 3.0).abs() < 1e-5);
+    }
+
+    #[test]
+    fn slideshow_timer_set_duration_positive_updates_interval_when_running() {
+        let mut timer = SlideshowTimer::new(5.0);
+        assert!(!timer.paused);
         timer.set_duration(3.0);
         assert!(!timer.paused);
         assert!((timer.interval_secs() - 3.0).abs() < 1e-5);
