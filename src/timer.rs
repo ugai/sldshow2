@@ -1,21 +1,66 @@
 //! Interval-based timer for slideshow auto-advancement.
 
+use std::ops::{Deref, DerefMut};
 use std::time::{Duration, Instant};
 
-pub struct SlideshowTimer {
-    pub interval: Duration,
+/// Shared pause/timing state embedded in both timer types.
+///
+/// Provides the common `toggle_pause` and `reset` operations so the logic
+/// lives in exactly one place.
+pub struct TimerBase {
     pub paused: bool,
+    pub(crate) last_tick: Instant,
+}
+
+impl TimerBase {
+    fn new(paused: bool) -> Self {
+        Self {
+            paused,
+            last_tick: Instant::now(),
+        }
+    }
+
+    /// Toggles the paused state, resets the tick clock on resume, and returns
+    /// the new paused state.
+    pub fn toggle_pause(&mut self) -> bool {
+        self.paused = !self.paused;
+        if !self.paused {
+            self.last_tick = Instant::now();
+        }
+        self.paused
+    }
+
+    /// Resets the tick clock to now (does not affect pause state).
+    pub fn reset(&mut self) {
+        self.last_tick = Instant::now();
+    }
+}
+
+pub struct SlideshowTimer {
+    base: TimerBase,
+    pub interval: Duration,
     paused_by_user: bool,
-    last_tick: Instant,
+}
+
+impl Deref for SlideshowTimer {
+    type Target = TimerBase;
+    fn deref(&self) -> &TimerBase {
+        &self.base
+    }
+}
+
+impl DerefMut for SlideshowTimer {
+    fn deref_mut(&mut self) -> &mut TimerBase {
+        &mut self.base
+    }
 }
 
 impl SlideshowTimer {
     pub fn new(interval_secs: f32) -> Self {
         Self {
+            base: TimerBase::new(interval_secs <= 0.0),
             interval: Duration::from_secs_f32(interval_secs.max(0.1)),
-            paused: interval_secs <= 0.0,
             paused_by_user: false,
-            last_tick: Instant::now(),
         }
     }
 
@@ -34,27 +79,20 @@ impl SlideshowTimer {
     }
 
     pub fn toggle_pause(&mut self) -> bool {
-        self.paused = !self.paused;
-        self.paused_by_user = self.paused;
-        if !self.paused {
-            self.last_tick = Instant::now();
-        }
-        self.paused
-    }
-
-    pub fn reset(&mut self) {
-        self.last_tick = Instant::now();
+        let new_paused = self.base.toggle_pause();
+        self.paused_by_user = new_paused;
+        new_paused
     }
 
     pub fn set_duration(&mut self, duration_secs: f32) {
         if duration_secs <= 0.0 {
-            self.paused = true;
+            self.base.paused = true;
             self.paused_by_user = false;
         } else {
             self.interval = Duration::from_secs_f32(duration_secs);
-            self.last_tick = Instant::now();
+            self.base.last_tick = Instant::now();
             if !self.paused_by_user {
-                self.paused = false;
+                self.base.paused = false;
             }
         }
     }
@@ -66,10 +104,22 @@ impl SlideshowTimer {
 }
 
 pub struct SequenceTimer {
+    base: TimerBase,
     pub fps: f32,
-    pub paused: bool,
-    last_tick: Instant,
     accumulator: f32,
+}
+
+impl Deref for SequenceTimer {
+    type Target = TimerBase;
+    fn deref(&self) -> &TimerBase {
+        &self.base
+    }
+}
+
+impl DerefMut for SequenceTimer {
+    fn deref_mut(&mut self) -> &mut TimerBase {
+        &mut self.base
+    }
 }
 
 /// Maximum number of sequence frames to advance in a single update tick.
@@ -83,9 +133,8 @@ const MAX_FRAME_ADVANCE_PER_TICK: usize = 8;
 impl SequenceTimer {
     pub fn new(fps: f32) -> Self {
         Self {
+            base: TimerBase::new(false),
             fps: sanitize_fps(fps),
-            paused: false,
-            last_tick: Instant::now(),
             accumulator: 0.0,
         }
     }
@@ -138,16 +187,14 @@ impl SequenceTimer {
         frames_to_advance
     }
 
+    /// Delegates to `TimerBase::toggle_pause`.
     pub fn toggle_pause(&mut self) -> bool {
-        self.paused = !self.paused;
-        if !self.paused {
-            self.last_tick = Instant::now();
-        }
-        self.paused
+        self.base.toggle_pause()
     }
 
+    /// Resets the tick clock and accumulator.
     pub fn reset(&mut self) {
-        self.last_tick = Instant::now();
+        self.base.reset();
         self.accumulator = 0.0;
     }
 
