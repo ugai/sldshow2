@@ -90,7 +90,7 @@ impl SlideshowTimer {
             self.paused_by_user = false;
         } else {
             self.interval = Duration::from_secs_f32(duration_secs);
-            self.base.last_tick = Instant::now();
+            self.base.reset();
             if !self.paused_by_user {
                 self.base.paused = false;
             }
