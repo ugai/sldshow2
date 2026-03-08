@@ -122,7 +122,7 @@ for multi-line PR descriptions.
 ```bash
 git fetch origin main
 git rebase origin/main
-git push -u origin <branch-name>
+git push -u origin HEAD
 cat > /tmp/pr_body_<N>.md << 'EOF'
 Closes #<N>
 
@@ -143,6 +143,9 @@ gh pr create --title "<type>: <description>" --body-file /tmp/pr_body_<N>.md
 lists all `Closes #<N>`. See `AGENTS.md` for eligibility criteria.
 
 Do **not** merge. Notify the approver that the PR is ready.
+
+> `quality-finisher` will audit this PR for test coverage after it is open.
+> Note any untestable areas in the PR body so the finisher can act on them.
 
 ## Cleanup (On Request)
 

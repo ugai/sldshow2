@@ -34,6 +34,14 @@ gh pr list --state open --json number,title,headRefName
 
 Confirm with the user which PRs to include.
 
+**Quality check:** For each PR, verify that `quality-finisher` has already been run by checking for a `## Quality Finisher Report` comment:
+
+```bash
+gh pr view <N> --json comments --jq '.comments[].body | select(startswith("## Quality Finisher Report"))'
+```
+
+If no such comment exists and tests were not pushed by `quality-finisher`, warn the user before proceeding.
+
 ## Step 2 — Fetch and Create Verify Branch
 
 **NEVER push this branch to remote.**
