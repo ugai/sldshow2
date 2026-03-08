@@ -473,8 +473,8 @@ impl EguiOverlay {
 
                             ui.add_space(4.0);
                             ui.heading("Zoom");
-                            ui.label("Ctrl + Scroll       Zoom in/out");
-                            ui.label("Z                  Reset zoom");
+                            ui.label("Ctrl+Wheel         Zoom in/out");
+                            ui.label("Z                  Reset zoom/pan");
                             ui.label("Drag (when zoomed) Pan image");
 
                             ui.add_space(4.0);
@@ -483,7 +483,7 @@ impl EguiOverlay {
                             ui.label("3 / 4              Brightness -/+");
                             ui.label("5 / 6              Gamma -/+");
                             ui.label("7 / 8              Saturation -/+");
-                            ui.label("Shift+Backspace    Reset all adjustments");
+                            ui.label("Shift+Backspace    Reset all color adjustments");
 
                             ui.add_space(4.0);
                             ui.heading("Actions");
