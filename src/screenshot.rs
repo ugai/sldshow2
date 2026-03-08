@@ -31,6 +31,7 @@ impl ScreenshotCapture {
         render_encoder: wgpu::CommandEncoder,
         texture: &wgpu::Texture,
         surface_config: &wgpu::SurfaceConfiguration,
+        is_hdr_display: bool,
     ) -> Result<String, String> {
         let width = surface_config.width;
         let height = surface_config.height;
@@ -135,9 +136,9 @@ impl ScreenshotCapture {
                                 .clamp(0.0, 1.0);
 
                             pixels.extend_from_slice(&[
-                                linear_hdr_to_srgb_u8(r),
-                                linear_hdr_to_srgb_u8(g),
-                                linear_hdr_to_srgb_u8(b),
+                                linear_hdr_to_srgb_u8(r, is_hdr_display),
+                                linear_hdr_to_srgb_u8(g, is_hdr_display),
+                                linear_hdr_to_srgb_u8(b, is_hdr_display),
                                 (a * 255.0).round() as u8,
                             ]);
                         }
@@ -231,8 +232,25 @@ impl ScreenshotCapture {
     }
 }
 
-fn linear_hdr_to_srgb_u8(linear: f32) -> u8 {
-    let mapped = linear.max(0.0) / (1.0 + linear.max(0.0));
+/// BT.2408 SDR reference white scale (203 nits / 80 nits).
+const SDR_WHITE_SCALE: f32 = 203.0 / 80.0;
+
+fn linear_hdr_to_srgb_u8(linear: f32, is_hdr_display: bool) -> u8 {
+    let v = linear.max(0.0);
+    let mapped = if is_hdr_display {
+        // Undo the SDR_WHITE_SCALE the shader applied. SDR content (≤1.0
+        // after unscaling) passes through directly; actual HDR content is
+        // soft-tonemapped with Reinhard so highlights compress gracefully.
+        let unscaled = v / SDR_WHITE_SCALE;
+        if unscaled <= 1.0 {
+            unscaled
+        } else {
+            unscaled / (1.0 + unscaled)
+        }
+    } else {
+        // SDR display: Reinhard tonemap as before.
+        v / (1.0 + v)
+    };
     let srgb = if mapped <= 0.003_130_8 {
         12.92 * mapped
     } else {

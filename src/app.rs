@@ -21,8 +21,7 @@ use crate::timer::{SequenceTimer, SlideshowTimer};
 use crate::transition::{self, TransitionPipeline, TransitionUniform};
 
 /// Color adjustment parameters (mpv-like).
-#[derive(Debug, Clone, Copy)]
-#[derive(Default)]
+#[derive(Debug, Clone, Copy, Default)]
 pub struct ColorAdjustments {
     pub brightness: i32,
     pub contrast: i32,
@@ -1290,6 +1289,7 @@ impl ApplicationState {
                 encoder,
                 &output.texture,
                 &self.renderer.surface_config,
+                self.renderer.is_hdr,
             ) {
                 Ok(filename) => self.show_osd(format!("Screenshot: {}", filename)),
                 Err(msg) => self.show_osd(msg),
