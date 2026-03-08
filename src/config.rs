@@ -136,6 +136,11 @@ pub struct ViewerConfig {
 }
 
 fn validate_timer(value: f32) -> std::result::Result<(), validator::ValidationError> {
+    if !value.is_finite() {
+        let mut err = validator::ValidationError::new("timer_finite");
+        err.message = Some(std::borrow::Cow::Borrowed("timer must be a finite number"));
+        return Err(err);
+    }
     if value == 0.0 || value >= 0.1 {
         Ok(())
     } else {
@@ -531,6 +536,17 @@ mod tests {
     fn test_timer_validation_negative_is_invalid() {
         let mut config = ViewerConfig::default();
         config.timer = -1.0;
+        assert!(config.validate().is_err());
+    }
+
+    #[test]
+    fn test_timer_validation_non_finite_is_invalid() {
+        let mut config = ViewerConfig::default();
+        config.timer = f32::INFINITY;
+        assert!(config.validate().is_err());
+        config.timer = f32::NEG_INFINITY;
+        assert!(config.validate().is_err());
+        config.timer = f32::NAN;
         assert!(config.validate().is_err());
     }
 }
