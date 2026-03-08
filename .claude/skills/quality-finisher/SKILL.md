@@ -41,11 +41,11 @@ For each PR:
 ## Writing Tests
 
 When tests are writable, check out the PR branch in an isolated worktree.
-Always quote branch names when substituting into shell commands:
+Use a distinct local branch name (`qf/pr-<N>`) so the temporary checkout is never confused with the actual PR branch. Quote branch names when substituting into shell commands:
 
 ```bash
 git fetch origin
-git worktree add -B "<branch-name>" .agent-worktrees/quality-finisher-pr-<N> "origin/<branch-name>"
+git worktree add -B "qf/pr-<N>" .agent-worktrees/quality-finisher-pr-<N> "origin/<branch-name>"
 ```
 
 Write tests. Follow the project's existing test conventions:
@@ -67,14 +67,14 @@ Ref #<issue-number>
 Co-Authored-By: {model} ({tool}) <email from AGENTS.md>
 EOF
 git commit -F /tmp/qf_commit_msg.txt
-git push origin HEAD
+git push origin HEAD:"<branch-name>"
 ```
 
 Remove the worktree after pushing:
 
 ```bash
 git worktree remove .agent-worktrees/quality-finisher-pr-<N>
-git branch -D "<branch-name>"
+git branch -D "qf/pr-<N>"
 ```
 
 Then post a report comment (see template below).
