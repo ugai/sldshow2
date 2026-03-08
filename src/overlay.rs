@@ -78,6 +78,19 @@ pub struct EguiOverlay {
     overlay_stack: Vec<OverlayKind>,
 }
 
+/// Toggle an overlay's visibility, updating the overlay stack accordingly.
+/// Returns the new visibility state.
+fn toggle_overlay(stack: &mut Vec<OverlayKind>, kind: OverlayKind, currently_shown: bool) -> bool {
+    let new_state = !currently_shown;
+    if new_state {
+        stack.retain(|k| *k != kind);
+        stack.push(kind);
+    } else {
+        stack.retain(|k| *k != kind);
+    }
+    new_state
+}
+
 impl EguiOverlay {
     pub fn new(
         device: &Device,
@@ -235,11 +248,6 @@ impl EguiOverlay {
         self.show_info_overlay
     }
 
-    fn push_overlay(&mut self, kind: OverlayKind) {
-        self.overlay_stack.retain(|k| *k != kind);
-        self.overlay_stack.push(kind);
-    }
-
     fn pop_overlay(&mut self, kind: OverlayKind) {
         self.overlay_stack.retain(|k| *k != kind);
     }
@@ -251,34 +259,32 @@ impl EguiOverlay {
 
     /// Toggle help overlay visibility
     pub fn toggle_help_overlay(&mut self) -> bool {
-        self.show_help_overlay = !self.show_help_overlay;
-        if self.show_help_overlay {
-            self.push_overlay(OverlayKind::Help);
-        } else {
-            self.pop_overlay(OverlayKind::Help);
-        }
+        self.show_help_overlay = toggle_overlay(
+            &mut self.overlay_stack,
+            OverlayKind::Help,
+            self.show_help_overlay,
+        );
         self.show_help_overlay
     }
 
     /// Toggle settings overlay visibility
     pub fn toggle_settings(&mut self) -> bool {
-        self.show_settings = !self.show_settings;
-        if self.show_settings {
-            self.push_overlay(OverlayKind::Settings);
-        } else {
-            self.pop_overlay(OverlayKind::Settings);
-        }
+        self.show_settings = toggle_overlay(
+            &mut self.overlay_stack,
+            OverlayKind::Settings,
+            self.show_settings,
+        );
         self.show_settings
     }
 
     /// Toggle gallery visibility
-    pub fn toggle_gallery(&mut self) {
-        self.show_gallery = !self.show_gallery;
-        if self.show_gallery {
-            self.push_overlay(OverlayKind::Gallery);
-        } else {
-            self.pop_overlay(OverlayKind::Gallery);
-        }
+    pub fn toggle_gallery(&mut self) -> bool {
+        self.show_gallery = toggle_overlay(
+            &mut self.overlay_stack,
+            OverlayKind::Gallery,
+            self.show_gallery,
+        );
+        self.show_gallery
     }
 
     /// Returns `true` when any overlay or the OSC is currently visible,
