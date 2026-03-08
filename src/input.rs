@@ -160,19 +160,17 @@ impl InputHandler {
             // Window.set_cursor_visible will be called by ApplicationState
         }
 
-        // Calculate screen position for drag tracking
-        let Some(client_origin) = window.inner_position().ok() else {
-            self.cursor_pos = Some(PhysicalPosition::new(position.x, position.y));
-            return (false, None);
-        };
-
-        let screen_pos_x = client_origin.x as f64 + position.x;
-        let screen_pos_y = client_origin.y as f64 + position.y;
-        let screen_pos = PhysicalPosition::new(screen_pos_x, screen_pos_y);
+        // Always store client coordinates (relative to window content area) so
+        // cursor_pos uses a consistent coordinate space regardless of whether
+        // inner_position() succeeds.
+        let client_pos = PhysicalPosition::new(position.x, position.y);
+        self.cursor_pos = Some(client_pos);
 
         if let Some(start_pos) = self.drag_start_cursor {
-            let dx = screen_pos.x - start_pos.x;
-            let dy = screen_pos.y - start_pos.y;
+            // Compute drag delta in client space (consistent regardless of
+            // inner_position availability).
+            let dx = client_pos.x - start_pos.x;
+            let dy = client_pos.y - start_pos.y;
             let dist_sq = dx * dx + dy * dy;
 
             if !self.is_dragging && dist_sq > 25.0 {
@@ -182,7 +180,7 @@ impl InputHandler {
             if self.is_dragging {
                 // When zoomed, drag pans the image instead of moving the window
                 if self.zoom_scale > 1.0 {
-                    self.drag_start_cursor = Some(screen_pos);
+                    self.drag_start_cursor = Some(client_pos);
                     return (
                         true,
                         Some(InputAction::Pan {
@@ -193,14 +191,17 @@ impl InputHandler {
                 }
 
                 if fullscreen {
-                    self.drag_start_cursor = Some(screen_pos);
+                    self.drag_start_cursor = Some(client_pos);
                     return (true, Some(InputAction::SetFullscreen(false)));
                 }
 
+                // Window drag: translate client-space delta to absolute window
+                // position. This works even when inner_position() fails on the
+                // current frame because we only need outer_position() here.
                 if let Ok(outer_pos) = window.outer_position() {
                     let new_x = outer_pos.x + dx as i32;
                     let new_y = outer_pos.y + dy as i32;
-                    self.drag_start_cursor = Some(screen_pos);
+                    self.drag_start_cursor = Some(client_pos);
                     return (
                         false,
                         Some(InputAction::SetWindowPosition { x: new_x, y: new_y }),
@@ -209,7 +210,6 @@ impl InputHandler {
             }
         }
 
-        self.cursor_pos = Some(screen_pos);
         (false, None)
     }
 
