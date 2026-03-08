@@ -23,24 +23,29 @@ For each PR:
 2. Identify changed source files and their existing test coverage
 3. Diagnose coverage gaps
 4. Apply the [Decision Matrix](#decision-matrix)
-5. Report outcome to user
+5. **Always** post a `## Quality Finisher Report` comment (all outcomes)
+6. Report outcome to user
 
 ## Decision Matrix
 
 | Situation | Action |
 |---|---|
-| Writable tests exist | Checkout PR branch in a worktree, implement tests, push |
+| Writable tests exist | Checkout PR branch in a worktree, implement tests, push, then post report |
 | Tests not writable yet (missing infra, etc.) | Post structured comment — gap, blocker, unblock path |
 | Coverage already sufficient | Post short confirmation comment, done |
 | Blocker requires a source-level change | Open a new `agent:proposed` issue, post link on PR |
 
+> **Every outcome requires a `## Quality Finisher Report` PR comment.**
+> `verify-sprint` uses this comment as the signal that auditing is complete.
+
 ## Writing Tests
 
-When tests are writable, check out the PR branch in an isolated worktree:
+When tests are writable, check out the PR branch in an isolated worktree.
+Always quote branch names when substituting into shell commands:
 
 ```bash
 git fetch origin
-git worktree add -b <branch-name> .agent-worktrees/quality-finisher-pr-<N> origin/<branch-name>
+git worktree add -b "<branch-name>" .agent-worktrees/quality-finisher-pr-<N> "origin/<branch-name>"
 ```
 
 Write tests. Follow the project's existing test conventions:
@@ -50,7 +55,7 @@ Write tests. Follow the project's existing test conventions:
 - Use existing test helpers and fixtures where available
 
 Commit and push. Write the commit message to a file to handle multi-line bodies
-cleanly (see co-authorship trailer format in `AGENTS.md`):
+cleanly. Use the co-authorship trailer format defined in `AGENTS.md`:
 
 ```bash
 git add <test-files>
@@ -59,10 +64,10 @@ test: add coverage for <description>
 
 Ref #<issue-number>
 
-Co-Authored-By: <model> (Claude Code) <noreply@anthropic.com>
+Co-Authored-By: {model} ({tool}) <email from AGENTS.md>
 EOF
 git commit -F /tmp/qf_commit_msg.txt
-git push origin <branch-name>
+git push origin "<branch-name>"
 ```
 
 Remove the worktree after pushing:
@@ -71,9 +76,30 @@ Remove the worktree after pushing:
 git worktree remove .agent-worktrees/quality-finisher-pr-<N>
 ```
 
-## Structured Comment — Tests Not Writable
+Then post a report comment (see template below).
 
-Post as a GitHub PR comment. Write to a temp file first (see [ENV.md](ENV.md)):
+## Report Comment Templates
+
+Write all report comments to a temp file first (see [ENV.md](ENV.md)):
+
+```bash
+cat > /tmp/qf_comment_<N>.md << 'EOF'
+<report content>
+EOF
+gh pr comment <N> --body-file /tmp/qf_comment_<N>.md
+```
+
+### Tests Pushed
+
+```markdown
+## Quality Finisher Report
+
+**Status**: Tests pushed
+
+**Added**: <N> test cases covering <what was covered>
+```
+
+### Tests Not Writable
 
 ```markdown
 ## Quality Finisher Report
@@ -89,12 +115,23 @@ Post as a GitHub PR comment. Write to a temp file first (see [ENV.md](ENV.md)):
 **Recommended next step**: <specific action>
 ```
 
-## Confirmation Comment — Coverage Sufficient
+### Coverage Sufficient
 
 ```markdown
 ## Quality Finisher Report
 
 **Status**: Coverage sufficient — no additional tests needed.
+```
+
+### Prerequisite Required
+
+```markdown
+## Quality Finisher Report
+
+**Status**: Prerequisite required
+
+A source-level change is needed before tests can be written for this PR.
+New issue opened: #<new-issue-number>
 ```
 
 ## Opening a Prerequisite Issue
@@ -106,17 +143,6 @@ gh issue create \
   --title "<type>: <description>" \
   --body-file /tmp/qf_prereq_<N>.md \
   --label "enhancement,agent:proposed"
-```
-
-Then post a comment on the original PR linking to the new issue:
-
-```markdown
-## Quality Finisher Report
-
-**Status**: Prerequisite required
-
-A source-level change is needed before tests can be written for this PR.
-New issue opened: #<new-issue-number>
 ```
 
 ## Summary Report
