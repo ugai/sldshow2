@@ -82,11 +82,9 @@ pub struct EguiOverlay {
 /// Returns the new visibility state.
 fn toggle_overlay(stack: &mut Vec<OverlayKind>, kind: OverlayKind, currently_shown: bool) -> bool {
     let new_state = !currently_shown;
+    stack.retain(|k| *k != kind);
     if new_state {
-        stack.retain(|k| *k != kind);
         stack.push(kind);
-    } else {
-        stack.retain(|k| *k != kind);
     }
     new_state
 }
