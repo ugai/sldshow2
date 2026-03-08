@@ -31,7 +31,7 @@ impl ScreenshotCapture {
         render_encoder: wgpu::CommandEncoder,
         texture: &wgpu::Texture,
         surface_config: &wgpu::SurfaceConfiguration,
-        is_hdr_display: bool,
+        sdr_scale: f32,
     ) -> Result<String, String> {
         let width = surface_config.width;
         let height = surface_config.height;
@@ -136,9 +136,9 @@ impl ScreenshotCapture {
                                 .clamp(0.0, 1.0);
 
                             pixels.extend_from_slice(&[
-                                linear_hdr_to_srgb_u8(r, is_hdr_display),
-                                linear_hdr_to_srgb_u8(g, is_hdr_display),
-                                linear_hdr_to_srgb_u8(b, is_hdr_display),
+                                linear_hdr_to_srgb_u8(r, sdr_scale),
+                                linear_hdr_to_srgb_u8(g, sdr_scale),
+                                linear_hdr_to_srgb_u8(b, sdr_scale),
                                 (a * 255.0).round() as u8,
                             ]);
                         }
@@ -232,23 +232,21 @@ impl ScreenshotCapture {
     }
 }
 
-/// BT.2408 SDR reference white scale (203 nits / 80 nits).
-const SDR_WHITE_SCALE: f32 = 203.0 / 80.0;
-
-fn linear_hdr_to_srgb_u8(linear: f32, is_hdr_display: bool) -> u8 {
+fn linear_hdr_to_srgb_u8(linear: f32, sdr_scale: f32) -> u8 {
     let v = linear.max(0.0);
-    let mapped = if is_hdr_display {
-        // Undo the SDR_WHITE_SCALE the shader applied. SDR content (≤1.0
+    let mapped = if sdr_scale > 1.0 {
+        // Undo the SDR white scale the shader applied. SDR content (≤1.0
         // after unscaling) passes through directly; actual HDR content is
         // soft-tonemapped with Reinhard so highlights compress gracefully.
-        let unscaled = v / SDR_WHITE_SCALE;
+        let unscaled = v / sdr_scale;
         if unscaled <= 1.0 {
             unscaled
         } else {
             unscaled / (1.0 + unscaled)
         }
     } else {
-        // SDR display: Reinhard tonemap as before.
+        // No SDR scaling was applied (SDR display, or HDR content on HDR
+        // display): Reinhard tonemap as before.
         v / (1.0 + v)
     };
     let srgb = if mapped <= 0.003_130_8 {

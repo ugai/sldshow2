@@ -1283,13 +1283,27 @@ impl ApplicationState {
 
         if self.screenshot_requested {
             self.screenshot_requested = false;
+            // Determine the effective SDR scale applied by the shader.
+            // For SDR content on HDR displays the shader multiplies by
+            // SDR_WHITE_SCALE; for HDR content (EXR) or SDR displays the
+            // scale is 1.0.
+            let sdr_scale = if self.renderer.is_hdr {
+                let tex = self.texture_manager.get_texture(tex_a_idx);
+                if tex.is_some_and(|t| !t.is_hdr_content) {
+                    transition::SDR_WHITE_SCALE
+                } else {
+                    1.0
+                }
+            } else {
+                1.0
+            };
             match self.screenshot.capture(
                 &self.renderer.device,
                 &self.renderer.queue,
                 encoder,
                 &output.texture,
                 &self.renderer.surface_config,
-                self.renderer.is_hdr,
+                sdr_scale,
             ) {
                 Ok(filename) => self.show_osd(format!("Screenshot: {}", filename)),
                 Err(msg) => self.show_osd(msg),
