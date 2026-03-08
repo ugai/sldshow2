@@ -1288,8 +1288,15 @@ impl ApplicationState {
             // SDR_WHITE_SCALE; for HDR content (EXR) or SDR displays the
             // scale is 1.0.
             let sdr_scale = if self.renderer.is_hdr {
-                let tex = self.texture_manager.get_texture(tex_a_idx);
-                if tex.is_some_and(|t| !t.is_hdr_content) {
+                let a_is_sdr = self
+                    .texture_manager
+                    .get_texture(tex_a_idx)
+                    .is_some_and(|t| !t.is_hdr_content);
+                let b_is_sdr = self
+                    .texture_manager
+                    .get_texture(tex_b_idx)
+                    .is_some_and(|t| !t.is_hdr_content);
+                if a_is_sdr && b_is_sdr {
                     transition::SDR_WHITE_SCALE
                 } else {
                     1.0
