@@ -232,6 +232,8 @@ impl ScreenshotCapture {
     }
 }
 
+/// Convert a linear HDR value to an sRGB u8, optionally undoing an SDR white
+/// scale applied by the transition shader.
 fn linear_hdr_to_srgb_u8(linear: f32, sdr_scale: f32) -> u8 {
     let v = linear.max(0.0);
     let mapped = if sdr_scale > 1.0 {
@@ -255,4 +257,64 @@ fn linear_hdr_to_srgb_u8(linear: f32, sdr_scale: f32) -> u8 {
         1.055 * mapped.powf(1.0 / 2.4) - 0.055
     };
     (srgb.clamp(0.0, 1.0) * 255.0).round() as u8
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const SDR_WHITE_SCALE: f32 = 203.0 / 80.0;
+
+    #[test]
+    fn sdr_display_reference_white_tonemapped() {
+        // SDR display (scale=1.0): Reinhard maps 1.0 → 0.5, not 255.
+        let val = linear_hdr_to_srgb_u8(1.0, 1.0);
+        assert!(
+            val < 200,
+            "Reinhard should compress 1.0 well below 255, got {val}"
+        );
+    }
+
+    #[test]
+    fn hdr_display_sdr_content_reference_white_maps_to_255() {
+        // SDR content on HDR display: shader scaled by SDR_WHITE_SCALE.
+        // Unscaling recovers 1.0, which should map to 255 (sRGB white).
+        let val = linear_hdr_to_srgb_u8(SDR_WHITE_SCALE, SDR_WHITE_SCALE);
+        assert_eq!(val, 255);
+    }
+
+    #[test]
+    fn hdr_display_sdr_content_black_maps_to_zero() {
+        assert_eq!(linear_hdr_to_srgb_u8(0.0, SDR_WHITE_SCALE), 0);
+    }
+
+    #[test]
+    fn hdr_display_hdr_content_uses_reinhard() {
+        // HDR content on HDR display (scale=1.0): Reinhard tonemap.
+        let val = linear_hdr_to_srgb_u8(1.0, 1.0);
+        let val_bright = linear_hdr_to_srgb_u8(10.0, 1.0);
+        assert!(
+            val_bright > val,
+            "brighter input should produce brighter output"
+        );
+        assert!(val_bright < 255, "Reinhard should never reach 255");
+    }
+
+    #[test]
+    fn negative_input_clamped_to_zero() {
+        assert_eq!(linear_hdr_to_srgb_u8(-1.0, 1.0), 0);
+        assert_eq!(linear_hdr_to_srgb_u8(-1.0, SDR_WHITE_SCALE), 0);
+    }
+
+    #[test]
+    fn sdr_scale_above_white_gets_tonemapped() {
+        // Values above SDR white (after unscaling > 1.0) get Reinhard-tonemapped.
+        let above_white = SDR_WHITE_SCALE * 2.0; // unscaled = 2.0
+        let val = linear_hdr_to_srgb_u8(above_white, SDR_WHITE_SCALE);
+        assert!(val > 200, "above-white should be bright, got {val}");
+        assert!(
+            val < 255,
+            "above-white should be tonemapped below 255, got {val}"
+        );
+    }
 }
