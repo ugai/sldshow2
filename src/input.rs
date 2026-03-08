@@ -87,6 +87,9 @@ pub struct InputHandler {
     pub cursor_visible: bool,
     last_click_time: Option<Instant>,
     drag_start_cursor: Option<PhysicalPosition<f64>>,
+    /// Screen-space start position for window dragging (avoids coordinate
+    /// shift when the window moves).
+    drag_start_screen: Option<PhysicalPosition<f64>>,
     is_dragging: bool,
     ignore_next_release: bool,
     cursor_pos: Option<PhysicalPosition<f64>>,
@@ -102,6 +105,7 @@ impl InputHandler {
             cursor_visible: true,
             last_click_time: None,
             drag_start_cursor: None,
+            drag_start_screen: None,
             is_dragging: false,
             ignore_next_release: false,
             cursor_pos: None,
@@ -160,15 +164,19 @@ impl InputHandler {
             // Window.set_cursor_visible will be called by ApplicationState
         }
 
-        // Always store client coordinates (relative to window content area) so
-        // cursor_pos uses a consistent coordinate space regardless of whether
-        // inner_position() succeeds.
+        // Store client coordinates for general cursor tracking (pan, hover, etc.).
         let client_pos = PhysicalPosition::new(position.x, position.y);
         self.cursor_pos = Some(client_pos);
 
+        // For window dragging we need screen-space (absolute) coordinates so
+        // that moving the window doesn't shift the coordinate origin and cause
+        // feedback jitter. For pan and other operations, client coordinates are
+        // fine because the window doesn't move.
+        let screen_pos = window.inner_position().ok().map(|origin| {
+            PhysicalPosition::new(origin.x as f64 + position.x, origin.y as f64 + position.y)
+        });
+
         if let Some(start_pos) = self.drag_start_cursor {
-            // Compute drag delta in client space (consistent regardless of
-            // inner_position availability).
             let dx = client_pos.x - start_pos.x;
             let dy = client_pos.y - start_pos.y;
             let dist_sq = dx * dx + dy * dy;
@@ -178,7 +186,8 @@ impl InputHandler {
             }
 
             if self.is_dragging {
-                // When zoomed, drag pans the image instead of moving the window
+                // When zoomed, drag pans the image instead of moving the window.
+                // Client-space delta is correct here since the window stays put.
                 if self.zoom_scale > 1.0 {
                     self.drag_start_cursor = Some(client_pos);
                     return (
@@ -195,17 +204,27 @@ impl InputHandler {
                     return (true, Some(InputAction::SetFullscreen(false)));
                 }
 
-                // Window drag: translate client-space delta to absolute window
-                // position. This works even when inner_position() fails on the
-                // current frame because we only need outer_position() here.
-                if let Ok(outer_pos) = window.outer_position() {
-                    let new_x = outer_pos.x + dx.round() as i32;
-                    let new_y = outer_pos.y + dy.round() as i32;
-                    self.drag_start_cursor = Some(client_pos);
-                    return (
-                        false,
-                        Some(InputAction::SetWindowPosition { x: new_x, y: new_y }),
-                    );
+                // Window drag: use screen-space coordinates so the delta is
+                // stable even as the window moves (client coordinates shift
+                // when the window position changes, causing feedback jitter).
+                if let Some(s_pos) = screen_pos {
+                    if let Some(s_start) = self.drag_start_screen {
+                        let s_dx = s_pos.x - s_start.x;
+                        let s_dy = s_pos.y - s_start.y;
+                        if let Ok(outer_pos) = window.outer_position() {
+                            let new_x = outer_pos.x + s_dx.round() as i32;
+                            let new_y = outer_pos.y + s_dy.round() as i32;
+                            self.drag_start_screen = Some(s_pos);
+                            return (
+                                false,
+                                Some(InputAction::SetWindowPosition { x: new_x, y: new_y }),
+                            );
+                        }
+                    } else {
+                        // First frame of window drag: calibrate screen-space
+                        // start position and skip this frame to avoid a jump.
+                        self.drag_start_screen = Some(s_pos);
+                    }
                 }
             }
         }
@@ -247,6 +266,7 @@ impl InputHandler {
 
     fn handle_mouse_released(&mut self) -> (bool, Option<InputAction>) {
         self.drag_start_cursor = None;
+        self.drag_start_screen = None;
         if self.is_dragging {
             self.is_dragging = false;
             (true, None)
