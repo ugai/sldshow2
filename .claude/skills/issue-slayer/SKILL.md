@@ -122,7 +122,7 @@ for multi-line PR descriptions.
 ```bash
 git fetch origin main
 git rebase origin/main
-git push -u origin <branch-name>
+git push -u origin HEAD
 cat > /tmp/pr_body_<N>.md << 'EOF'
 Closes #<N>
 
