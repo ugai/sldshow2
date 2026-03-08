@@ -58,7 +58,7 @@ The Guild — Agent Teams
 
 *The following is lore.*
 
-Three agents serve the Guild — and one apprentice trails behind them.
+Guild agents serve the Guild — and an apprentice trails behind them.
 Issues labeled `agent:ready` are autonomously implemented and delivered as pull requests.
 
 #### Agents (Skills)

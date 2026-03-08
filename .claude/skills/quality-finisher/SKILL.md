@@ -40,7 +40,7 @@ When tests are writable, check out the PR branch in an isolated worktree:
 
 ```bash
 git fetch origin
-git worktree add .agent-worktrees/quality-finisher-pr-<N> origin/<branch-name>
+git worktree add -b <branch-name> .agent-worktrees/quality-finisher-pr-<N> origin/<branch-name>
 ```
 
 Write tests. Follow the project's existing test conventions:
@@ -49,15 +49,19 @@ Write tests. Follow the project's existing test conventions:
   test binaries
 - Use existing test helpers and fixtures where available
 
-Commit and push:
+Commit and push. Write the commit message to a file to handle multi-line bodies
+cleanly (see co-authorship trailer format in `AGENTS.md`):
 
 ```bash
 git add <test-files>
-git commit -m "test: add coverage for <description>
+cat > /tmp/qf_commit_msg.txt << 'EOF'
+test: add coverage for <description>
 
 Ref #<issue-number>
 
-Co-Authored-By: <model> (Claude Code) <noreply@anthropic.com>"
+Co-Authored-By: <model> (Claude Code) <noreply@anthropic.com>
+EOF
+git commit -F /tmp/qf_commit_msg.txt
 git push origin <branch-name>
 ```
 
