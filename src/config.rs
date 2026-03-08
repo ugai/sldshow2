@@ -112,7 +112,7 @@ pub enum PlaybackMode {
 #[serde(default)]
 pub struct ViewerConfig {
     pub image_paths: Vec<Utf8PathBuf>,
-    #[validate(range(min = 0.0))]
+    #[validate(custom(function = "validate_timer"))]
     pub timer: f32,
     pub scan_subfolders: bool,
     pub shuffle: bool,
@@ -133,6 +133,18 @@ pub struct ViewerConfig {
     /// Mip LOD level for ambient fit blur (higher = blurrier, default 5.0)
     #[validate(range(min = 0.0, max = 10.0))]
     pub ambient_blur: f32,
+}
+
+fn validate_timer(value: f32) -> std::result::Result<(), validator::ValidationError> {
+    if value == 0.0 || value >= 0.1 {
+        Ok(())
+    } else {
+        let mut err = validator::ValidationError::new("timer_range");
+        err.message = Some(std::borrow::Cow::Borrowed(
+            "timer must be 0.0 (paused) or >= 0.1 seconds",
+        ));
+        Err(err)
+    }
 }
 
 impl Default for ViewerConfig {
@@ -486,5 +498,39 @@ mod tests {
         assert!(!w.fullscreen);
         assert!(!w.always_on_top);
         assert!(w.decorations);
+    }
+
+    #[test]
+    fn test_timer_validation_zero_is_valid() {
+        let mut config = ViewerConfig::default();
+        config.timer = 0.0;
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_timer_validation_above_minimum_is_valid() {
+        let mut config = ViewerConfig::default();
+        config.timer = 0.1;
+        assert!(config.validate().is_ok());
+        config.timer = 5.0;
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_timer_validation_between_zero_and_minimum_is_invalid() {
+        let mut config = ViewerConfig::default();
+        config.timer = 0.05;
+        assert!(config.validate().is_err());
+        config.timer = 0.01;
+        assert!(config.validate().is_err());
+        config.timer = 0.099;
+        assert!(config.validate().is_err());
+    }
+
+    #[test]
+    fn test_timer_validation_negative_is_invalid() {
+        let mut config = ViewerConfig::default();
+        config.timer = -1.0;
+        assert!(config.validate().is_err());
     }
 }
