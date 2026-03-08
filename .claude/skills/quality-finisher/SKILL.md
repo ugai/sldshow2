@@ -67,7 +67,7 @@ Ref #<issue-number>
 Co-Authored-By: {model} ({tool}) <email from AGENTS.md>
 EOF
 git commit -F /tmp/qf_commit_msg.txt
-git push origin "<branch-name>"
+git push origin HEAD
 ```
 
 Remove the worktree after pushing:
