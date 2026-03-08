@@ -3,7 +3,7 @@ name: quality-finisher
 description: >
   Audits open PRs for test coverage gaps after issue-slayer opens them.
   Writes missing tests and pushes to the PR branch, posts structured coverage
-  comments, re-invokes issue-slayer for cases requiring source-level changes,
+  comments, opens a prerequisite issue for cases requiring source-level changes,
   or confirms that coverage is already sufficient. Run before verify-sprint.
 ---
 
@@ -45,7 +45,7 @@ Always quote branch names when substituting into shell commands:
 
 ```bash
 git fetch origin
-git worktree add -b "<branch-name>" .agent-worktrees/quality-finisher-pr-<N> "origin/<branch-name>"
+git worktree add -B "<branch-name>" .agent-worktrees/quality-finisher-pr-<N> "origin/<branch-name>"
 ```
 
 Write tests. Follow the project's existing test conventions:
@@ -74,6 +74,7 @@ Remove the worktree after pushing:
 
 ```bash
 git worktree remove .agent-worktrees/quality-finisher-pr-<N>
+git branch -D "<branch-name>"
 ```
 
 Then post a report comment (see template below).
@@ -136,7 +137,9 @@ New issue opened: #<new-issue-number>
 
 ## Opening a Prerequisite Issue
 
-When a source-level change is required before tests can be written:
+When a source-level change is required before tests can be written,
+open a new issue and leave the handoff to the maintainer — `issue-slayer`
+requires the maintainer to add `agent:ready` before it can pick up the work:
 
 ```bash
 gh issue create \
