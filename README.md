@@ -58,7 +58,7 @@ The Guild — Agent Teams
 
 *The following is lore.*
 
-Three agents serve the Guild.
+Three agents serve the Guild — and one apprentice trails behind them.
 Issues labeled `agent:ready` are autonomously implemented and delivered as pull requests.
 
 #### Agents (Skills)
@@ -80,6 +80,8 @@ Issues labeled `agent:ready` are autonomously implemented and delivered as pull 
 <td align="center" valign="top"><br><em>Forged by Sprints, Not Blade.</em><br><br>Reads the ready queue. Spots every conflict before it forms. Charts the sprint plan. Once fought on the front lines. Now stands behind them.</td>
 </tr>
 </table>
+
+*`quality-finisher` (apprentice) — Audits post-slayer PRs for test coverage. Still learning the trade. [`SKILL.md`](.claude/skills/quality-finisher/SKILL.md)*
 
 #### Workflow
 

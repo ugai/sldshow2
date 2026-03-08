@@ -34,6 +34,8 @@ gh pr list --state open --json number,title,headRefName
 
 Confirm with the user which PRs to include.
 
+**Quality check:** For each PR, verify that `quality-finisher` has already been run. If any PR has not been processed by `quality-finisher`, warn the user before proceeding.
+
 ## Step 2 — Fetch and Create Verify Branch
 
 **NEVER push this branch to remote.**

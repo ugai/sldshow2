@@ -144,6 +144,9 @@ lists all `Closes #<N>`. See `AGENTS.md` for eligibility criteria.
 
 Do **not** merge. Notify the approver that the PR is ready.
 
+> `quality-finisher` will audit this PR for test coverage after it is open.
+> Note any untestable areas in the PR body so the finisher can act on them.
+
 ## Cleanup (On Request)
 
 When instructed after the PR is merged:
