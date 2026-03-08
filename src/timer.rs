@@ -9,7 +9,7 @@ use std::time::{Duration, Instant};
 /// lives in exactly one place.
 pub struct TimerBase {
     pub paused: bool,
-    pub(crate) last_tick: Instant,
+    last_tick: Instant,
 }
 
 impl TimerBase {
