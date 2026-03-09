@@ -144,6 +144,16 @@ lists all `Closes #<N>`. See `AGENTS.md` for eligibility criteria.
 
 Do **not** merge. Notify the approver that the PR is ready.
 
+## Post-PR Review
+
+After the PR is created, request a code review from a **separate context**
+(not the implementing agent) to catch blind spots:
+
+- If the tool provides a built-in review command (e.g. `/review`), use that.
+- Otherwise, use the project's `/code-reviewer` skill.
+
+Fix any `request-changes` findings before notifying the approver.
+
 > `quality-finisher` will audit this PR for test coverage after it is open.
 > Note any untestable areas in the PR body so the finisher can act on them.
 
