@@ -8,7 +8,7 @@ use wgpu::{Device, Queue, TextureFormat};
 use winit::event::WindowEvent;
 use winit::window::Window;
 
-use crate::config::{Config, FitMode, TransitionMode};
+use crate::config::{Config, FitMode, TIMER_MIN, TransitionMode};
 use crate::hdr_ui_composite::{EGUI_HDR_INTERMEDIATE_FORMAT, HdrUiComposite};
 use crate::osc::{Osc, OscAction};
 use crate::thumbnail::ThumbnailManager;
@@ -525,7 +525,7 @@ impl EguiOverlay {
                         if ui
                             .add(
                                 egui::DragValue::new(&mut config.viewer.timer)
-                                    .speed(0.1)
+                                    .speed(TIMER_MIN)
                                     .range(0.0..=3600.0),
                             )
                             .changed()
