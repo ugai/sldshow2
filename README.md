@@ -1,0 +1,100 @@
+# sldshow2
+
+High-performance slideshow image viewer with custom [WGSL](https://www.w3.org/TR/WGSL/) transitions, built with Rust, [winit](https://github.com/rust-windowing/winit), [wgpu](https://github.com/gfx-rs/wgpu), and [egui](https://github.com/emilk/egui).
+
+## Features
+
+- **Rich transition effects** — crossfade, roll, blind, box, angular wipe, random squares, and more
+- **HDR / EXR support** *(beta)* — native Rgba16Float pipeline on HDR displays; EXR sequence playback with auto-detected FPS
+- **Interactive zoom & pan** — Ctrl+scroll to zoom, drag to pan
+- **Color adjustments** — contrast, brightness, gamma, saturation
+- **Gallery view** — thumbnail grid with scrub bar and on-screen controller
+- **Settings panel** — runtime controls for playback, transitions, display, and window
+- **AmbientFit** — blurred background fill instead of black bars
+- **Screenshot & clipboard** — capture frame to PNG, copy image or path
+- **Drag & drop** — drop files/folders to load; Shift+drop to append
+- **Transparent & frameless windows**, screen saver prevention (Windows)
+
+## Quick Start
+
+```bash
+cargo run --example generate_test_images
+cargo run --release -- example.sldshow
+```
+
+Press `?` in-app for the full keyboard shortcut reference.
+
+## Configuration
+
+TOML files with `.sldshow` extension. Lookup: CLI arg → `~/.sldshow` → defaults.
+
+Configuration is loaded **once at startup**. There is no hot-reload or file watching — to apply changes to the `.sldshow` file, restart the application. Runtime adjustments made through the Settings panel take effect immediately but are not saved back to disk.
+
+See [`example.sldshow`](example.sldshow) for all options — window, viewer (playback mode, fit mode, texture limits, scan subfolders, …), transition, and style (background, font, transparency).
+
+## Supported Formats
+
+PNG, JPEG, GIF, BMP, TIFF, WebP, ICO, TGA, HDR, PNM, DDS, QOI, AVIF, OpenEXR
+
+## Development
+
+- [CONTRIBUTING.md](CONTRIBUTING.md) — setup, workflow, coding standards
+- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — module map and key flows
+- [AGENTS.md](AGENTS.md) — AI agent automation (`agent:ready` issues)
+
+## License
+
+MIT — Based on the original [sldshow](https://github.com/ugai/sldshow) by ugai. Transitions adapted from [GL Transitions](https://gl-transitions.com/) (MIT).
+
+## Appendix
+
+<details>
+
+<summary>
+The Guild — Agent Teams
+</summary>
+
+### The Guild
+
+*The following is lore.*
+
+Guild agents serve the Guild — and an apprentice trails behind them.
+Issues labeled `agent:ready` are autonomously implemented and delivered as pull requests.
+
+#### Agents (Skills)
+
+<table>
+<tr>
+<td align="center" width="33%"><img src="docs/assets/portrait-agent-ranger.png" width="220" alt="issue-ranger"></td>
+<td align="center" width="33%"><img src="docs/assets/portrait-agent-slayer.png" width="220" alt="issue-slayer"></td>
+<td align="center" width="33%"><img src="docs/assets/portrait-agent-raid-commander.png" width="220" alt="issue-raid-commander"></td>
+</tr>
+<tr>
+<td align="center"><strong><code>issue-ranger</code></strong><br><sub><a href=".claude/skills/issue-ranger/SKILL.md">SKILL.md</a> | <a href=".claude/agents/issue-ranger.md">Agent</a></sub></td>
+<td align="center"><strong><code>issue-slayer</code></strong><br><sub><a href=".claude/skills/issue-slayer/SKILL.md">SKILL.md</a> | <a href=".claude/agents/issue-slayer.md">Agent</a></sub></td>
+<td align="center"><strong><code>issue-raid-commander</code></strong><br><sub><a href=".claude/skills/issue-raid-commander/SKILL.md">SKILL.md</a> | <a href=".claude/agents/issue-raid-commander.md">Agent</a></sub></td>
+</tr>
+<tr>
+<td align="center" valign="top"><br><em>No Unknown Unknowns.</em><br><br>Ranges far. Crawls deep. Every wound in the codebase — named, scoped, filed. Nothing escapes the board.</td>
+<td align="center" valign="top"><br><em>The Blade.</em><br><br>The <code>agent:ready</code> label is the contract. The worktree is where it dies. The PR is the proof. Does not theorize. Does not over-engineer. No issue survives.</td>
+<td align="center" valign="top"><br><em>Forged by Sprints, Not Blade.</em><br><br>Reads the ready queue. Spots every conflict before it forms. Charts the sprint plan. Once fought on the front lines. Now stands behind them.</td>
+</tr>
+</table>
+
+*`quality-finisher` (apprentice) — Audits post-slayer PRs for test coverage. Still learning the trade. [`SKILL.md`](.claude/skills/quality-finisher/SKILL.md)*
+
+#### Workflow
+
+<table>
+<tr>
+<td align="center"><strong><code>dispatching-guild-expedition</code></strong><br><sub><a href=".claude/skills/dispatching-guild-expedition/SKILL.md">SKILL.md</a></sub></td>
+</tr>
+<tr>
+<td align="center"><img src="docs/assets/cover-art-epic-expedition.jpg" width="600" alt="dispatching-guild-expedition"></td>
+</tr>
+<tr>
+<td align="center" valign="top"><br><em>One Command. Full Sprint.</em><br><br>Orchestrates the entire pipeline: Rangers × N scout in parallel, the user approves issues at the gate, Raid Commander maps the battlefield, then Slayers × N charge in parallel. From empty board to open PRs. The whole Guild, at once. Conquered.</td>
+</tr>
+</table>
+
+</details>

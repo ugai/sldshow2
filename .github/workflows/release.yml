@@ -1,0 +1,63 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    name: Build & Release (Windows)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Verify Cargo.toml version matches tag
+        shell: bash
+        run: |
+          TAG="${GITHUB_REF#refs/tags/}"
+          CARGO_VERSION="$(grep '^version' Cargo.toml | head -1 | sed 's/.*"\(.*\)"/\1/')"
+          if [ "v$CARGO_VERSION" != "$TAG" ]; then
+            echo "ERROR: Tag ($TAG) does not match Cargo.toml version (v$CARGO_VERSION)"
+            exit 1
+          fi
+          echo "TAG=$TAG" >> "$GITHUB_ENV"
+          IFS='.' read -r MAJOR MINOR PATCH <<< "$CARGO_VERSION"
+          echo "VER_MAJOR=$MAJOR" >> "$GITHUB_ENV"
+          echo "VER_MINOR=$MINOR" >> "$GITHUB_ENV"
+          echo "VER_PATCH=$PATCH" >> "$GITHUB_ENV"
+
+      - name: Build release binary
+        run: cargo build --release
+
+      - name: Package (zip)
+        shell: bash
+        run: |
+          ARCHIVE="sldshow2-${{ env.TAG }}-windows-x86_64.zip"
+          7z a "$ARCHIVE" ./target/release/sldshow2.exe
+          echo "ARCHIVE=$ARCHIVE" >> "$GITHUB_ENV"
+
+      - name: Build installer (NSIS)
+        run: |
+          iwr -useb get.scoop.sh -outfile 'install.ps1'
+          .\install.ps1 -RunAsAdmin
+          scoop update
+          scoop bucket add extras
+          scoop install nsis
+          makensis /DVER_MAJOR=${{ env.VER_MAJOR }} /DVER_MINOR=${{ env.VER_MINOR }} /DVER_PATCH=${{ env.VER_PATCH }} ./setup/sldshow2.nsi
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            ${{ env.ARCHIVE }}
+            ./setup/sldshow2-*-setup.exe
+          generate_release_notes: true

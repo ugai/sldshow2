@@ -1,0 +1,44 @@
+# Rust
+/target
+Cargo.lock
+**/*.rs.bk
+*.pdb
+
+# Editor
+.vscode/
+.idea/
+.claude/*
+!.claude/skills/
+!.claude/agents/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Debug output
+debug_screenshots/
+sldshow-shot*.png
+
+# Generated test assets
+tools/test_hdr_gradient.exr
+
+# Temporary files
+nul
+*.tmp
+*.bak
+*.log
+
+# Local config
+.sldshow
+*.sldshow
+!example.sldshow
+draft/
+issue_*.json
+
+# Worktrees
+.agent-worktrees/*
+!.agent-worktrees/README.md

@@ -1,0 +1,107 @@
+name: CI
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+    branches: [master, main]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  changes:
+    name: Classify changes
+    runs-on: ubuntu-latest
+    outputs:
+      run-heavy: ${{ steps.filter.outputs.run-heavy }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - id: filter
+        uses: dorny/paths-filter@v3
+        with:
+          # Keep the workflow itself running for docs-only changes so required
+          # checks resolve cleanly, but only run the expensive Rust jobs when
+          # code, build, workflow, or shader inputs changed.
+          filters: |
+            run-heavy:
+              - '.github/workflows/**'
+              - '.githooks/**'
+              - 'Cargo.toml'
+              - 'Cargo.lock'
+              - 'build.rs'
+              - 'clippy.toml'
+              - 'rustfmt.toml'
+              - 'src/**'
+              - 'tests/**'
+              - 'examples/**'
+              - 'assets/shaders/**'
+
+  check:
+    name: Check
+    needs: changes
+    if: needs.changes.outputs.run-heavy == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install Linux dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libasound2-dev libudev-dev libxkbcommon-dev libwayland-dev libfontconfig1-dev
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo check --all-features
+
+  fmt:
+    name: Format
+    needs: changes
+    if: needs.changes.outputs.run-heavy == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - run: cargo fmt --all -- --check
+
+  clippy:
+    name: Clippy
+    needs: changes
+    if: needs.changes.outputs.run-heavy == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - name: Install Linux dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libasound2-dev libudev-dev libxkbcommon-dev libwayland-dev libfontconfig1-dev
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo clippy --all-features -- -D warnings
+
+  # TODO: Re-add test job once unit tests exist (see issue #294).
+  # The job was removed because it ran zero tests, wasting 16+ minutes of CI time
+  # while duplicating the Check job. When tests are added, use #[cfg(test)] mod tests
+  # inside each .rs file rather than separate files under tests/ to avoid expensive
+  # per-binary link times. Reference: https://matklad.github.io/2021/02/27/delete-cargo-integration-tests.html
+
+  check-windows:
+    name: Check (Windows)
+    needs: changes
+    if: needs.changes.outputs.run-heavy == 'true'
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo check --all-features
+

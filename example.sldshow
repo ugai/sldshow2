@@ -1,0 +1,53 @@
+# sldshow2 configuration file example
+# Place this file as ~/.sldshow or specify with command line argument
+
+[window]
+width = 1280
+height = 720
+fullscreen = false
+always_on_top = false
+decorations = true  # Show window titlebar/borders
+resizable = true
+
+[viewer]
+# Image paths - can be directories or individual files
+image_paths = [
+    "assets/test_images",
+    # "C:\\Users\\YourName\\Pictures",
+    # "/home/user/photos",
+]
+
+timer = 10              # Seconds per image (0 = paused)
+scan_subfolders = true  # Recursively scan directories
+shuffle = true          # Random order
+pause_at_last = false   # Stop at last image instead of looping
+cache_extent = 5        # Number of images to preload (before/after current)
+
+playback_mode = "Slideshow"  # "Slideshow" = timed advances, "Sequence" = frame-by-frame
+sequence_fps = 24.0          # Framerate for sequence playback
+                             # Auto-detected from EXR metadata (framesPerSecond) if available
+max_texture_size = [1920, 1080]  # Max texture resolution for GPU upload
+                                 # Lower = faster uploads, less memory
+                                 # [0, 0] = no limit / full resolution (may stutter at 4K+)
+filter_mode = "linear"           # Texture filtering: "linear" (smooth) or "nearest" (pixelated)
+fit_mode = "AmbientFit"          # "Fit" = black bars, "AmbientFit" = blurred background
+                                 # Toggle at runtime with 'A' key
+ambient_blur = 5.0               # Mip LOD level for AmbientFit blur (0-10, higher = blurrier)
+
+[transition]
+time = 0.5              # Transition duration in seconds
+random = true           # Use random transition effects
+mode = 0                # Specific mode if random = false (0-19)
+                        # 0: crossfade, 1: smooth crossfade
+                        # 2-9: roll (top/bottom/left/right/diagonals)
+                        # 10-11: sliding door (open/close)
+                        # 12-15: blind effects
+                        # 16-17: box (expand/contract)
+                        # 18: random squares
+                        # 19: angular wipe
+
+[style]
+bg_color = [0, 0, 0, 255]           # Background color RGBA [0-255]
+show_image_path = true               # Display current file path
+show_controls = true                 # Show control hints
+font_family = "M PLUS 2"             # Font family name (e.g. from assets/fonts)
