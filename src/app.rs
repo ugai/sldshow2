@@ -21,8 +21,7 @@ use crate::timer::{SequenceTimer, SlideshowTimer};
 use crate::transition::{self, TransitionPipeline, TransitionUniform};
 
 /// Color adjustment parameters (mpv-like).
-#[derive(Debug, Clone, Copy)]
-#[derive(Default)]
+#[derive(Debug, Clone, Copy, Default)]
 pub struct ColorAdjustments {
     pub brightness: i32,
     pub contrast: i32,
@@ -1284,12 +1283,34 @@ impl ApplicationState {
 
         if self.screenshot_requested {
             self.screenshot_requested = false;
+            // Determine the effective SDR scale applied by the shader.
+            // For SDR content on HDR displays the shader multiplies by
+            // SDR_WHITE_SCALE; for HDR content (EXR) or SDR displays the
+            // scale is 1.0.
+            let sdr_scale = if self.renderer.is_hdr {
+                let a_is_sdr = self
+                    .texture_manager
+                    .get_texture(tex_a_idx)
+                    .is_some_and(|t| !t.is_hdr_content);
+                let b_is_sdr = self
+                    .texture_manager
+                    .get_texture(tex_b_idx)
+                    .is_some_and(|t| !t.is_hdr_content);
+                if a_is_sdr && b_is_sdr {
+                    transition::SDR_WHITE_SCALE
+                } else {
+                    1.0
+                }
+            } else {
+                1.0
+            };
             match self.screenshot.capture(
                 &self.renderer.device,
                 &self.renderer.queue,
                 encoder,
                 &output.texture,
                 &self.renderer.surface_config,
+                sdr_scale,
             ) {
                 Ok(filename) => self.show_osd(format!("Screenshot: {}", filename)),
                 Err(msg) => self.show_osd(msg),

@@ -31,6 +31,7 @@ impl ScreenshotCapture {
         render_encoder: wgpu::CommandEncoder,
         texture: &wgpu::Texture,
         surface_config: &wgpu::SurfaceConfiguration,
+        sdr_scale: f32,
     ) -> Result<String, String> {
         let width = surface_config.width;
         let height = surface_config.height;
@@ -135,9 +136,9 @@ impl ScreenshotCapture {
                                 .clamp(0.0, 1.0);
 
                             pixels.extend_from_slice(&[
-                                linear_hdr_to_srgb_u8(r),
-                                linear_hdr_to_srgb_u8(g),
-                                linear_hdr_to_srgb_u8(b),
+                                linear_hdr_to_srgb_u8(r, sdr_scale),
+                                linear_hdr_to_srgb_u8(g, sdr_scale),
+                                linear_hdr_to_srgb_u8(b, sdr_scale),
                                 (a * 255.0).round() as u8,
                             ]);
                         }
@@ -231,12 +232,89 @@ impl ScreenshotCapture {
     }
 }
 
-fn linear_hdr_to_srgb_u8(linear: f32) -> u8 {
-    let mapped = linear.max(0.0) / (1.0 + linear.max(0.0));
+/// Convert a linear HDR value to an sRGB u8, optionally undoing an SDR white
+/// scale applied by the transition shader.
+fn linear_hdr_to_srgb_u8(linear: f32, sdr_scale: f32) -> u8 {
+    let v = linear.max(0.0);
+    let mapped = if sdr_scale > 1.0 {
+        // Undo the SDR white scale the shader applied. SDR content (≤1.0
+        // after unscaling) passes through directly; actual HDR content is
+        // soft-tonemapped with Reinhard so highlights compress gracefully.
+        let unscaled = v / sdr_scale;
+        if unscaled <= 1.0 {
+            unscaled
+        } else {
+            unscaled / (1.0 + unscaled)
+        }
+    } else {
+        // No SDR scaling was applied (SDR display, or HDR content on HDR
+        // display): Reinhard tonemap as before.
+        v / (1.0 + v)
+    };
     let srgb = if mapped <= 0.003_130_8 {
         12.92 * mapped
     } else {
         1.055 * mapped.powf(1.0 / 2.4) - 0.055
     };
     (srgb.clamp(0.0, 1.0) * 255.0).round() as u8
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const SDR_WHITE_SCALE: f32 = 203.0 / 80.0;
+
+    #[test]
+    fn sdr_display_reference_white_tonemapped() {
+        // SDR display (scale=1.0): Reinhard maps 1.0 → 0.5, not 255.
+        let val = linear_hdr_to_srgb_u8(1.0, 1.0);
+        assert!(
+            val < 200,
+            "Reinhard should compress 1.0 well below 255, got {val}"
+        );
+    }
+
+    #[test]
+    fn hdr_display_sdr_content_reference_white_maps_to_255() {
+        // SDR content on HDR display: shader scaled by SDR_WHITE_SCALE.
+        // Unscaling recovers 1.0, which should map to 255 (sRGB white).
+        let val = linear_hdr_to_srgb_u8(SDR_WHITE_SCALE, SDR_WHITE_SCALE);
+        assert_eq!(val, 255);
+    }
+
+    #[test]
+    fn hdr_display_sdr_content_black_maps_to_zero() {
+        assert_eq!(linear_hdr_to_srgb_u8(0.0, SDR_WHITE_SCALE), 0);
+    }
+
+    #[test]
+    fn hdr_display_hdr_content_uses_reinhard() {
+        // HDR content on HDR display (scale=1.0): Reinhard tonemap.
+        let val = linear_hdr_to_srgb_u8(1.0, 1.0);
+        let val_bright = linear_hdr_to_srgb_u8(10.0, 1.0);
+        assert!(
+            val_bright > val,
+            "brighter input should produce brighter output"
+        );
+        assert!(val_bright < 255, "Reinhard should never reach 255");
+    }
+
+    #[test]
+    fn negative_input_clamped_to_zero() {
+        assert_eq!(linear_hdr_to_srgb_u8(-1.0, 1.0), 0);
+        assert_eq!(linear_hdr_to_srgb_u8(-1.0, SDR_WHITE_SCALE), 0);
+    }
+
+    #[test]
+    fn sdr_scale_above_white_gets_tonemapped() {
+        // Values above SDR white (after unscaling > 1.0) get Reinhard-tonemapped.
+        let above_white = SDR_WHITE_SCALE * 2.0; // unscaled = 2.0
+        let val = linear_hdr_to_srgb_u8(above_white, SDR_WHITE_SCALE);
+        assert!(val > 200, "above-white should be bright, got {val}");
+        assert!(
+            val < 255,
+            "above-white should be tonemapped below 255, got {val}"
+        );
+    }
 }
