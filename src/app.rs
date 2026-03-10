@@ -8,6 +8,7 @@ use winit::{
 };
 
 use crate::clipboard;
+use crate::color_adjust::ColorAdjustments;
 use crate::config::{self, Config, TransitionMode};
 use crate::drag_drop::DragDropHandler;
 use crate::image_loader::{self, TextureManager};
@@ -19,37 +20,6 @@ use crate::screenshot::ScreenshotCapture;
 use crate::thumbnail::ThumbnailManager;
 use crate::timer::{SequenceTimer, SlideshowTimer};
 use crate::transition::{self, TransitionPipeline, TransitionUniform};
-
-/// Color adjustment parameters (mpv-like).
-#[derive(Debug, Clone, Copy, Default)]
-pub struct ColorAdjustments {
-    pub brightness: i32,
-    pub contrast: i32,
-    pub gamma: i32,
-    pub saturation: i32,
-}
-
-impl ColorAdjustments {
-    /// Convert brightness (-100..100) to shader float: value / 100.0
-    pub fn shader_brightness(&self) -> f32 {
-        self.brightness as f32 / 100.0
-    }
-
-    /// Convert contrast (-100..100) to shader float: (value + 100) / 100.0
-    pub fn shader_contrast(&self) -> f32 {
-        (self.contrast + 100) as f32 / 100.0
-    }
-
-    /// Convert gamma (-100..100) to shader float: exp(ln(8) * value / 100.0)
-    pub fn shader_gamma(&self) -> f32 {
-        (8.0_f32.ln() * self.gamma as f32 / 100.0).exp()
-    }
-
-    /// Convert saturation (-100..100) to shader float: (value + 100) / 100.0
-    pub fn shader_saturation(&self) -> f32 {
-        (self.saturation + 100) as f32 / 100.0
-    }
-}
 
 pub struct ApplicationState {
     config: Config,
@@ -692,21 +662,10 @@ impl ApplicationState {
     }
 
     fn handle_color_key(&mut self, key: KeyCode) {
-        let (value, delta, name) = match key {
-            KeyCode::Digit1 => (&mut self.color.contrast, -1i32, "Contrast"),
-            KeyCode::Digit2 => (&mut self.color.contrast, 1, "Contrast"),
-            KeyCode::Digit3 => (&mut self.color.brightness, -1, "Brightness"),
-            KeyCode::Digit4 => (&mut self.color.brightness, 1, "Brightness"),
-            KeyCode::Digit5 => (&mut self.color.gamma, -1, "Gamma"),
-            KeyCode::Digit6 => (&mut self.color.gamma, 1, "Gamma"),
-            KeyCode::Digit7 => (&mut self.color.saturation, -1, "Saturation"),
-            KeyCode::Digit8 => (&mut self.color.saturation, 1, "Saturation"),
-            _ => return,
-        };
-        *value = (*value + delta).clamp(-100, 100);
-        let display = *value;
-        self.show_osd(format!("{}: {}", name, display));
-        self.cached_info_string = None;
+        if let Some(result) = self.color.handle_key(key) {
+            self.show_osd(format!("{}: {}", result.name, result.value));
+            self.cached_info_string = None;
+        }
     }
 
     fn reset_color_adjustments(&mut self) {
@@ -747,18 +706,7 @@ impl ApplicationState {
             info.push_str(&format!("\nZoom: {:.1}x", self.zoom_scale));
         }
 
-        if self.color.contrast != 0 {
-            info.push_str(&format!("\nContrast: {}", self.color.contrast));
-        }
-        if self.color.brightness != 0 {
-            info.push_str(&format!("\nBrightness: {}", self.color.brightness));
-        }
-        if self.color.gamma != 0 {
-            info.push_str(&format!("\nGamma: {}", self.color.gamma));
-        }
-        if self.color.saturation != 0 {
-            info.push_str(&format!("\nSaturation: {}", self.color.saturation));
-        }
+        self.color.append_info(&mut info);
 
         info
     }
