@@ -3,7 +3,7 @@
 use egui::{Align2, Context};
 
 use super::OverlayAction;
-use crate::config::{Config, FitMode, TransitionMode};
+use crate::config::{Config, FitMode, TIMER_MIN, TransitionMode};
 
 pub(super) fn render_settings(
     ctx: &Context,
@@ -26,7 +26,7 @@ pub(super) fn render_settings(
                 if ui
                     .add(
                         egui::DragValue::new(&mut config.viewer.timer)
-                            .speed(0.1)
+                            .speed(TIMER_MIN)
                             .range(0.0..=3600.0),
                     )
                     .changed()
