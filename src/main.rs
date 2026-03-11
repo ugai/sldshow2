@@ -9,6 +9,7 @@ use winit::event_loop::EventLoop;
 
 mod app;
 mod clipboard;
+mod color_adjust;
 mod config;
 mod drag_drop;
 mod error;
