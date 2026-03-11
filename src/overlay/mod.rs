@@ -1,5 +1,9 @@
 //! egui overlay rendering for on-screen UI (filename bar, OSD, debug info)
 
+mod gallery;
+mod help;
+mod settings;
+
 use egui::{Align2, Color32, Context, FontData, FontDefinitions, FontFamily, FontId, RichText};
 use egui_wgpu::Renderer;
 use egui_winit::State;
@@ -8,7 +12,7 @@ use wgpu::{Device, Queue, TextureFormat};
 use winit::event::WindowEvent;
 use winit::window::Window;
 
-use crate::config::{Config, FitMode, TIMER_MIN, TransitionMode};
+use crate::config::{Config, FitMode, TransitionMode};
 use crate::hdr_ui_composite::{EGUI_HDR_INTERMEDIATE_FORMAT, HdrUiComposite};
 use crate::osc::{Osc, OscAction};
 use crate::thumbnail::ThumbnailManager;
@@ -344,7 +348,14 @@ impl EguiOverlay {
         self.cleanup_gallery_textures(thumbnail_manager);
 
         if self.show_gallery {
-            return self.render_gallery(&self.context.clone(), texture_manager, thumbnail_manager);
+            return gallery::render_gallery(
+                &self.context.clone(),
+                texture_manager,
+                thumbnail_manager,
+                &mut self.gallery_textures,
+                &mut self.show_gallery,
+                &mut self.overlay_stack,
+            );
         }
         let font_id = FontId::proportional(self.font_size);
         // egui's screen_rect() returns logical coordinates (already DPI-scaled),
@@ -430,230 +441,16 @@ impl EguiOverlay {
 
         // Help overlay (centered window)
         if self.show_help_overlay {
-            egui::Window::new("Keyboard Shortcuts")
-                .anchor(Align2::CENTER_CENTER, [0.0, 0.0])
-                .collapsible(false)
-                .resizable(true)
-                .show(&self.context, |ui| {
-                    egui::ScrollArea::vertical()
-                        .max_height(ui.available_height() - 20.0)
-                        .show(ui, |ui| {
-                            ui.set_min_width(350.0);
-
-                            ui.heading("Navigation");
-                            ui.label("Space / Right       Next image");
-                            ui.label("Left               Previous image");
-                            ui.label("Shift+Left/Right   Skip 10 images");
-                            ui.label("Home / End         Jump to first/last image");
-                            ui.label("Mouse Wheel        Next/previous image");
-                            ui.label("Shift + Wheel      Skip 10 images");
-                            ui.label("Left Click         Next image");
-                            ui.label("Right Click        Previous image");
-                            ui.label("Double Click       Toggle fullscreen");
-                            ui.label("Drag Window        Move window position");
-
-                            ui.add_space(4.0);
-                            ui.heading("Playback");
-                            ui.label("P                  Pause/resume slideshow");
-                            ui.label("[ / ]              Adjust timer (-/+ 1s)");
-                            ui.label("Shift + [ / ]      Adjust timer (-/+ 60s)");
-                            ui.label("Backspace          Reset timer to default");
-                            ui.label("L                  Toggle loop mode");
-
-                            ui.add_space(4.0);
-                            ui.heading("Display");
-                            ui.label("F                  Toggle fullscreen");
-                            ui.label("D                  Toggle window decorations");
-                            ui.label("T                  Toggle always on top");
-                            ui.label("A                  Toggle fit mode (Normal/Ambient)");
-                            ui.label("I / Shift+I        Show info temporarily / toggle");
-                            ui.label("O / Shift+O        Show filename temporarily / toggle");
-
-                            ui.add_space(4.0);
-                            ui.heading("Window Resize");
-                            ui.label("Alt+0              Half image size");
-                            ui.label("Alt+1              Original image size (1:1 pixels)");
-                            ui.label("Alt+2              Double image size");
-
-                            ui.add_space(4.0);
-                            ui.heading("Zoom");
-                            ui.label("Ctrl+Wheel         Zoom in/out");
-                            ui.label("Z                  Reset zoom/pan");
-                            ui.label("Drag (when zoomed) Pan image");
-
-                            ui.add_space(4.0);
-                            ui.heading("Color Adjustments");
-                            ui.label("1 / 2              Contrast -/+");
-                            ui.label("3 / 4              Brightness -/+");
-                            ui.label("5 / 6              Gamma -/+");
-                            ui.label("7 / 8              Saturation -/+");
-                            ui.label("Shift+Backspace    Reset all color adjustments");
-
-                            ui.add_space(4.0);
-                            ui.heading("Actions");
-                            ui.label("S                  Take screenshot");
-                            ui.label("Ctrl+Shift+C       Copy image to clipboard");
-                            ui.label("Ctrl+C             Copy path to clipboard");
-                            ui.label("G                  Toggle Gallery");
-                            ui.label("Alt+E              Open in Explorer");
-                            ui.label("?                  Toggle this help");
-                            ui.label("Escape             Close this help");
-
-                            ui.add_space(8.0);
-                            ui.label(
-                                RichText::new("Press ? or Escape to close")
-                                    .italics()
-                                    .color(Color32::GRAY),
-                            );
-                        });
-                });
+            help::render_help(&self.context);
         }
 
         // Settings overlay
         if self.show_settings {
-            egui::Window::new("Settings")
-                .anchor(Align2::CENTER_CENTER, [0.0, 0.0])
-                .collapsible(false)
-                .resizable(true)
-                .open(&mut self.show_settings)
-                .show(&self.context, |ui| {
-                    ui.set_min_width(300.0);
-
-                    ui.heading("Playback");
-                    ui.horizontal(|ui| {
-                        ui.label("Timer (sec):");
-                        if ui
-                            .add(
-                                egui::DragValue::new(&mut config.viewer.timer)
-                                    .speed(TIMER_MIN)
-                                    .range(0.0..=3600.0),
-                            )
-                            .changed()
-                        {
-                            action = Some(OverlayAction::SetTimer(config.viewer.timer));
-                        }
-                    });
-                    if ui.checkbox(&mut config.viewer.shuffle, "Shuffle").changed() {
-                        action = Some(OverlayAction::ToggleShuffle(config.viewer.shuffle));
-                    }
-                    if ui
-                        .checkbox(&mut config.viewer.pause_at_last, "Stop at end (No Loop)")
-                        .changed()
-                    {
-                        action = Some(OverlayAction::SetPauseAtLast(config.viewer.pause_at_last));
-                    }
-                    if ui
-                        .checkbox(&mut config.viewer.scan_subfolders, "Scan Subfolders")
-                        .changed()
-                    {
-                        action = Some(OverlayAction::ToggleScanSubfolders(
-                            config.viewer.scan_subfolders,
-                        ));
-                    }
-
-                    ui.separator();
-                    ui.heading("Transition");
-                    ui.horizontal(|ui| {
-                        ui.label("Duration (sec):");
-                        if ui
-                            .add(
-                                egui::DragValue::new(&mut config.transition.time)
-                                    .speed(0.05)
-                                    .range(0.0..=5.0),
-                            )
-                            .changed()
-                        {
-                            action = Some(OverlayAction::SetTransitionTime(config.transition.time));
-                        }
-                    });
-                    if ui
-                        .checkbox(&mut config.transition.random, "Random Transitions")
-                        .changed()
-                    {
-                        action = Some(OverlayAction::ToggleRandomTransition(
-                            config.transition.random,
-                        ));
-                    }
-                    if !config.transition.random {
-                        ui.horizontal(|ui| {
-                            ui.label("Transition Mode:");
-                            let mut mode_val: i32 = config.transition.mode.into();
-                            if ui
-                                .add(
-                                    egui::Slider::new(&mut mode_val, 0..=19)
-                                        .custom_formatter(|n, _| {
-                                            TransitionMode::try_from(n as i32)
-                                                .map(|m| format!("{} — {}", n as i32, m.name()))
-                                                .unwrap_or_else(|_| format!("{}", n as i32))
-                                        })
-                                        .custom_parser(|s| s.trim().parse::<f64>().ok()),
-                                )
-                                .changed()
-                            {
-                                // Value comes from a bounded slider so try_from always succeeds.
-                                if let Ok(m) = TransitionMode::try_from(mode_val) {
-                                    config.transition.mode = m;
-                                    action = Some(OverlayAction::SetTransitionMode(m));
-                                }
-                            }
-                        });
-                    }
-
-                    ui.separator();
-                    ui.heading("Display");
-                    ui.horizontal(|ui| {
-                        ui.label("Fit Mode:");
-                        if ui
-                            .selectable_value(&mut config.viewer.fit_mode, FitMode::Fit, "Fit")
-                            .changed()
-                        {
-                            action = Some(OverlayAction::SetFitMode(FitMode::Fit));
-                        }
-                        if ui
-                            .selectable_value(
-                                &mut config.viewer.fit_mode,
-                                FitMode::AmbientFit,
-                                "Ambient",
-                            )
-                            .changed()
-                        {
-                            action = Some(OverlayAction::SetFitMode(FitMode::AmbientFit));
-                        }
-                    });
-                    if config.viewer.fit_mode == FitMode::AmbientFit {
-                        ui.horizontal(|ui| {
-                            ui.label("Ambient Blur:");
-                            if ui
-                                .add(
-                                    egui::DragValue::new(&mut config.viewer.ambient_blur)
-                                        .speed(0.1)
-                                        .range(0.0..=10.0),
-                                )
-                                .changed()
-                            {
-                                action =
-                                    Some(OverlayAction::SetAmbientBlur(config.viewer.ambient_blur));
-                            }
-                        });
-                    }
-
-                    ui.separator();
-                    ui.heading("Window");
-                    if ui
-                        .checkbox(&mut config.window.always_on_top, "Always on Top")
-                        .changed()
-                    {
-                        action = Some(OverlayAction::ToggleAlwaysOnTop(
-                            config.window.always_on_top,
-                        ));
-                    }
-                    if ui
-                        .checkbox(&mut config.window.fullscreen, "Fullscreen")
-                        .changed()
-                    {
-                        action = Some(OverlayAction::ToggleFullscreen(config.window.fullscreen));
-                    }
-                });
+            if let Some(a) =
+                settings::render_settings(&self.context, config, &mut self.show_settings)
+            {
+                action = Some(a);
+            }
         }
 
         // Render OSC (On-Screen Controller) and capture any action
@@ -806,110 +603,6 @@ impl EguiOverlay {
         if let Some(ref mut hdr) = self.hdr_composite {
             hdr.resize(device, width.max(1), height.max(1));
         }
-    }
-
-    fn render_gallery(
-        &mut self,
-        ctx: &Context,
-        texture_manager: &crate::image_loader::TextureManager,
-        thumbnail_manager: &mut ThumbnailManager,
-    ) -> Option<OverlayAction> {
-        // Reset pending queue to ensure we only prioritize currently visible items
-        thumbnail_manager.clear_pending();
-
-        let mut action = None;
-
-        egui::CentralPanel::default().show(ctx, |ui| {
-            ui.heading("Gallery");
-            ui.separator();
-
-            let thumbnail_size = 256.0;
-            let padding = 8.0;
-            let item_size = egui::vec2(thumbnail_size, thumbnail_size);
-            let cell_size = item_size + egui::vec2(padding, padding);
-
-            let scroll_bar_width = ui.style().spacing.scroll.bar_width;
-            let width = ui.available_width() - scroll_bar_width - padding * 2.0;
-            let cols = (width / cell_size.x).floor() as usize;
-            let cols = cols.max(1);
-            let count = texture_manager.len();
-            let rows = count.div_ceil(cols);
-
-            egui::ScrollArea::vertical().show_rows(ui, cell_size.y, rows, |ui, row_range| {
-                ui.style_mut().spacing.item_spacing = egui::vec2(padding, padding);
-
-                for row in row_range {
-                    ui.horizontal(|ui| {
-                        for col in 0..cols {
-                            let index = row * cols + col;
-                            if index >= count {
-                                break;
-                            }
-
-                            // Get path for thumbnail generation
-                            if let Some(path) = texture_manager.paths.get(index) {
-                                // Request thumbnail if not present
-                                if thumbnail_manager.get_thumbnail(index).is_none() {
-                                    thumbnail_manager.request_thumbnail(index, path);
-                                }
-                            }
-
-                            // Retrieve texture
-                            let texture_id = if let Some(img) =
-                                thumbnail_manager.get_thumbnail(index)
-                            {
-                                // Create or get TextureHandle
-                                let handle =
-                                    self.gallery_textures.entry(index).or_insert_with(|| {
-                                        // Convert RgbaImage to ColorImage.
-                                        let size = [img.width() as usize, img.height() as usize];
-                                        let pixels = img.as_flat_samples();
-                                        let color_image = egui::ColorImage::from_rgba_unmultiplied(
-                                            size,
-                                            pixels.as_slice(),
-                                        );
-                                        ctx.load_texture(
-                                            format!("thumb_{}", index),
-                                            color_image,
-                                            egui::TextureOptions::LINEAR,
-                                        )
-                                    });
-                                handle.id()
-                            } else {
-                                egui::TextureId::default()
-                            };
-
-                            // Determine if we have a valid texture
-                            let has_texture = self.gallery_textures.contains_key(&index);
-
-                            let btn_size = item_size;
-                            let resp = if has_texture {
-                                ui.add_sized(
-                                    btn_size,
-                                    egui::ImageButton::new((texture_id, btn_size)).frame(false),
-                                )
-                            } else {
-                                ui.add_sized(btn_size, egui::Button::new("Loading...").frame(true))
-                            };
-
-                            if resp.clicked() {
-                                action = Some(OverlayAction::JumpTo(index));
-                                self.show_gallery = false;
-                                self.pop_overlay(OverlayKind::Gallery);
-                            }
-                        }
-                    });
-                }
-            });
-        });
-
-        // Close on Escape
-        if ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
-            self.show_gallery = false;
-            self.pop_overlay(OverlayKind::Gallery);
-        }
-
-        action
     }
 }
 
