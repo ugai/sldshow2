@@ -17,7 +17,7 @@ use crate::overlay::EguiOverlay;
 use crate::renderer::Renderer;
 use crate::screenshot::ScreenshotCapture;
 use crate::thumbnail::ThumbnailManager;
-use crate::timer::{SequenceTimer, SlideshowTimer};
+use crate::timer::{SequenceTimer, SlideshowTimer, sanitize_timer};
 use crate::transition::{self, TransitionPipeline, TransitionUniform};
 
 /// Color adjustment parameters (mpv-like).
@@ -905,8 +905,14 @@ impl ApplicationState {
             match action {
                 OverlayAction::Osc(osc_action) => self.execute_osc_action(osc_action),
                 OverlayAction::SetTimer(timer) => {
-                    self.slideshow.set_duration(timer);
-                    self.show_osd(format!("Timer: {:.1}s", timer));
+                    let sanitized = sanitize_timer(timer);
+                    self.slideshow.set_duration(sanitized);
+                    self.config.viewer.timer = sanitized;
+                    if sanitized <= 0.0 {
+                        self.show_osd("Timer: 0.0s (Paused)".to_string());
+                    } else {
+                        self.show_osd(format!("Timer: {:.1}s", sanitized));
+                    }
                 }
                 OverlayAction::ToggleShuffle(enabled) => {
                     self.shuffle_enabled = enabled;

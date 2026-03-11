@@ -5,6 +5,14 @@ use camino::{Utf8Path, Utf8PathBuf};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use validator::Validate;
 
+/// Minimum valid slideshow timer interval in seconds.
+///
+/// `0.0` is the sentinel for "paused". Values in `(0.0, TIMER_MIN)` are
+/// rejected by config validation and clamped by the runtime timer.
+/// This is the single source of truth referenced by `validate_timer`,
+/// `timer::sanitize_timer`, and the settings UI.
+pub const TIMER_MIN: f32 = 0.1;
+
 /// Texture filtering mode
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "lowercase")]
@@ -141,13 +149,13 @@ fn validate_timer(value: f32) -> std::result::Result<(), validator::ValidationEr
         err.message = Some(std::borrow::Cow::Borrowed("timer must be a finite number"));
         return Err(err);
     }
-    if value == 0.0 || value >= 0.1 {
+    if value == 0.0 || value >= TIMER_MIN {
         Ok(())
     } else {
         let mut err = validator::ValidationError::new("timer_range");
-        err.message = Some(std::borrow::Cow::Borrowed(
-            "timer must be 0.0 (paused) or >= 0.1 seconds",
-        ));
+        err.message = Some(std::borrow::Cow::Owned(format!(
+            "timer must be 0.0 (paused) or >= {TIMER_MIN} seconds"
+        )));
         Err(err)
     }
 }

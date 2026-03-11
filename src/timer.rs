@@ -3,6 +3,21 @@
 use std::ops::{Deref, DerefMut};
 use std::time::{Duration, Instant};
 
+pub use crate::config::TIMER_MIN;
+
+/// Sanitize a raw timer value to a legal interval.
+///
+/// - Non-finite or `<= 0.0` → `0.0` (paused sentinel)
+/// - `(0.0, TIMER_MIN)` → clamped up to `TIMER_MIN`
+/// - `>= TIMER_MIN` → returned unchanged
+pub fn sanitize_timer(value: f32) -> f32 {
+    if !value.is_finite() || value <= 0.0 {
+        0.0
+    } else {
+        value.max(TIMER_MIN)
+    }
+}
+
 /// Shared pause/timing state embedded in both timer types.
 ///
 /// Provides the common `toggle_pause` and `reset` operations so the logic
@@ -57,9 +72,14 @@ impl DerefMut for SlideshowTimer {
 
 impl SlideshowTimer {
     pub fn new(interval_secs: f32) -> Self {
+        let sanitized = sanitize_timer(interval_secs);
         Self {
-            base: TimerBase::new(interval_secs <= 0.0),
-            interval: Duration::from_secs_f32(interval_secs.max(0.1)),
+            base: TimerBase::new(sanitized <= 0.0),
+            interval: Duration::from_secs_f32(if sanitized > 0.0 {
+                sanitized
+            } else {
+                TIMER_MIN
+            }),
             paused_by_user: false,
         }
     }
@@ -85,11 +105,12 @@ impl SlideshowTimer {
     }
 
     pub fn set_duration(&mut self, duration_secs: f32) {
-        if duration_secs <= 0.0 {
+        let sanitized = sanitize_timer(duration_secs);
+        if sanitized <= 0.0 {
             self.base.paused = true;
             self.paused_by_user = false;
         } else {
-            self.interval = Duration::from_secs_f32(duration_secs);
+            self.interval = Duration::from_secs_f32(sanitized);
             self.base.reset();
             if !self.paused_by_user {
                 self.base.paused = false;
@@ -329,5 +350,43 @@ mod tests {
     fn advance_by_negative_dt_returns_no_frames() {
         let mut timer = SequenceTimer::new(10.0);
         assert_eq!(timer.advance_by(-1.0), 0);
+    }
+
+    // --- sanitize_timer ---
+
+    #[test]
+    fn sanitize_timer_zero_returns_zero() {
+        assert_eq!(sanitize_timer(0.0), 0.0);
+    }
+
+    #[test]
+    fn sanitize_timer_negative_returns_zero() {
+        assert_eq!(sanitize_timer(-1.0), 0.0);
+        assert_eq!(sanitize_timer(-0.001), 0.0);
+    }
+
+    #[test]
+    fn sanitize_timer_non_finite_returns_zero() {
+        assert_eq!(sanitize_timer(f32::INFINITY), 0.0);
+        assert_eq!(sanitize_timer(f32::NEG_INFINITY), 0.0);
+        assert_eq!(sanitize_timer(f32::NAN), 0.0);
+    }
+
+    #[test]
+    fn sanitize_timer_below_min_clamps_to_min() {
+        assert_eq!(sanitize_timer(0.0001), TIMER_MIN);
+        assert_eq!(sanitize_timer(0.05), TIMER_MIN);
+        assert!((sanitize_timer(TIMER_MIN - f32::EPSILON) - TIMER_MIN).abs() < 1e-6);
+    }
+
+    #[test]
+    fn sanitize_timer_at_min_preserved() {
+        assert!((sanitize_timer(TIMER_MIN) - TIMER_MIN).abs() < 1e-6);
+    }
+
+    #[test]
+    fn sanitize_timer_above_min_preserved() {
+        assert!((sanitize_timer(5.0) - 5.0).abs() < 1e-6);
+        assert!((sanitize_timer(3600.0) - 3600.0).abs() < 1e-6);
     }
 }
