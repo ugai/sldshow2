@@ -319,6 +319,12 @@ impl EguiOverlay {
         self.osc.check_autohide();
     }
 
+    /// Returns true when egui is currently interested in pointer input
+    /// (e.g. hovering over a panel or actively dragging a widget).
+    pub fn wants_pointer_input(&self) -> bool {
+        self.context.wants_pointer_input()
+    }
+
     /// Forward winit events to egui
     /// Returns true if egui consumed the event
     pub fn handle_event(&mut self, window: &Window, event: &WindowEvent) -> bool {

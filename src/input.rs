@@ -118,6 +118,14 @@ impl InputHandler {
         self.zoom_scale = 1.0;
     }
 
+    /// Cancel any in-progress drag state.
+    /// Called when egui claims pointer ownership to prevent stale drag state.
+    pub fn cancel_drag(&mut self) {
+        self.drag_start_cursor = None;
+        self.drag_start_screen = None;
+        self.is_dragging = false;
+    }
+
     /// Handles a window event and returns (consumed, optional_action).
     pub fn handle_event(
         &mut self,

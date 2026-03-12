@@ -234,12 +234,9 @@ impl ApplicationState {
             self.input_handler
                 .handle_event(event, modifiers, &self.window, &ctx);
 
-        // Update OSC activity on cursor movement
-        if matches!(event, WindowEvent::CursorMoved { .. }) {
-            self.egui_overlay.update_osc_activity();
-        }
-
-        // Sync cursor visibility state with window
+        // Sync cursor visibility state with window.
+        // Note: CursorMoved side effects (OSC activity, cursor show) are handled
+        // unconditionally in window_event() so they run even when egui has the pointer.
         if self.input_handler.cursor_visible {
             self.window.set_cursor_visible(true);
         }
@@ -1332,6 +1329,19 @@ fn try_spawn_file_manager(cmd: &str, extra_args: &[&str], target: &std::path::Pa
     }
 }
 
+/// Returns true for pointer-related window events.
+///
+/// Used to guard InputHandler from receiving pointer events when egui has
+/// claimed ownership of the pointer (imgui WantCaptureMouse pattern).
+fn is_pointer_event(event: &WindowEvent) -> bool {
+    matches!(
+        event,
+        WindowEvent::CursorMoved { .. }
+            | WindowEvent::MouseInput { .. }
+            | WindowEvent::MouseWheel { .. }
+    )
+}
+
 impl ApplicationHandler for ApplicationState {
     fn resumed(&mut self, _event_loop: &ActiveEventLoop) {
         // Window is already created before event loop starts, so nothing to do here
@@ -1356,14 +1366,33 @@ impl ApplicationHandler for ApplicationState {
         // Forward event to egui first
         let egui_consumed = self.egui_overlay.handle_event(&self.window, &event);
 
-        // Track whether this event produced a visual state change that
-        // requires an immediate redraw. Animation-driven redraws are
-        // handled separately in `about_to_wait`.
-        let mut needs_redraw = egui_consumed;
+        // CursorMoved side effects run unconditionally — OSC auto-hide and
+        // cursor visibility must not be blocked by the pointer guard below.
+        if matches!(event, WindowEvent::CursorMoved { .. }) {
+            self.egui_overlay.update_osc_activity();
+            self.input_handler.last_cursor_move = Instant::now();
+            if !self.input_handler.cursor_visible {
+                self.input_handler.cursor_visible = true;
+                self.window.set_cursor_visible(true);
+            }
+        }
 
-        // Try input handler only if egui didn't consume the event
+        // imgui WantCaptureMouse pattern: block pointer events from reaching
+        // InputHandler when egui is interested in the pointer.
+        let mut needs_redraw = egui_consumed;
+        let egui_wants_pointer = self.egui_overlay.wants_pointer_input();
+        let is_pointer = is_pointer_event(&event);
+        let should_forward = !(egui_consumed || egui_wants_pointer && is_pointer);
+
+        // When blocking pointer events, cancel any in-progress drag to
+        // prevent stale state from causing unwanted window movement later.
+        if !should_forward && egui_wants_pointer && is_pointer {
+            self.input_handler.cancel_drag();
+        }
+
+        // Try input handler only if the event should be forwarded
         let modifiers = self.modifiers;
-        if !egui_consumed {
+        if should_forward {
             let (consumed, should_exit) = self.input(&event, &modifiers);
             if should_exit {
                 event_loop.exit();
