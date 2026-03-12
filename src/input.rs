@@ -124,6 +124,11 @@ impl InputHandler {
         self.drag_start_cursor = None;
         self.drag_start_screen = None;
         self.is_dragging = false;
+        // Neutralize click-related state so a pending mouse release
+        // cannot trigger navigation or double-click behavior after egui
+        // has taken pointer input.
+        self.ignore_next_release = true;
+        self.last_click_time = None;
     }
 
     /// Handles a window event and returns (consumed, optional_action).
@@ -464,16 +469,21 @@ mod tests {
     fn cancel_drag_clears_all_drag_state() {
         let mut handler = InputHandler::new();
 
-        // Simulate an active drag
+        // Simulate an active drag with pending click state
         handler.drag_start_cursor = Some(PhysicalPosition::new(100.0, 200.0));
         handler.drag_start_screen = Some(PhysicalPosition::new(150.0, 250.0));
         handler.is_dragging = true;
+        handler.last_click_time = Some(Instant::now());
+        handler.ignore_next_release = false;
 
         handler.cancel_drag();
 
         assert!(handler.drag_start_cursor.is_none());
         assert!(handler.drag_start_screen.is_none());
         assert!(!handler.is_dragging);
+        // Click state is neutralized to prevent ghost navigation
+        assert!(handler.ignore_next_release);
+        assert!(handler.last_click_time.is_none());
     }
 
     #[test]
@@ -486,6 +496,8 @@ mod tests {
         assert!(handler.drag_start_cursor.is_none());
         assert!(handler.drag_start_screen.is_none());
         assert!(!handler.is_dragging);
+        assert!(handler.ignore_next_release);
+        assert!(handler.last_click_time.is_none());
     }
 
     #[test]

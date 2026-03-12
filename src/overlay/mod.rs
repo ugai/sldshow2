@@ -319,8 +319,13 @@ impl EguiOverlay {
         self.osc.check_autohide();
     }
 
-    /// Returns true when egui is currently interested in pointer input
+    /// Returns true when egui is interested in pointer input
     /// (e.g. hovering over a panel or actively dragging a widget).
+    ///
+    /// Note: this is typically queried from `window_event()` before the next
+    /// `begin_frame()`/`build_ui()` pass, so it effectively reflects egui's
+    /// *previous-frame* state due to the known 1-frame delay in egui's input
+    /// processing.
     pub fn wants_pointer_input(&self) -> bool {
         self.context.wants_pointer_input()
     }

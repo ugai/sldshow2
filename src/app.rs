@@ -1467,12 +1467,12 @@ impl ApplicationHandler for ApplicationState {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use winit::event::{ElementState, MouseButton, MouseScrollDelta};
+    use winit::event::{DeviceId, ElementState, MouseButton, MouseScrollDelta};
 
     #[test]
     fn is_pointer_event_cursor_moved() {
         let event = WindowEvent::CursorMoved {
-            device_id: unsafe { std::mem::zeroed() },
+            device_id: DeviceId::dummy(),
             position: winit::dpi::PhysicalPosition::new(10.0, 20.0),
         };
         assert!(is_pointer_event(&event));
@@ -1481,7 +1481,7 @@ mod tests {
     #[test]
     fn is_pointer_event_mouse_input() {
         let event = WindowEvent::MouseInput {
-            device_id: unsafe { std::mem::zeroed() },
+            device_id: DeviceId::dummy(),
             state: ElementState::Pressed,
             button: MouseButton::Left,
         };
@@ -1491,7 +1491,7 @@ mod tests {
     #[test]
     fn is_pointer_event_mouse_wheel() {
         let event = WindowEvent::MouseWheel {
-            device_id: unsafe { std::mem::zeroed() },
+            device_id: DeviceId::dummy(),
             delta: MouseScrollDelta::LineDelta(0.0, 1.0),
             phase: winit::event::TouchPhase::Moved,
         };
