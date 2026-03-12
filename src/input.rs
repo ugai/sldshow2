@@ -455,3 +455,69 @@ impl InputHandler {
         (action.is_some(), action)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn cancel_drag_clears_all_drag_state() {
+        let mut handler = InputHandler::new();
+
+        // Simulate an active drag
+        handler.drag_start_cursor = Some(PhysicalPosition::new(100.0, 200.0));
+        handler.drag_start_screen = Some(PhysicalPosition::new(150.0, 250.0));
+        handler.is_dragging = true;
+
+        handler.cancel_drag();
+
+        assert!(handler.drag_start_cursor.is_none());
+        assert!(handler.drag_start_screen.is_none());
+        assert!(!handler.is_dragging);
+    }
+
+    #[test]
+    fn cancel_drag_is_idempotent() {
+        let mut handler = InputHandler::new();
+
+        // Call on fresh handler (no drag in progress)
+        handler.cancel_drag();
+
+        assert!(handler.drag_start_cursor.is_none());
+        assert!(handler.drag_start_screen.is_none());
+        assert!(!handler.is_dragging);
+    }
+
+    #[test]
+    fn cancel_drag_preserves_other_state() {
+        let mut handler = InputHandler::new();
+        handler.cursor_visible = false;
+        handler.zoom_scale = 2.5;
+        handler.cursor_pos = Some(PhysicalPosition::new(50.0, 60.0));
+
+        // Set up drag state
+        handler.drag_start_cursor = Some(PhysicalPosition::new(100.0, 200.0));
+        handler.is_dragging = true;
+
+        handler.cancel_drag();
+
+        // Drag state cleared
+        assert!(!handler.is_dragging);
+        assert!(handler.drag_start_cursor.is_none());
+
+        // Other state preserved
+        assert!(!handler.cursor_visible);
+        assert!((handler.zoom_scale - 2.5).abs() < f32::EPSILON);
+        assert!(handler.cursor_pos.is_some());
+    }
+
+    #[test]
+    fn new_handler_has_no_drag_state() {
+        let handler = InputHandler::new();
+        assert!(handler.drag_start_cursor.is_none());
+        assert!(handler.drag_start_screen.is_none());
+        assert!(!handler.is_dragging);
+        assert!(handler.cursor_visible);
+        assert!((handler.zoom_scale - 1.0).abs() < f32::EPSILON);
+    }
+}

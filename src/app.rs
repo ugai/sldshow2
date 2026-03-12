@@ -1463,3 +1463,54 @@ impl ApplicationHandler for ApplicationState {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use winit::event::{ElementState, MouseButton, MouseScrollDelta};
+
+    #[test]
+    fn is_pointer_event_cursor_moved() {
+        let event = WindowEvent::CursorMoved {
+            device_id: unsafe { std::mem::zeroed() },
+            position: winit::dpi::PhysicalPosition::new(10.0, 20.0),
+        };
+        assert!(is_pointer_event(&event));
+    }
+
+    #[test]
+    fn is_pointer_event_mouse_input() {
+        let event = WindowEvent::MouseInput {
+            device_id: unsafe { std::mem::zeroed() },
+            state: ElementState::Pressed,
+            button: MouseButton::Left,
+        };
+        assert!(is_pointer_event(&event));
+    }
+
+    #[test]
+    fn is_pointer_event_mouse_wheel() {
+        let event = WindowEvent::MouseWheel {
+            device_id: unsafe { std::mem::zeroed() },
+            delta: MouseScrollDelta::LineDelta(0.0, 1.0),
+            phase: winit::event::TouchPhase::Moved,
+        };
+        assert!(is_pointer_event(&event));
+    }
+
+    #[test]
+    fn is_pointer_event_rejects_focused() {
+        assert!(!is_pointer_event(&WindowEvent::Focused(true)));
+    }
+
+    #[test]
+    fn is_pointer_event_rejects_resized() {
+        let event = WindowEvent::Resized(winit::dpi::PhysicalSize::new(800, 600));
+        assert!(!is_pointer_event(&event));
+    }
+
+    #[test]
+    fn is_pointer_event_rejects_close_requested() {
+        assert!(!is_pointer_event(&WindowEvent::CloseRequested));
+    }
+}
