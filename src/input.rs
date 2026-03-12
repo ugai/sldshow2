@@ -118,6 +118,19 @@ impl InputHandler {
         self.zoom_scale = 1.0;
     }
 
+    /// Cancel any in-progress drag state.
+    /// Called when egui claims pointer ownership to prevent stale drag state.
+    pub fn cancel_drag(&mut self) {
+        self.drag_start_cursor = None;
+        self.drag_start_screen = None;
+        self.is_dragging = false;
+        // Neutralize click-related state so a pending mouse release
+        // cannot trigger navigation or double-click behavior after egui
+        // has taken pointer input.
+        self.ignore_next_release = true;
+        self.last_click_time = None;
+    }
+
     /// Handles a window event and returns (consumed, optional_action).
     pub fn handle_event(
         &mut self,
@@ -445,5 +458,78 @@ impl InputHandler {
         };
 
         (action.is_some(), action)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn cancel_drag_clears_all_drag_state() {
+        let mut handler = InputHandler::new();
+
+        // Simulate an active drag with pending click state
+        handler.drag_start_cursor = Some(PhysicalPosition::new(100.0, 200.0));
+        handler.drag_start_screen = Some(PhysicalPosition::new(150.0, 250.0));
+        handler.is_dragging = true;
+        handler.last_click_time = Some(Instant::now());
+        handler.ignore_next_release = false;
+
+        handler.cancel_drag();
+
+        assert!(handler.drag_start_cursor.is_none());
+        assert!(handler.drag_start_screen.is_none());
+        assert!(!handler.is_dragging);
+        // Click state is neutralized to prevent ghost navigation
+        assert!(handler.ignore_next_release);
+        assert!(handler.last_click_time.is_none());
+    }
+
+    #[test]
+    fn cancel_drag_is_idempotent() {
+        let mut handler = InputHandler::new();
+
+        // Call on fresh handler (no drag in progress)
+        handler.cancel_drag();
+
+        assert!(handler.drag_start_cursor.is_none());
+        assert!(handler.drag_start_screen.is_none());
+        assert!(!handler.is_dragging);
+        assert!(handler.ignore_next_release);
+        assert!(handler.last_click_time.is_none());
+    }
+
+    #[test]
+    fn cancel_drag_preserves_other_state() {
+        let mut handler = InputHandler::new();
+        handler.cursor_visible = false;
+        handler.zoom_scale = 2.5;
+        handler.cursor_pos = Some(PhysicalPosition::new(50.0, 60.0));
+
+        // Set up drag state
+        handler.drag_start_cursor = Some(PhysicalPosition::new(100.0, 200.0));
+        handler.is_dragging = true;
+
+        handler.cancel_drag();
+
+        // Drag state cleared
+        assert!(!handler.is_dragging);
+        assert!(handler.drag_start_cursor.is_none());
+
+        // Other state preserved
+        assert!(!handler.cursor_visible);
+        assert!((handler.zoom_scale - 2.5).abs() < f32::EPSILON);
+        assert!(handler.cursor_pos.is_some());
+    }
+
+    #[test]
+    fn new_handler_has_no_drag_state() {
+        let handler = InputHandler::new();
+        assert!(handler.drag_start_cursor.is_none());
+        assert!(handler.drag_start_screen.is_none());
+        assert!(!handler.is_dragging);
+        assert!(handler.cursor_visible);
+        assert!((handler.zoom_scale - 1.0).abs() < f32::EPSILON);
     }
 }
