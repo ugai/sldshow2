@@ -77,8 +77,9 @@ pub struct ApplicationState {
     zoom_scale: f32,
     zoom_pan: [f32; 2],
 
-    // Deferred resize — set on WindowEvent::Resized, applied at the start of render()
-    // to avoid reconfiguring the surface on every rapid resize event.
+    // Deferred resize — set on WindowEvent::Resized, applied in about_to_wait()
+    // (or as a fallback at the start of render()) to coalesce rapid resize events
+    // into a single surface.configure() per pump cycle.
     pending_resize: Option<winit::dpi::PhysicalSize<u32>>,
 
     // Async clipboard support
@@ -1077,7 +1078,8 @@ impl ApplicationState {
     }
 
     fn render(&mut self) -> Result<(), wgpu::SurfaceError> {
-        // Apply any deferred resize before touching the surface.
+        // Fallback: apply any deferred resize that about_to_wait() did not drain
+        // (e.g. during the Windows modal resize loop where about_to_wait may not fire).
         if let Some(new_size) = self.pending_resize.take() {
             self.resize(new_size);
         }
@@ -1405,14 +1407,12 @@ impl ApplicationHandler for ApplicationState {
                 match event {
                     WindowEvent::CloseRequested => event_loop.exit(),
                     WindowEvent::Resized(physical_size) => {
-                        // Defer surface reconfiguration to the next render() call.
+                        // Defer surface reconfiguration to `about_to_wait()`.
                         // During a live window drag the OS fires many Resized events
-                        // per frame; reconfiguring the surface on each one causes
-                        // visible stuttering. Storing only the latest size here
-                        // collapses all intermediate events into a single resize that
-                        // is applied once, right before the next frame is drawn.
+                        // per pump cycle; storing only the latest size here collapses
+                        // all intermediate events into a single surface.configure()
+                        // that is applied once, after all events have been dispatched.
                         self.pending_resize = Some(physical_size);
-                        self.window.request_redraw();
                     }
                     WindowEvent::ScaleFactorChanged {
                         scale_factor,
@@ -1458,7 +1458,13 @@ impl ApplicationHandler for ApplicationState {
     }
 
     fn about_to_wait(&mut self, _event_loop: &ActiveEventLoop) {
-        if self.is_animating() {
+        // Apply any deferred resize here — after all events in this pump cycle
+        // have been dispatched — so that a burst of Resized events collapses
+        // into a single surface.configure() before the next frame.
+        if let Some(new_size) = self.pending_resize.take() {
+            self.resize(new_size);
+            self.window.request_redraw();
+        } else if self.is_animating() {
             self.window.request_redraw();
         }
     }

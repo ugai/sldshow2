@@ -12,9 +12,9 @@ use std::collections::{HashMap, HashSet};
 use std::sync::mpsc::{Receiver, Sender, channel};
 
 pub(crate) use decode::fast_resize;
-pub(crate) use exif::{apply_orientation, read_exif_orientation};
 use decode::load_image_mips;
 use exif::extract_exr_fps;
+pub(crate) use exif::{apply_orientation, read_exif_orientation};
 
 /// Maximum number of concurrent loading tasks
 const MAX_CONCURRENT_TASKS: usize = 4;

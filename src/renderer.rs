@@ -111,7 +111,7 @@ impl Renderer {
                 }
             },
             view_formats: vec![],
-            desired_maximum_frame_latency: 2,
+            desired_maximum_frame_latency: 1,
         };
 
         surface.configure(&device, &surface_config);
@@ -169,8 +169,17 @@ impl Renderer {
         if new_size.width == 0 || new_size.height == 0 {
             return;
         }
+        // Skip reconfiguration when the surface is already at the requested size.
+        if self.surface_config.width == new_size.width
+            && self.surface_config.height == new_size.height
+        {
+            return;
+        }
         self.surface_config.width = new_size.width;
         self.surface_config.height = new_size.height;
+        // Drain in-flight GPU work so that surface.configure() does not stall
+        // waiting for the driver to retire queued frames internally.
+        let _ = self.device.poll(wgpu::PollType::Wait);
         self.surface.configure(&self.device, &self.surface_config);
     }
 
