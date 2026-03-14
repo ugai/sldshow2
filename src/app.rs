@@ -479,15 +479,16 @@ impl ApplicationState {
             | InputAction::ToggleAlwaysOnTop
             | InputAction::ResizeWindow { .. }
             | InputAction::SetWindowPosition { .. } => self.handle_window_action(action),
-            InputAction::AdjustTimer(mut delta) => {
-                // Recalculate delta for non-Shift keys
-                if delta.abs() == 1.0 {
-                    delta = if delta > 0.0 {
-                        self.timer_step(true)
-                    } else {
-                        -self.timer_step(false)
-                    };
-                }
+            InputAction::AdjustTimer {
+                increase,
+                large_step,
+            } => {
+                let delta = if large_step {
+                    if increase { 60.0 } else { -60.0 }
+                } else {
+                    let step = self.timer_step(increase);
+                    if increase { step } else { -step }
+                };
                 self.adjust_timer(delta);
             }
             InputAction::ResetTimer => self.reset_timer(),
