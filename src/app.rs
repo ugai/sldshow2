@@ -78,8 +78,8 @@ pub struct ApplicationState {
     zoom_pan: [f32; 2],
 
     // Deferred resize — set on WindowEvent::Resized, applied in about_to_wait()
-    // (or as a fallback at the start of render()) to coalesce rapid resize events
-    // into a single surface.configure() per pump cycle.
+    // after the resize drag ends. NOT drained in render() to avoid expensive
+    // surface.configure() calls during the Windows modal resize loop.
     pending_resize: Option<winit::dpi::PhysicalSize<u32>>,
 
     // Async clipboard support
@@ -1078,11 +1078,11 @@ impl ApplicationState {
     }
 
     fn render(&mut self) -> Result<(), wgpu::SurfaceError> {
-        // Fallback: apply any deferred resize that about_to_wait() did not drain
-        // (e.g. during the Windows modal resize loop where about_to_wait may not fire).
-        if let Some(new_size) = self.pending_resize.take() {
-            self.resize(new_size);
-        }
+        // pending_resize is intentionally NOT drained here. During a Windows
+        // modal resize loop, about_to_wait() never fires, so draining here
+        // would call surface.configure() on every frame (200ms+ stall).
+        // Instead, we render at the old surface size and let DWM stretch the
+        // frame. about_to_wait() applies the final size once the drag ends.
 
         let output = self.renderer.surface.get_current_texture()?;
         let view = output
@@ -1427,7 +1427,8 @@ impl ApplicationHandler for ApplicationState {
                         match self.render() {
                             Ok(_) => {}
                             Err(wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated) => {
-                                self.resize(self.size)
+                                let size = self.pending_resize.take().unwrap_or(self.size);
+                                self.resize(size);
                             }
                             Err(wgpu::SurfaceError::OutOfMemory) => {
                                 error!("GPU out of memory — exiting");
