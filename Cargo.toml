@@ -14,7 +14,7 @@ homepage = "https://github.com/ugai/sldshow2"
 # Graphics & Windowing
 winit = "0.30"
 wgpu = "27"
-pollster = "0.3"
+pollster = "0.4"
 bytemuck = { version = "1.16", features = ["derive"] }
 env_logger = "0.11"
 log = "0.4"
@@ -25,7 +25,7 @@ egui-winit = "0.33"
 
 # Configuration
 serde = { version = "1.0", features = ["derive"] }
-toml = "0.8"
+toml = "1.0"
 
 # Image processing
 image = { version = "0.25", features = ["exr"] }
@@ -33,7 +33,7 @@ exr = "1.72"
 
 # Utilities
 anyhow = "1.0"
-rand = "0.9"
+rand = "0.10"
 alphanumeric-sort = "1.5"
 dirs = "5.0"
 
@@ -41,7 +41,7 @@ dirs = "5.0"
 thiserror = "2.0"
 
 # Validation
-validator = { version = "0.19", features = ["derive"] }
+validator = { version = "0.20", features = ["derive"] }
 
 # Parallel computation
 rayon = "1.10"

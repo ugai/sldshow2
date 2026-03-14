@@ -202,7 +202,7 @@ impl TransitionPipeline {
 
     /// Pick a random transition mode from available effects
     pub fn random_mode() -> TransitionMode {
-        use rand::Rng;
+        use rand::RngExt;
         let mut rng = rand::rng();
         // SAFETY: TRANSITION_MODE_COUNT is 20, so range is 0..20 i.e. 0..=19 which is valid
         TransitionMode::try_from(rng.random_range(0..TRANSITION_MODE_COUNT))
