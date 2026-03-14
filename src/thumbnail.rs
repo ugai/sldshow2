@@ -192,20 +192,6 @@ impl ThumbnailManager {
         std::mem::take(&mut self.newly_cached)
     }
 
-    /// Returns the number of cached thumbnails.
-    // Used in unit tests to assert cache state; not called from app code.
-    #[allow(dead_code)]
-    pub fn cache_size(&self) -> usize {
-        self.cache.len()
-    }
-
-    /// Returns the number of thumbnails currently being generated.
-    // Used in unit tests to assert loading-task state; not called from app code.
-    #[allow(dead_code)]
-    pub fn pending_count(&self) -> usize {
-        self.loading_tasks.len()
-    }
-
     /// Return a list of all currently cached thumbnail indices.
     pub fn get_cached_indices(&self) -> Vec<usize> {
         self.cache.iter().map(|(&k, _)| k).collect()
@@ -256,6 +242,19 @@ fn generate_thumbnail(path: &Utf8Path) -> anyhow::Result<RgbaImage> {
     image::imageops::overlay(&mut thumbnail, &resized, offset_x.into(), offset_y.into());
 
     Ok(thumbnail)
+}
+
+#[cfg(test)]
+impl ThumbnailManager {
+    /// Returns the number of cached thumbnails (test helper).
+    fn cache_size(&self) -> usize {
+        self.cache.len()
+    }
+
+    /// Returns the number of thumbnails currently being generated (test helper).
+    fn pending_count(&self) -> usize {
+        self.loading_tasks.len()
+    }
 }
 
 #[cfg(test)]

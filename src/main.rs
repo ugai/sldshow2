@@ -141,6 +141,9 @@ fn main() -> Result<()> {
         })
         .with_fullscreen(fullscreen);
 
+    // `EventLoop::create_window` is deprecated in winit 0.30 in favour of
+    // `ActiveEventLoop::create_window`, but our `run()` call requires a
+    // non-`ApplicationHandler` entry point for now.
     #[allow(deprecated)]
     let window = Arc::new(
         event_loop

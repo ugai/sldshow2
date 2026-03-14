@@ -184,6 +184,9 @@ impl Osc {
     }
 
     /// Render video-style timeline scrub bar
+    // `egui::show_tooltip` is deprecated in egui 0.29+ in favour of
+    // `Response::on_hover_ui`, but our usage requires a non-`Response`-owned
+    // tooltip positioned relative to the scrub bar area.
     #[allow(deprecated)]
     fn render_scrub_bar(
         &self,

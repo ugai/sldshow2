@@ -362,7 +362,7 @@ impl Config {
     }
 
     /// Save configuration to file
-    #[allow(dead_code)]
+    #[allow(dead_code)] // public API retained for future caller use; not yet wired into the app
     pub fn save<P: AsRef<Utf8Path>>(&self, path: P) -> Result<()> {
         let content = toml::to_string_pretty(self)?;
 
