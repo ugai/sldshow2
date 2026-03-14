@@ -1,6 +1,8 @@
 use anyhow::Result;
 use log::{error, info, warn};
 use std::sync::Arc;
+#[cfg(windows)]
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 use winit::{
     application::ApplicationHandler, event::WindowEvent, event_loop::ActiveEventLoop,
@@ -77,9 +79,15 @@ pub struct ApplicationState {
     zoom_scale: f32,
     zoom_pan: [f32; 2],
 
-    // Deferred resize — set on WindowEvent::Resized, applied at the start of render()
-    // to avoid reconfiguring the surface on every rapid resize event.
+    // Deferred resize — set on WindowEvent::Resized, applied in about_to_wait()
+    // after the resize drag ends. NOT drained in render() to avoid expensive
+    // surface.configure() calls during the Windows modal resize loop.
     pending_resize: Option<winit::dpi::PhysicalSize<u32>>,
+
+    // True while the user is dragging a window border (WM_ENTERSIZEMOVE).
+    // Rendering is skipped to avoid surface.configure() stalls.
+    #[cfg(windows)]
+    resize_dragging: Arc<AtomicBool>,
 
     // Async clipboard support
     clipboard_receiver: Option<std::sync::mpsc::Receiver<Result<(), String>>>,
@@ -98,6 +106,7 @@ impl ApplicationState {
         window: Arc<winit::window::Window>,
         config: Config,
         drag_drop: DragDropHandler,
+        #[cfg(windows)] resize_dragging: Arc<AtomicBool>,
     ) -> Result<Self> {
         let size = window.inner_size();
 
@@ -199,6 +208,8 @@ impl ApplicationState {
             zoom_scale: 1.0,
             zoom_pan: [0.0, 0.0],
             pending_resize: None,
+            #[cfg(windows)]
+            resize_dragging,
             clipboard_receiver: None,
         };
 
@@ -1077,10 +1088,11 @@ impl ApplicationState {
     }
 
     fn render(&mut self) -> Result<(), wgpu::SurfaceError> {
-        // Apply any deferred resize before touching the surface.
-        if let Some(new_size) = self.pending_resize.take() {
-            self.resize(new_size);
-        }
+        // pending_resize is intentionally NOT drained here. During a Windows
+        // modal resize loop, about_to_wait() never fires, so draining here
+        // would call surface.configure() on every frame (200ms+ stall).
+        // Instead, we render at the old surface size and let DWM stretch the
+        // frame. about_to_wait() applies the final size once the drag ends.
 
         let output = self.renderer.surface.get_current_texture()?;
         let view = output
@@ -1363,6 +1375,12 @@ impl ApplicationHandler for ApplicationState {
             return;
         }
 
+        // Handle Resized before egui — egui consumes this event, which would
+        // prevent our surface reconfiguration from ever running.
+        if let WindowEvent::Resized(physical_size) = event {
+            self.pending_resize = Some(physical_size);
+        }
+
         // Forward event to egui first
         let egui_consumed = self.egui_overlay.handle_event(&self.window, &event);
 
@@ -1404,16 +1422,7 @@ impl ApplicationHandler for ApplicationState {
             if !consumed {
                 match event {
                     WindowEvent::CloseRequested => event_loop.exit(),
-                    WindowEvent::Resized(physical_size) => {
-                        // Defer surface reconfiguration to the next render() call.
-                        // During a live window drag the OS fires many Resized events
-                        // per frame; reconfiguring the surface on each one causes
-                        // visible stuttering. Storing only the latest size here
-                        // collapses all intermediate events into a single resize that
-                        // is applied once, right before the next frame is drawn.
-                        self.pending_resize = Some(physical_size);
-                        self.window.request_redraw();
-                    }
+                    // Resized is handled above (before egui), so no match arm needed here.
                     WindowEvent::ScaleFactorChanged {
                         scale_factor,
                         inner_size_writer: _,
@@ -1424,11 +1433,21 @@ impl ApplicationHandler for ApplicationState {
                         // The automatic resize will trigger a WindowEvent::Resized, which handles the actual resize.
                     }
                     WindowEvent::RedrawRequested => {
+                        // Skip rendering while the user is dragging a window
+                        // border. DWM stretches the last
+                        // frame, which looks acceptable and avoids expensive
+                        // surface.configure() stalls.
+                        #[cfg(windows)]
+                        if self.resize_dragging.load(Ordering::Acquire) {
+                            return;
+                        }
+
                         self.update();
                         match self.render() {
                             Ok(_) => {}
                             Err(wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated) => {
-                                self.resize(self.size)
+                                let size = self.pending_resize.take().unwrap_or(self.size);
+                                self.resize(size);
                             }
                             Err(wgpu::SurfaceError::OutOfMemory) => {
                                 error!("GPU out of memory — exiting");
@@ -1458,7 +1477,13 @@ impl ApplicationHandler for ApplicationState {
     }
 
     fn about_to_wait(&mut self, _event_loop: &ActiveEventLoop) {
-        if self.is_animating() {
+        // Apply any deferred resize here — after all events in this pump cycle
+        // have been dispatched — so that a burst of Resized events collapses
+        // into a single surface.configure() before the next frame.
+        if let Some(new_size) = self.pending_resize.take() {
+            self.resize(new_size);
+            self.window.request_redraw();
+        } else if self.is_animating() {
             self.window.request_redraw();
         }
     }

@@ -111,7 +111,7 @@ impl Renderer {
                 }
             },
             view_formats: vec![],
-            desired_maximum_frame_latency: 2,
+            desired_maximum_frame_latency: 1,
         };
 
         surface.configure(&device, &surface_config);
@@ -167,6 +167,12 @@ impl Renderer {
     /// belongs here too.
     pub fn resize(&mut self, new_size: winit::dpi::PhysicalSize<u32>) {
         if new_size.width == 0 || new_size.height == 0 {
+            return;
+        }
+        // Skip reconfiguration when the surface is already at the requested size.
+        if self.surface_config.width == new_size.width
+            && self.surface_config.height == new_size.height
+        {
             return;
         }
         self.surface_config.width = new_size.width;

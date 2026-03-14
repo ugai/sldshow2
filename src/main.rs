@@ -19,6 +19,8 @@ mod input;
 mod osc;
 mod overlay;
 mod renderer;
+#[cfg(windows)]
+mod resize_hook;
 mod screenshot;
 mod thumbnail;
 mod timer;
@@ -89,12 +91,24 @@ fn main() -> Result<()> {
     // Set up drag-and-drop channel and event loop with message hook
     let (drag_drop, drag_drop_tx) = DragDropHandler::new();
 
+    // Build message hooks and event loop
+    #[cfg(windows)]
+    let resize_dragging;
     let event_loop = {
         #[cfg(windows)]
         {
             use winit::platform::windows::EventLoopBuilderExtWindows;
+            let mut drag_drop_hook = drag_drop::build_msg_hook(drag_drop_tx);
+            let (resize_flag, mut resize_hook_fn) = resize_hook::build_resize_hook();
+            resize_dragging = resize_flag;
+
             EventLoop::builder()
-                .with_msg_hook(drag_drop::build_msg_hook(drag_drop_tx))
+                .with_msg_hook(move |msg| {
+                    // Both hooks inspect the message; return true if either handled it.
+                    let a = resize_hook_fn(msg);
+                    let b = drag_drop_hook(msg);
+                    a || b
+                })
                 .build()
                 .context("Failed to create event loop")?
         }
@@ -143,6 +157,8 @@ fn main() -> Result<()> {
         window.clone(),
         config.clone(),
         drag_drop,
+        #[cfg(windows)]
+        resize_dragging,
     ))?;
 
     event_loop
