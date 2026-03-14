@@ -1,6 +1,8 @@
 use anyhow::Result;
 use log::{error, info, warn};
 use std::sync::Arc;
+#[cfg(windows)]
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 use winit::{
     application::ApplicationHandler, event::WindowEvent, event_loop::ActiveEventLoop,
@@ -82,6 +84,11 @@ pub struct ApplicationState {
     // surface.configure() calls during the Windows modal resize loop.
     pending_resize: Option<winit::dpi::PhysicalSize<u32>>,
 
+    // True while the user is dragging a window border (WM_ENTERSIZEMOVE).
+    // Rendering is skipped to avoid surface.configure() stalls.
+    #[cfg(windows)]
+    resize_dragging: Arc<AtomicBool>,
+
     // Async clipboard support
     clipboard_receiver: Option<std::sync::mpsc::Receiver<Result<(), String>>>,
 }
@@ -99,6 +106,7 @@ impl ApplicationState {
         window: Arc<winit::window::Window>,
         config: Config,
         drag_drop: DragDropHandler,
+        #[cfg(windows)] resize_dragging: Arc<AtomicBool>,
     ) -> Result<Self> {
         let size = window.inner_size();
 
@@ -200,6 +208,8 @@ impl ApplicationState {
             zoom_scale: 1.0,
             zoom_pan: [0.0, 0.0],
             pending_resize: None,
+            #[cfg(windows)]
+            resize_dragging,
             clipboard_receiver: None,
         };
 
@@ -1423,6 +1433,15 @@ impl ApplicationHandler for ApplicationState {
                         // The automatic resize will trigger a WindowEvent::Resized, which handles the actual resize.
                     }
                     WindowEvent::RedrawRequested => {
+                        // Skip rendering while the user is dragging a window
+                        // border. DWM stretches the last
+                        // frame, which looks acceptable and avoids expensive
+                        // surface.configure() stalls.
+                        #[cfg(windows)]
+                        if self.resize_dragging.load(Ordering::Acquire) {
+                            return;
+                        }
+
                         self.update();
                         match self.render() {
                             Ok(_) => {}
