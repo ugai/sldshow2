@@ -27,7 +27,10 @@ pub enum InputAction {
     SetFullscreen(bool),
     ToggleDecorations,
     ToggleAlwaysOnTop,
-    AdjustTimer(f32),
+    AdjustTimer {
+        increase: bool,
+        large_step: bool,
+    },
     ResetTimer,
     Screenshot,
     ColorAdjust {
@@ -365,23 +368,14 @@ impl InputHandler {
             PhysicalKey::Code(KeyCode::KeyF) => Some(InputAction::ToggleFullscreen),
             PhysicalKey::Code(KeyCode::KeyD) => Some(InputAction::ToggleDecorations),
             PhysicalKey::Code(KeyCode::KeyT) => Some(InputAction::ToggleAlwaysOnTop),
-            PhysicalKey::Code(KeyCode::BracketLeft) => {
-                let delta = if modifiers.shift_key() {
-                    -60.0
-                } else {
-                    // Timer step calculation deferred to ApplicationState
-                    -1.0 // Placeholder, will be recalculated
-                };
-                Some(InputAction::AdjustTimer(delta))
-            }
-            PhysicalKey::Code(KeyCode::BracketRight) => {
-                let delta = if modifiers.shift_key() {
-                    60.0
-                } else {
-                    1.0 // Placeholder
-                };
-                Some(InputAction::AdjustTimer(delta))
-            }
+            PhysicalKey::Code(KeyCode::BracketLeft) => Some(InputAction::AdjustTimer {
+                increase: false,
+                large_step: modifiers.shift_key(),
+            }),
+            PhysicalKey::Code(KeyCode::BracketRight) => Some(InputAction::AdjustTimer {
+                increase: true,
+                large_step: modifiers.shift_key(),
+            }),
             PhysicalKey::Code(KeyCode::Backspace) => {
                 if modifiers.shift_key() {
                     Some(InputAction::ResetColorAdjustments)
