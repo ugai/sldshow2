@@ -217,29 +217,29 @@ impl Osc {
         );
 
         // Hover tooltip (only when pointer position is available)
-        if response.hovered() {
-            if let Some(hover_pos) = ui.input(|i| i.pointer.hover_pos()) {
-                let mouse_x = hover_pos.x;
-                let t = ((mouse_x - rect.left()) / rect.width()).clamp(0.0, 1.0);
-                let hover_index = (t * (total_images - 1) as f32).round() as usize; // 0-based index
+        if response.hovered()
+            && let Some(hover_pos) = ui.input(|i| i.pointer.hover_pos())
+        {
+            let mouse_x = hover_pos.x;
+            let t = ((mouse_x - rect.left()) / rect.width()).clamp(0.0, 1.0);
+            let hover_index = (t * (total_images - 1) as f32).round() as usize; // 0-based index
 
-                // Show 1-based index for user
-                egui::show_tooltip(ui.ctx(), ui.layer_id(), response.id, |ui| {
-                    ui.label(format!("{} / {}", hover_index + 1, total_images));
-                });
-            }
+            // Show 1-based index for user
+            egui::show_tooltip(ui.ctx(), ui.layer_id(), response.id, |ui| {
+                ui.label(format!("{} / {}", hover_index + 1, total_images));
+            });
         }
 
         // Interaction (Click or Drag)
-        if response.clicked() || response.dragged() {
-            if let Some(mouse_pos) = ui.input(|i| i.pointer.interact_pos()) {
-                let t = ((mouse_pos.x - rect.left()) / rect.width()).clamp(0.0, 1.0);
-                let new_index = (t * (total_images - 1) as f32).round() as usize;
+        if (response.clicked() || response.dragged())
+            && let Some(mouse_pos) = ui.input(|i| i.pointer.interact_pos())
+        {
+            let t = ((mouse_pos.x - rect.left()) / rect.width()).clamp(0.0, 1.0);
+            let new_index = (t * (total_images - 1) as f32).round() as usize;
 
-                // Only return if valid change
-                if new_index != current_index && new_index < total_images {
-                    return Some(new_index);
-                }
+            // Only return if valid change
+            if new_index != current_index && new_index < total_images {
+                return Some(new_index);
             }
         }
 

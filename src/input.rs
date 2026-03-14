@@ -255,12 +255,12 @@ impl InputHandler {
         match button {
             MouseButton::Left => {
                 let now = Instant::now();
-                if let Some(last) = self.last_click_time {
-                    if now.duration_since(last).as_millis() < 300 {
-                        self.last_click_time = None;
-                        self.ignore_next_release = true;
-                        return (true, Some(InputAction::ToggleFullscreen));
-                    }
+                if let Some(last) = self.last_click_time
+                    && now.duration_since(last).as_millis() < 300
+                {
+                    self.last_click_time = None;
+                    self.ignore_next_release = true;
+                    return (true, Some(InputAction::ToggleFullscreen));
                 }
                 self.last_click_time = Some(now);
 

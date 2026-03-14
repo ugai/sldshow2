@@ -149,14 +149,14 @@ impl ApplicationState {
         let mut sequence_timer = SequenceTimer::new(config.viewer.sequence_fps);
 
         // Auto-detect EXR framerate for sequence playback
-        if config.viewer.playback_mode == config::PlaybackMode::Sequence {
-            if let Some(detected_fps) = texture_manager.detect_sequence_fps() {
-                info!(
-                    "Detected EXR framerate: {:.2} fps (overriding config value {})",
-                    detected_fps, config.viewer.sequence_fps
-                );
-                sequence_timer.set_fps(detected_fps);
-            }
+        if config.viewer.playback_mode == config::PlaybackMode::Sequence
+            && let Some(detected_fps) = texture_manager.detect_sequence_fps()
+        {
+            info!(
+                "Detected EXR framerate: {:.2} fps (overriding config value {})",
+                detected_fps, config.viewer.sequence_fps
+            );
+            sequence_timer.set_fps(detected_fps);
         }
 
         // Initialize egui overlay
@@ -996,12 +996,12 @@ impl ApplicationState {
 
         // Check if transition finished (must run before auto-advance to avoid
         // a one-frame gap where the destination is shown without a transition)
-        if let Some(ref transition) = self.transition {
-            if transition.start_time.elapsed() >= transition.duration {
-                self.current_texture_index = Some(transition.to_index);
-                self.transition = None;
-                self.renderer.invalidate_bind_group();
-            }
+        if let Some(ref transition) = self.transition
+            && transition.start_time.elapsed() >= transition.duration
+        {
+            self.current_texture_index = Some(transition.to_index);
+            self.transition = None;
+            self.renderer.invalidate_bind_group();
         }
 
         if self.transition.is_none() && !self.texture_manager.paths.is_empty() {
@@ -1188,6 +1188,7 @@ impl ApplicationState {
                     color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                         view: &view,
                         resolve_target: None,
+                        depth_slice: None,
                         ops: wgpu::Operations {
                             load: wgpu::LoadOp::Clear(clear_color),
                             store: wgpu::StoreOp::Store,
@@ -1209,6 +1210,7 @@ impl ApplicationState {
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                     view: &view,
                     resolve_target: None,
+                    depth_slice: None,
                     ops: wgpu::Operations {
                         load: wgpu::LoadOp::Clear(clear_color),
                         store: wgpu::StoreOp::Store,

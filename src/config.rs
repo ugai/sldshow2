@@ -351,10 +351,10 @@ impl Config {
 
         if let Some(home) = dirs::home_dir() {
             let home_config = home.join(".sldshow");
-            if home_config.exists() {
-                if let Ok(utf8_path) = Utf8PathBuf::try_from(home_config) {
-                    return Self::load(&utf8_path);
-                }
+            if home_config.exists()
+                && let Ok(utf8_path) = Utf8PathBuf::try_from(home_config)
+            {
+                return Self::load(&utf8_path);
             }
         }
 

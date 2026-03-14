@@ -208,6 +208,7 @@ pub fn render_transition(
             color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                 view: &render_view,
                 resolve_target: None,
+                depth_slice: None,
                 ops: wgpu::Operations {
                     load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
                     store: wgpu::StoreOp::Store,
@@ -255,7 +256,12 @@ pub fn render_transition(
     });
 
     // Poll until the GPU finishes.
-    device.poll(wgpu::PollType::Wait).expect("GPU poll failed");
+    device
+        .poll(wgpu::PollType::Wait {
+            submission_index: None,
+            timeout: None,
+        })
+        .expect("GPU poll failed");
     rx.recv()
         .expect("map_async channel closed")
         .expect("map_async failed");
