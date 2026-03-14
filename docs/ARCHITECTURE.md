@@ -29,6 +29,7 @@ This document describes the high-level architecture and key components of `sldsh
 | `drag_drop.rs` | **OS Integration**. Cross-platform drag-and-drop: Windows uses `WM_DROPFILES` (Win32 API); other platforms use winit's `DroppedFile` event. Shift+drop appends to existing playlist. |
 | `error.rs` | **Error Handling**. Custom error types. |
 | `screenshot.rs` | **Screen Capture**. Captures the current rendered frame from the GPU staging buffer, handles BGRA channel swap, and saves as PNG to the Pictures directory. |
+| `hdr_ui_composite.rs` | **HDR UI Compositor**. Renders egui to an `Rgba8UnormSrgb` intermediate texture and composites it into the `Rgba16Float` swapchain, scaling luminance by `SDR_WHITE_SCALE` so UI appears at correct brightness in HDR mode. |
 
 ## Key Flows
 
@@ -56,7 +57,7 @@ On `WindowEvent::RedrawRequested`:
     -   Acquires next swapchain image.
     -   Builds `TransitionUniform` with current blend, color adjustments, zoom/pan, fit mode, and display mode.
     -   **Pass 1 (Transitions)**: Renders image transition using `TransitionPipeline`. Blends two mip-mapped textures based on `transition_progress`. In AmbientFit mode, samples low mip levels for blurred background.
-    -   **Pass 2 (UI)**: Renders `egui` geometry (overlays, settings, gallery, OSC) over the scene.
+    -   **Pass 2 (UI)**: Renders `egui` geometry (overlays, settings, gallery, OSC) over the scene. In HDR mode, egui renders to an `Rgba8UnormSrgb` intermediate texture first; `HdrUiComposite` then blends it into the `Rgba16Float` swapchain with `SDR_WHITE_SCALE` applied.
     -   Optionally captures frame for screenshot via GPU staging buffer.
     -   Submits command buffer to queue and presents the frame.
 
@@ -74,3 +75,4 @@ When the wgpu surface supports `Rgba16Float`:
 2.  `TextureManager` uses the HDR decode path for `.exr` files, producing `MipData::Hdr` with linear float pixels. Each `LoadedTexture` tracks `is_hdr_content` so the shader can apply per-texture brightness scaling.
 3.  The `TransitionUniform.display_mode` is set to `1` (HDR), telling the shader to pass linear values through without clamping.
 4.  SDR images on an HDR swapchain are scaled by `sdr_scale_a/b` (203/80 ≈ 2.54, BT.2408 reference white) in the shader to restore correct brightness. HDR content and SDR swapchains use a scale of 1.0.
+5.  **UI compositing** (`hdr_ui_composite.rs`): egui assumes sRGB output, so it cannot render directly to the `Rgba16Float` swapchain. Instead, egui renders to an intermediate `Rgba8UnormSrgb` texture. `HdrUiComposite` then samples this texture, multiplies RGB by `SDR_WHITE_SCALE`, and alpha-blends the result onto the HDR surface.
