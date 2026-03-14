@@ -112,7 +112,9 @@ mod tests {
             contrast: 100,
             ..Default::default()
         };
-        let result = c.handle_key(KeyCode::Digit2).unwrap();
+        let result = c
+            .handle_key(KeyCode::Digit2)
+            .expect("Digit2 maps to a color key");
         assert_eq!(result.name, "Contrast");
         assert_eq!(result.value, 100); // clamped at max
     }

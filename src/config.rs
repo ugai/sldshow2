@@ -403,8 +403,9 @@ mod tests {
     #[test]
     fn test_serialize_deserialize() {
         let config = Config::default();
-        let toml_str = toml::to_string(&config).unwrap();
-        let deserialized: Config = toml::from_str(&toml_str).unwrap();
+        let toml_str = toml::to_string(&config).expect("default Config is serializable");
+        let deserialized: Config =
+            toml::from_str(&toml_str).expect("serialized Config is valid TOML");
 
         assert_eq!(config.window.width, deserialized.window.width);
         assert_eq!(config.viewer.timer, deserialized.viewer.timer);
@@ -426,7 +427,7 @@ mod tests {
 
     #[test]
     fn test_transition_mode_roundtrip() {
-        let m = TransitionMode::try_from(7).unwrap();
+        let m = TransitionMode::try_from(7).expect("7 is within 0..=19");
         assert_eq!(i32::from(m), 7);
         assert_eq!(m.value(), 7);
     }
@@ -435,11 +436,12 @@ mod tests {
     fn test_transition_mode_serde() {
         // Test round-trip through TransitionConfig (TOML requires a table at root)
         let config = TransitionConfig {
-            mode: TransitionMode::try_from(5).unwrap(),
+            mode: TransitionMode::try_from(5).expect("5 is within 0..=19"),
             ..TransitionConfig::default()
         };
-        let serialized = toml::to_string(&config).unwrap();
-        let deserialized: TransitionConfig = toml::from_str(&serialized).unwrap();
+        let serialized = toml::to_string(&config).expect("TransitionConfig is serializable");
+        let deserialized: TransitionConfig =
+            toml::from_str(&serialized).expect("serialized TransitionConfig is valid TOML");
         assert_eq!(config.mode, deserialized.mode);
     }
 
@@ -494,7 +496,7 @@ mod tests {
     #[test]
     fn test_transition_mode_all_names_known() {
         for i in TransitionMode::MIN..=TransitionMode::MAX {
-            let mode = TransitionMode::try_from(i).unwrap();
+            let mode = TransitionMode::try_from(i).expect("i is within MIN..=MAX");
             assert_ne!(
                 mode.name(),
                 "Unknown",

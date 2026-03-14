@@ -55,7 +55,12 @@ fn main() {
         }
     }
 
-    std::fs::create_dir_all(output.parent().unwrap()).expect("Failed to create tools/ dir");
+    std::fs::create_dir_all(
+        output
+            .parent()
+            .expect("output path constructed from CARGO_MANIFEST_DIR always has a parent"),
+    )
+    .expect("Failed to create tools/ dir");
     img.save(&output).expect("Failed to write EXR");
 
     println!(

@@ -309,7 +309,7 @@ mod tests {
         manager
             .tx
             .send((stale_epoch, 42, Ok(RgbaImage::new(256, 256))))
-            .unwrap();
+            .expect("channel send should succeed in test");
 
         // Advance epoch so the injected message is stale.
         manager.clear();
@@ -330,7 +330,7 @@ mod tests {
         manager
             .tx
             .send((current_epoch, 7, Ok(RgbaImage::new(256, 256))))
-            .unwrap();
+            .expect("channel send should succeed in test");
 
         manager.update();
         assert_eq!(manager.cache_size(), 1);
