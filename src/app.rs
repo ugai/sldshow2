@@ -91,6 +91,15 @@ pub struct ApplicationState {
 
     // Async clipboard support
     clipboard_receiver: Option<std::sync::mpsc::Receiver<Result<(), String>>>,
+
+    // Async drag-and-drop scan
+    scan_receiver: Option<std::sync::mpsc::Receiver<PendingScanResult>>,
+}
+
+struct PendingScanResult {
+    paths: crate::error::Result<Vec<camino::Utf8PathBuf>>,
+    append: bool,
+    rejected_suffix: String,
 }
 
 struct ActiveTransition {
@@ -211,6 +220,7 @@ impl ApplicationState {
             #[cfg(windows)]
             resize_dragging,
             clipboard_receiver: None,
+            scan_receiver: None,
         };
 
         state.update_window_title();
@@ -855,6 +865,61 @@ impl ApplicationState {
             }
         }
 
+        // Check scan task completion
+        if let Some(rx) = &self.scan_receiver {
+            match rx.try_recv() {
+                Ok(scan_result) => {
+                    match scan_result.paths {
+                        Ok(mut new_paths) => {
+                            if self.shuffle_enabled {
+                                use rand::seq::SliceRandom;
+                                new_paths.shuffle(&mut rand::rng());
+                            }
+                            let count = new_paths.len();
+
+                            if scan_result.append {
+                                self.texture_manager.append_paths(new_paths);
+                                self.show_osd(format!(
+                                    "Appended {} images{}",
+                                    count, scan_result.rejected_suffix
+                                ));
+                                info!("Drag & drop: appended {} images", count);
+                            } else {
+                                self.texture_manager.replace_paths(new_paths);
+                                self.thumbnail_manager.clear();
+                                self.transition = None;
+                                self.renderer.invalidate_bind_group();
+                                self.current_texture_index = if count > 0 { Some(0) } else { None };
+                                self.slideshow.reset();
+                                self.show_osd(format!(
+                                    "Loaded {} images{}",
+                                    count, scan_result.rejected_suffix
+                                ));
+                                info!("Drag & drop: loaded {} images", count);
+                            }
+
+                            self.update_window_title();
+                            self.cached_info_string = None;
+                        }
+                        Err(e) => {
+                            warn!("Drag & drop scan failed: {}", e);
+                            self.update_window_title();
+                            self.show_osd(format!(
+                                "No supported images found{}",
+                                scan_result.rejected_suffix
+                            ));
+                        }
+                    }
+                    self.scan_receiver = None;
+                }
+                Err(std::sync::mpsc::TryRecvError::Empty) => {} // Still scanning
+                Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                    self.show_osd("Scan Failed: Task died".to_string());
+                    self.scan_receiver = None;
+                }
+            }
+        }
+
         // Handle Overlay actions (Settings & OSC)
         if let Some(action) = overlay_action {
             use crate::overlay::OverlayAction;
@@ -951,42 +1016,20 @@ impl ApplicationState {
             }
 
             if !pending_drop.paths.is_empty() {
-                match image_loader::scan_image_paths(
-                    &pending_drop.paths,
-                    self.config.viewer.scan_subfolders,
-                ) {
-                    Ok(mut new_paths) => {
-                        if self.shuffle_enabled {
-                            use rand::seq::SliceRandom;
-                            new_paths.shuffle(&mut rand::rng());
-                        }
-                        let count = new_paths.len();
-
-                        if self.modifiers.shift_key() {
-                            self.texture_manager.append_paths(new_paths);
-                            // If it was already playing a slideshow/sequence, don't reset index to 0 or interrupt.
-                            self.show_osd(format!("Appended {} images{}", count, rejected_suffix));
-                            info!("Drag & drop: appended {} images", count);
-                        } else {
-                            self.texture_manager.replace_paths(new_paths);
-                            self.thumbnail_manager.clear();
-                            self.transition = None;
-                            self.renderer.invalidate_bind_group();
-                            self.current_texture_index = if count > 0 { Some(0) } else { None };
-                            self.slideshow.reset();
-                            self.show_osd(format!("Loaded {} images{}", count, rejected_suffix));
-                            info!("Drag & drop: loaded {} images", count);
-                        }
-
-                        self.update_window_title();
-                        self.cached_info_string = None;
-                    }
-                    Err(e) => {
-                        warn!("Drag & drop scan failed: {}", e);
-                        self.update_window_title();
-                        self.show_osd(format!("No supported images found{}", rejected_suffix));
-                    }
-                }
+                let paths = pending_drop.paths;
+                let scan_subfolders = self.config.viewer.scan_subfolders;
+                let append = self.modifiers.shift_key();
+                let (tx, rx) = std::sync::mpsc::channel();
+                self.scan_receiver = Some(rx);
+                self.show_osd("Scanning...".to_string());
+                std::thread::spawn(move || {
+                    let result = image_loader::scan_image_paths(&paths, scan_subfolders);
+                    let _ = tx.send(PendingScanResult {
+                        paths: result,
+                        append,
+                        rejected_suffix,
+                    });
+                });
             }
         }
 
