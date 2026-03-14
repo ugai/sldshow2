@@ -334,7 +334,17 @@ impl TextureManager {
         self.loading_tasks
             .retain(|idx, _| needed_indices.contains(idx));
 
-        for idx in needed_indices {
+        // Iterate in priority order: current first, then alternating next/prev.
+        // This ensures the most important textures get loading slots first,
+        // unlike HashSet iteration which has non-deterministic order.
+        let priority_order =
+            std::iter::once(self.current_index).chain((1..=extent).flat_map(|i| {
+                let next = (self.current_index + i) % len;
+                let prev = (self.current_index + len - i) % len;
+                [next, prev]
+            }));
+
+        for idx in priority_order {
             if !self.textures.contains_key(&idx)
                 && !self.errors.contains_key(&idx)
                 && !self.loading_tasks.contains_key(&idx)
