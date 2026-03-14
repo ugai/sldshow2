@@ -3,7 +3,7 @@ name = "sldshow2"
 version = "0.3.0"
 edition = "2024"
 default-run = "sldshow2"
-rust-version = "1.85"
+rust-version = "1.88"
 authors = ["ugai"]
 description = "Simple slideshow image viewer with custom WGSL transitions"
 license = "MIT"
@@ -13,14 +13,14 @@ homepage = "https://github.com/ugai/sldshow2"
 [dependencies]
 # Graphics & Windowing
 winit = "0.30"
-wgpu = "25"
+wgpu = "27"
 pollster = "0.3"
 bytemuck = { version = "1.16", features = ["derive"] }
 env_logger = "0.11"
 log = "0.4"
-egui = "0.32"
-egui-wgpu = "0.32"
-egui-winit = "0.32"
+egui = "0.33"
+egui-wgpu = "0.33"
+egui-winit = "0.33"
 
 
 # Configuration
@@ -55,7 +55,7 @@ arboard = "3.4"
 
 kamadak-exif = "0.6.1"
 font-loader = "0.11.0"
-egui-phosphor = "0.10"
+egui-phosphor = "0.11"
 fast_image_resize = "5.1.4"
 half = "2"
 

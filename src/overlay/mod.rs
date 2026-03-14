@@ -5,7 +5,7 @@ mod help;
 mod settings;
 
 use egui::{Align2, Color32, Context, FontData, FontDefinitions, FontFamily, FontId, RichText};
-use egui_wgpu::Renderer;
+use egui_wgpu::{Renderer, RendererOptions};
 use egui_winit::State;
 use std::sync::Arc;
 use wgpu::{Device, Queue, TextureFormat};
@@ -106,31 +106,32 @@ impl EguiOverlay {
         let mut fonts = FontDefinitions::default();
         egui_phosphor::add_to_fonts(&mut fonts, egui_phosphor::Variant::Regular);
 
-        if let Some(family_name) = font_family_name {
-            if family_name != "Inter" && family_name != "default" {
-                use font_loader::system_fonts;
-                let property = system_fonts::FontPropertyBuilder::new()
-                    .family(&family_name)
-                    .build();
-                if let Some((font_data, _)) = system_fonts::get(&property) {
-                    log::info!("Loaded system font: {}", family_name);
-                    fonts.font_data.insert(
-                        "system_font".to_owned(),
-                        FontData::from_owned(font_data).into(),
-                    );
-                    if let Some(family) = fonts.families.get_mut(&FontFamily::Proportional) {
-                        family.insert(0, "system_font".to_owned());
-                    } else {
-                        log::warn!("Proportional font family missing from FontDefinitions");
-                    }
-                    if let Some(family) = fonts.families.get_mut(&FontFamily::Monospace) {
-                        family.insert(0, "system_font".to_owned());
-                    } else {
-                        log::warn!("Monospace font family missing from FontDefinitions");
-                    }
+        if let Some(family_name) = font_family_name
+            && family_name != "Inter"
+            && family_name != "default"
+        {
+            use font_loader::system_fonts;
+            let property = system_fonts::FontPropertyBuilder::new()
+                .family(&family_name)
+                .build();
+            if let Some((font_data, _)) = system_fonts::get(&property) {
+                log::info!("Loaded system font: {}", family_name);
+                fonts.font_data.insert(
+                    "system_font".to_owned(),
+                    FontData::from_owned(font_data).into(),
+                );
+                if let Some(family) = fonts.families.get_mut(&FontFamily::Proportional) {
+                    family.insert(0, "system_font".to_owned());
                 } else {
-                    log::warn!("Failed to load system font: {}", family_name);
+                    log::warn!("Proportional font family missing from FontDefinitions");
                 }
+                if let Some(family) = fonts.families.get_mut(&FontFamily::Monospace) {
+                    family.insert(0, "system_font".to_owned());
+                } else {
+                    log::warn!("Monospace font family missing from FontDefinitions");
+                }
+            } else {
+                log::warn!("Failed to load system font: {}", family_name);
             }
         }
 
@@ -168,7 +169,16 @@ impl EguiOverlay {
         } else {
             surface_format
         };
-        let renderer = Renderer::new(device, egui_render_format, None, 1, false);
+        let renderer = Renderer::new(
+            device,
+            egui_render_format,
+            RendererOptions {
+                depth_stencil_format: None,
+                msaa_samples: 1,
+                dithering: false,
+                ..Default::default()
+            },
+        );
 
         let hdr_composite = if is_hdr {
             let size = window.inner_size();
@@ -371,7 +381,7 @@ impl EguiOverlay {
         let font_id = FontId::proportional(self.font_size);
         // egui's screen_rect() returns logical coordinates (already DPI-scaled),
         // so no manual conversion from physical pixels is needed.
-        let screen_width = self.context.screen_rect().width();
+        let screen_width = self.context.content_rect().width();
         let max_width = (screen_width - MARGIN * 2.0).max(100.0);
 
         // Semi-transparent dark background for readability over images
@@ -456,12 +466,11 @@ impl EguiOverlay {
         }
 
         // Settings overlay
-        if self.show_settings {
-            if let Some(a) =
+        if self.show_settings
+            && let Some(a) =
                 settings::render_settings(&self.context, config, &mut self.show_settings)
-            {
-                action = Some(a);
-            }
+        {
+            action = Some(a);
         }
 
         // Render OSC (On-Screen Controller) and capture any action
@@ -552,6 +561,7 @@ impl EguiOverlay {
                     color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                         view: hdr.egui_render_target(),
                         resolve_target: None,
+                        depth_slice: None,
                         ops: wgpu::Operations {
                             load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
                             store: wgpu::StoreOp::Store,
@@ -572,6 +582,7 @@ impl EguiOverlay {
                     color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                         view: swapchain_view,
                         resolve_target: None,
+                        depth_slice: None,
                         ops: wgpu::Operations {
                             load: wgpu::LoadOp::Load,
                             store: wgpu::StoreOp::Store,
@@ -590,6 +601,7 @@ impl EguiOverlay {
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                     view: swapchain_view,
                     resolve_target: None,
+                    depth_slice: None,
                     ops: wgpu::Operations {
                         load: wgpu::LoadOp::Load,
                         store: wgpu::StoreOp::Store,

@@ -52,12 +52,12 @@ pub(super) fn extract_exr_fps(path: &Utf8Path) -> Option<f32> {
     // Check standard framesPerSecond attribute
     for layer in &reader.layer_data {
         for (name, value) in &layer.attributes.other {
-            if name == "framesPerSecond" {
-                if let AttributeValue::F32(fps) = value {
-                    if *fps > 0.0 && fps.is_finite() {
-                        return Some(*fps);
-                    }
-                }
+            if name == "framesPerSecond"
+                && let AttributeValue::F32(fps) = value
+                && *fps > 0.0
+                && fps.is_finite()
+            {
+                return Some(*fps);
             }
         }
     }

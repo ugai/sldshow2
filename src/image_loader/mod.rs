@@ -206,10 +206,10 @@ impl TextureManager {
     /// Returns the FPS from the first EXR file found in the path list.
     pub fn detect_sequence_fps(&self) -> Option<f32> {
         for path in &self.paths {
-            if path.extension().unwrap_or("").eq_ignore_ascii_case("exr") {
-                if let Some(fps) = extract_exr_fps(path) {
-                    return Some(fps);
-                }
+            if path.extension().unwrap_or("").eq_ignore_ascii_case("exr")
+                && let Some(fps) = extract_exr_fps(path)
+            {
+                return Some(fps);
             }
         }
         None

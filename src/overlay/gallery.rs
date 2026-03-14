@@ -84,7 +84,8 @@ pub(super) fn render_gallery(
                         let resp = if has_texture {
                             ui.add_sized(
                                 btn_size,
-                                egui::ImageButton::new((texture_id, btn_size)).frame(false),
+                                egui::Button::image(egui::Image::new((texture_id, btn_size)))
+                                    .frame(false),
                             )
                         } else {
                             ui.add_sized(btn_size, egui::Button::new("Loading...").frame(true))
