@@ -1365,6 +1365,12 @@ impl ApplicationHandler for ApplicationState {
             return;
         }
 
+        // Handle Resized before egui — egui consumes this event, which would
+        // prevent our surface reconfiguration from ever running.
+        if let WindowEvent::Resized(physical_size) = event {
+            self.pending_resize = Some(physical_size);
+        }
+
         // Forward event to egui first
         let egui_consumed = self.egui_overlay.handle_event(&self.window, &event);
 
@@ -1406,14 +1412,7 @@ impl ApplicationHandler for ApplicationState {
             if !consumed {
                 match event {
                     WindowEvent::CloseRequested => event_loop.exit(),
-                    WindowEvent::Resized(physical_size) => {
-                        // Defer surface reconfiguration to `about_to_wait()`.
-                        // During a live window drag the OS fires many Resized events
-                        // per pump cycle; storing only the latest size here collapses
-                        // all intermediate events into a single surface.configure()
-                        // that is applied once, after all events have been dispatched.
-                        self.pending_resize = Some(physical_size);
-                    }
+                    // Resized is handled above (before egui), so no match arm needed here.
                     WindowEvent::ScaleFactorChanged {
                         scale_factor,
                         inner_size_writer: _,

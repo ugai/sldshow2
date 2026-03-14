@@ -177,9 +177,6 @@ impl Renderer {
         }
         self.surface_config.width = new_size.width;
         self.surface_config.height = new_size.height;
-        // Drain in-flight GPU work so that surface.configure() does not stall
-        // waiting for the driver to retire queued frames internally.
-        let _ = self.device.poll(wgpu::PollType::Wait);
         self.surface.configure(&self.device, &self.surface_config);
     }
 
