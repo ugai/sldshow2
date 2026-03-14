@@ -990,16 +990,13 @@ impl ApplicationState {
             }
         }
 
-        let transition_indices: Vec<usize> = self
-            .transition
-            .as_ref()
-            .map(|t| vec![t.from_index, t.to_index])
-            .unwrap_or_default();
-        self.texture_manager.update(
-            &self.renderer.device,
-            &self.renderer.queue,
-            &transition_indices,
-        );
+        let transition_indices = self.transition.as_ref().map(|t| [t.from_index, t.to_index]);
+        let extra_needed = match transition_indices {
+            Some(ref arr) => &arr[..],
+            None => &[],
+        };
+        self.texture_manager
+            .update(&self.renderer.device, &self.renderer.queue, extra_needed);
         self.thumbnail_manager.update();
 
         // Check if transition finished (must run before auto-advance to avoid
