@@ -192,20 +192,6 @@ impl ThumbnailManager {
         std::mem::take(&mut self.newly_cached)
     }
 
-    /// Returns the number of cached thumbnails.
-    // Used in unit tests to assert cache state; not called from app code.
-    #[allow(dead_code)]
-    pub fn cache_size(&self) -> usize {
-        self.cache.len()
-    }
-
-    /// Returns the number of thumbnails currently being generated.
-    // Used in unit tests to assert loading-task state; not called from app code.
-    #[allow(dead_code)]
-    pub fn pending_count(&self) -> usize {
-        self.loading_tasks.len()
-    }
-
     /// Return a list of all currently cached thumbnail indices.
     pub fn get_cached_indices(&self) -> Vec<usize> {
         self.cache.iter().map(|(&k, _)| k).collect()
@@ -259,6 +245,19 @@ fn generate_thumbnail(path: &Utf8Path) -> anyhow::Result<RgbaImage> {
 }
 
 #[cfg(test)]
+impl ThumbnailManager {
+    /// Returns the number of cached thumbnails (test helper).
+    fn cache_size(&self) -> usize {
+        self.cache.len()
+    }
+
+    /// Returns the number of thumbnails currently being generated (test helper).
+    fn pending_count(&self) -> usize {
+        self.loading_tasks.len()
+    }
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
 
@@ -309,7 +308,7 @@ mod tests {
         manager
             .tx
             .send((stale_epoch, 42, Ok(RgbaImage::new(256, 256))))
-            .unwrap();
+            .expect("channel send should succeed in test");
 
         // Advance epoch so the injected message is stale.
         manager.clear();
@@ -330,7 +329,7 @@ mod tests {
         manager
             .tx
             .send((current_epoch, 7, Ok(RgbaImage::new(256, 256))))
-            .unwrap();
+            .expect("channel send should succeed in test");
 
         manager.update();
         assert_eq!(manager.cache_size(), 1);

@@ -6,7 +6,7 @@ use thiserror::Error;
 #[derive(Error, Debug)]
 pub enum SldshowError {
     #[error("Failed to load image from {path}: {source}")]
-    #[allow(dead_code)]
+    #[allow(dead_code)] // variant reserved for callers that construct typed image-load errors
     ImageLoadError {
         path: Utf8PathBuf,
         #[source]
@@ -15,6 +15,7 @@ pub enum SldshowError {
 
     #[error("Failed to scan directory {path}: {source}")]
     #[allow(dead_code)]
+    // variant reserved for callers that construct typed directory-scan errors
     DirectoryScanError {
         path: Utf8PathBuf,
         #[source]

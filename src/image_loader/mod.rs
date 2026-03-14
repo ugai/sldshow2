@@ -382,6 +382,8 @@ impl TextureManager {
     /// `mips` yields `(mip_width, mip_height, bytes_per_row, pixel_bytes)` for each mip level
     /// in ascending order (level 0 first).  The `kind` string (`"SDR"` or `"HDR"`) is used for
     /// the wgpu texture label and the debug log line.
+    // All parameters are required to upload a mip chain; splitting into smaller
+    // functions would add indirection without reducing the argument surface.
     #[allow(clippy::too_many_arguments)]
     fn upload_mip_chain(
         &mut self,
