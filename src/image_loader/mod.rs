@@ -240,7 +240,7 @@ impl TextureManager {
         !self.loading_tasks.is_empty()
     }
 
-    pub fn update(&mut self, device: &wgpu::Device, queue: &wgpu::Queue) {
+    pub fn update(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, extra_needed: &[usize]) {
         if self.paths.is_empty() {
             return;
         }
@@ -321,6 +321,9 @@ impl TextureManager {
         // 2. Manage cache and start new tasks
         let mut needed_indices = HashSet::new();
         needed_indices.insert(self.current_index);
+        for &idx in extra_needed {
+            needed_indices.insert(idx);
+        }
 
         let len = self.paths.len();
         let extent = self.cache_extent.min(len.saturating_sub(1));
