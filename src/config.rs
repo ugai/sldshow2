@@ -559,4 +559,41 @@ mod tests {
         config.timer = f32::NAN;
         assert!(config.validate().is_err());
     }
+
+    #[test]
+    fn test_example_sldshow_covers_all_keys() {
+        let example_str = include_str!("../example.sldshow");
+        let example_val: toml::Value =
+            toml::from_str(example_str).expect("example.sldshow must be valid TOML");
+
+        let default_str =
+            toml::to_string(&Config::default()).expect("Config::default() must be serializable");
+        let default_val: toml::Value =
+            toml::from_str(&default_str).expect("serialized Config must be valid TOML");
+
+        if let toml::Value::Table(default_table) = &default_val {
+            if let toml::Value::Table(example_table) = &example_val {
+                for (section, section_val) in default_table {
+                    assert!(
+                        example_table.contains_key(section),
+                        "example.sldshow is missing section [{section}]"
+                    );
+                    if let toml::Value::Table(default_section) = section_val {
+                        if let Some(toml::Value::Table(example_section)) =
+                            example_table.get(section)
+                        {
+                            for key in default_section.keys() {
+                                assert!(
+                                    example_section.contains_key(key),
+                                    "example.sldshow [{section}] is missing key `{key}`"
+                                );
+                            }
+                        }
+                    }
+                }
+            } else {
+                panic!("example.sldshow top level must be a TOML table");
+            }
+        }
+    }
 }
