@@ -15,7 +15,7 @@ categories = ["graphics", "gui", "multimedia"]
 [dependencies]
 # Graphics & Windowing
 winit = "0.30"
-wgpu = "27"
+wgpu = "29"
 pollster = "0.4"
 bytemuck = { version = "1.16", features = ["derive"] }
 env_logger = "0.11"
