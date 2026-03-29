@@ -21,7 +21,7 @@ timer = 10              # Seconds per image (0 = paused)
 scan_subfolders = true  # Recursively scan directories
 shuffle = true          # Random order
 pause_at_last = false   # Stop at last image instead of looping
-cache_extent = 5        # Number of images to preload (before/after current)
+cache_extent = 1        # Number of images to preload (before/after current)
 
 playback_mode = "Slideshow"  # "Slideshow" = timed advances, "Sequence" = frame-by-frame
 sequence_fps = 24.0          # Framerate for sequence playback
