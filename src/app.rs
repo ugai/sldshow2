@@ -23,6 +23,21 @@ use crate::thumbnail::ThumbnailManager;
 use crate::timer::{SequenceTimer, SlideshowTimer, sanitize_timer};
 use crate::transition::{self, TransitionPipeline, TransitionUniform};
 
+#[derive(Debug)]
+enum RenderError {
+    SurfaceLost,
+    Other(String),
+}
+
+impl std::fmt::Display for RenderError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            RenderError::SurfaceLost => write!(f, "Surface lost or outdated"),
+            RenderError::Other(msg) => write!(f, "{msg}"),
+        }
+    }
+}
+
 pub struct ApplicationState {
     config: Config,
     size: winit::dpi::PhysicalSize<u32>,
@@ -1136,14 +1151,26 @@ impl ApplicationState {
         }
     }
 
-    fn render(&mut self) -> Result<(), wgpu::SurfaceError> {
+    fn render(&mut self) -> Result<(), RenderError> {
         // pending_resize is intentionally NOT drained here. During a Windows
         // modal resize loop, about_to_wait() never fires, so draining here
         // would call surface.configure() on every frame (200ms+ stall).
         // Instead, we render at the old surface size and let DWM stretch the
         // frame. about_to_wait() applies the final size once the drag ends.
 
-        let output = self.renderer.surface.get_current_texture()?;
+        let output = match self.renderer.surface.get_current_texture() {
+            wgpu::CurrentSurfaceTexture::Success(tex)
+            | wgpu::CurrentSurfaceTexture::Suboptimal(tex) => tex,
+            wgpu::CurrentSurfaceTexture::Lost | wgpu::CurrentSurfaceTexture::Outdated => {
+                return Err(RenderError::SurfaceLost);
+            }
+            wgpu::CurrentSurfaceTexture::Timeout | wgpu::CurrentSurfaceTexture::Occluded => {
+                return Ok(());
+            }
+            wgpu::CurrentSurfaceTexture::Validation => {
+                return Err(RenderError::Other("Surface validation error".into()));
+            }
+        };
         let view = output
             .texture
             .create_view(&wgpu::TextureViewDescriptor::default());
@@ -1244,7 +1271,9 @@ impl ApplicationState {
                         },
                     })],
                     depth_stencil_attachment: None,
-                    ..Default::default()
+                    timestamp_writes: None,
+                    occlusion_query_set: None,
+                    multiview_mask: None,
                 });
 
                 if let Some(ref bind_group) = self.renderer.bind_group {
@@ -1268,6 +1297,7 @@ impl ApplicationState {
                 depth_stencil_attachment: None,
                 occlusion_query_set: None,
                 timestamp_writes: None,
+                multiview_mask: None,
             });
         }
 
@@ -1496,13 +1526,9 @@ impl ApplicationHandler for ApplicationState {
                         self.update();
                         match self.render() {
                             Ok(_) => {}
-                            Err(wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated) => {
+                            Err(RenderError::SurfaceLost) => {
                                 let size = self.pending_resize.take().unwrap_or(self.size);
                                 self.resize(size);
-                            }
-                            Err(wgpu::SurfaceError::OutOfMemory) => {
-                                error!("GPU out of memory — exiting");
-                                event_loop.exit();
                             }
                             Err(e) => error!("Render error: {:?}", e),
                         }
