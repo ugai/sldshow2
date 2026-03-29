@@ -104,7 +104,15 @@ impl EguiOverlay {
 
         // Configure fonts
         let mut fonts = FontDefinitions::default();
-        egui_phosphor::add_to_fonts(&mut fonts, egui_phosphor::Variant::Regular);
+        // egui-phosphor 0.11 depends on egui 0.33, causing FontDefinitions type
+        // mismatch with egui 0.34. Inline the font registration using raw bytes.
+        fonts.font_data.insert(
+            "phosphor".into(),
+            FontData::from_static(egui_phosphor::Variant::Regular.font_bytes()).into(),
+        );
+        if let Some(font_keys) = fonts.families.get_mut(&FontFamily::Proportional) {
+            font_keys.insert(1, "phosphor".into());
+        }
 
         if let Some(family_name) = font_family_name
             && family_name != "Inter"
@@ -148,7 +156,7 @@ impl EguiOverlay {
         style.spacing.item_spacing = egui::vec2(8.0, 8.0);
         style.spacing.window_margin = egui::Margin::same(12);
 
-        context.set_style(style);
+        context.set_global_style(style);
 
         // Create egui_winit state
         let state = State::new(
@@ -337,7 +345,7 @@ impl EguiOverlay {
     /// *previous-frame* state due to the known 1-frame delay in egui's input
     /// processing.
     pub fn wants_pointer_input(&self) -> bool {
-        self.context.wants_pointer_input()
+        self.context.egui_wants_pointer_input()
     }
 
     /// Forward winit events to egui
@@ -570,6 +578,7 @@ impl EguiOverlay {
                     depth_stencil_attachment: None,
                     timestamp_writes: None,
                     occlusion_query_set: None,
+                    multiview_mask: None,
                 });
                 let mut rp = rp.forget_lifetime();
                 self.renderer
@@ -591,6 +600,7 @@ impl EguiOverlay {
                     depth_stencil_attachment: None,
                     timestamp_writes: None,
                     occlusion_query_set: None,
+                    multiview_mask: None,
                 });
                 hdr.composite(rp);
             }
@@ -610,6 +620,7 @@ impl EguiOverlay {
                 depth_stencil_attachment: None,
                 timestamp_writes: None,
                 occlusion_query_set: None,
+                multiview_mask: None,
             });
             let mut rp = rp.forget_lifetime();
             self.renderer

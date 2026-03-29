@@ -20,6 +20,7 @@ pub(super) fn render_gallery(
 
     let mut action = None;
 
+    #[allow(deprecated)]
     egui::CentralPanel::default().show(ctx, |ui| {
         ui.heading("Gallery");
         ui.separator();

@@ -38,9 +38,9 @@ pub struct GpuCtx {
 /// Returns `None` if no suitable adapter is available (e.g. headless CI);
 /// tests should call `return` (skip) in that case rather than panicking.
 pub fn try_setup_gpu() -> Option<GpuCtx> {
-    let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
+    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
         backends: wgpu::Backends::all(),
-        ..Default::default()
+        ..wgpu::InstanceDescriptor::new_without_display_handle()
     });
 
     let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
@@ -217,6 +217,7 @@ pub fn render_transition(
             depth_stencil_attachment: None,
             timestamp_writes: None,
             occlusion_query_set: None,
+            multiview_mask: None,
         });
 
         pass.set_pipeline(&pipeline.render_pipeline);
