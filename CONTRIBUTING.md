@@ -84,6 +84,6 @@ Issues use three label categories:
 | Category | Labels | Notes |
 | :--- | :--- | :--- |
 | **Priority** | `priority:p0` `priority:p1` `priority:p2` `priority:p3` | No label = `p2` (normal). Color-coded by severity |
-| **Agent** | `agent:ready` `agent:proposed` | See [AGENTS.md](AGENTS.md) |
+| **Agent** | `agent:ready` `agent:proposed` | See [CLAUDE.md](CLAUDE.md) |
 | **Type** | `bug` `enhancement` `refactor` `documentation` `good first issue` `help wanted` … | Standard GitHub types |
 

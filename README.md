@@ -40,7 +40,6 @@ PNG, JPEG, GIF, BMP, TIFF, WebP, ICO, TGA, HDR, PNM, DDS, QOI, AVIF, OpenEXR
 
 - [CONTRIBUTING.md](CONTRIBUTING.md) — setup, workflow, coding standards
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — module map and key flows
-- [AGENTS.md](AGENTS.md) — AI agent automation (`agent:ready` issues)
 
 ## License
 
