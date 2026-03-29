@@ -571,28 +571,30 @@ mod tests {
         let default_val: toml::Value =
             toml::from_str(&default_str).expect("serialized Config must be valid TOML");
 
-        if let toml::Value::Table(default_table) = &default_val {
-            if let toml::Value::Table(example_table) = &example_val {
-                for (section, section_val) in default_table {
+        let toml::Value::Table(default_table) = &default_val else {
+            panic!("serialized Config must be a TOML table at top level");
+        };
+        let toml::Value::Table(example_table) = &example_val else {
+            panic!("example.sldshow top level must be a TOML table");
+        };
+        for (section, section_val) in default_table {
+            assert!(
+                example_table.contains_key(section),
+                "example.sldshow is missing section [{section}]"
+            );
+            if let toml::Value::Table(default_section) = section_val {
+                let Some(example_section_val) = example_table.get(section) else {
+                    panic!("example.sldshow [{section}] is missing");
+                };
+                let toml::Value::Table(example_section) = example_section_val else {
+                    panic!("example.sldshow [{section}] is not a TOML table");
+                };
+                for key in default_section.keys() {
                     assert!(
-                        example_table.contains_key(section),
-                        "example.sldshow is missing section [{section}]"
+                        example_section.contains_key(key),
+                        "example.sldshow [{section}] is missing key `{key}`"
                     );
-                    if let toml::Value::Table(default_section) = section_val {
-                        if let Some(toml::Value::Table(example_section)) =
-                            example_table.get(section)
-                        {
-                            for key in default_section.keys() {
-                                assert!(
-                                    example_section.contains_key(key),
-                                    "example.sldshow [{section}] is missing key `{key}`"
-                                );
-                            }
-                        }
-                    }
                 }
-            } else {
-                panic!("example.sldshow top level must be a TOML table");
             }
         }
     }
