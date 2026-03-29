@@ -30,5 +30,7 @@ For the full Module Map and Architecture details, see **[docs/ARCHITECTURE.md](d
 ## AI Agent Rules
 
 - **Co-authorship trailer**: `Co-Authored-By: {model} (Claude Code) <noreply@anthropic.com>`
-
-@AGENTS.md
+- **Do not** create git tags or releases unless explicitly instructed.
+- **New features**: Extract to dedicated modules (e.g., `src/drag_drop.rs`). Keep `main.rs` and `app.rs` diffs minimal.
+- **Conflict-prone files**: `app.rs`, `main.rs`, `Cargo.toml`, `config.rs` — keep changes small and localized.
+- **Avoid hardcoding counts** in docs or comments (e.g., "20 transitions", "6 perspectives"). Counts change as features are added. Write descriptively ("multiple", "each") and let the source of truth (code, config, RECON.md) be the only place the number lives.
