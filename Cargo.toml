@@ -57,7 +57,7 @@ arboard = "3.4"
 
 kamadak-exif = "0.6.1"
 font-loader = "0.11.0"
-egui-phosphor = "0.11"
+egui-phosphor = "0.12"
 fast_image_resize = "6.0.0"
 half = "2"
 
