@@ -55,7 +55,7 @@ jobs:
           makensis /DVER_MAJOR=${{ env.VER_MAJOR }} /DVER_MINOR=${{ env.VER_MINOR }} /DVER_PATCH=${{ env.VER_PATCH }} ./setup/sldshow2.nsi
 
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           files: |
             ${{ env.ARCHIVE }}
