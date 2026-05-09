@@ -46,7 +46,7 @@ thiserror = "2.0"
 validator = { version = "0.20", features = ["derive"] }
 
 # Parallel computation
-rayon = "1.10"
+rayon = "1.12"
 # LRU cache
 lru = "0.16"
 # UTF-8 path handling
