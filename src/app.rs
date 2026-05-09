@@ -387,23 +387,18 @@ impl ApplicationState {
                 }
                 self.show_toggle_osd("Info", visible);
             }
-            InputAction::ShowInfoTemporary => {
-                if !self.egui_overlay.info_overlay_visible() {
-                    let info = self.build_info_string();
-                    self.egui_overlay.set_info_text(&info);
-                    self.info_temp_expiry = Some(Instant::now() + Duration::from_millis(1500));
-                }
+            InputAction::ShowInfoTemporary if !self.egui_overlay.info_overlay_visible() => {
+                let info = self.build_info_string();
+                self.egui_overlay.set_info_text(&info);
+                self.info_temp_expiry = Some(Instant::now() + Duration::from_millis(1500));
             }
             InputAction::ToggleFilenameDisplay => {
                 self.show_filename_text = !self.show_filename_text;
                 self.filename_bar_temp_expiry = None;
                 self.show_toggle_osd("Filename", self.show_filename_text);
             }
-            InputAction::ShowFilenameTemporary => {
-                if !self.show_filename_text {
-                    self.filename_bar_temp_expiry =
-                        Some(Instant::now() + Duration::from_millis(1500));
-                }
+            InputAction::ShowFilenameTemporary if !self.show_filename_text => {
+                self.filename_bar_temp_expiry = Some(Instant::now() + Duration::from_millis(1500));
             }
             InputAction::ToggleFitMode => {
                 self.config.viewer.fit_mode.toggle();
