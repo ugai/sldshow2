@@ -84,6 +84,70 @@ impl DragDropHandler {
 
 // ---- Windows-specific glue ------------------------------------------------
 
+#[cfg(windows)]
+enum DroppedItem {
+    Path(Utf8PathBuf),
+    Skip,
+    RejectedNonUtf8,
+}
+
+/// Classify a single file entry returned by `DragQueryFileW`.
+///
+/// `len` is the character count from the probe call (no null terminator).
+/// `written_raw` is the count returned by the copy call.
+/// `buf` is the buffer that was filled.
+/// `i` is the entry index, used only for log messages.
+#[cfg(windows)]
+fn classify_drop_item(len: usize, written_raw: usize, buf: &[u16], i: u32) -> DroppedItem {
+    if len == 0 {
+        log::warn!("DragQueryFileW reported zero-length path at index {}", i);
+        return DroppedItem::Skip;
+    }
+
+    if written_raw == 0 {
+        log::warn!(
+            "Dropped path could not be read from WM_DROPFILES at index {}",
+            i
+        );
+        return DroppedItem::Skip;
+    }
+
+    // Guard against a misbehaving shell extension returning written > buf.len().
+    let written = if written_raw > buf.len() {
+        log::warn!(
+            "DragQueryFileW returned written ({}) > buf.len() ({}) at index {}; clamping",
+            written_raw,
+            buf.len(),
+            i
+        );
+        buf.len()
+    } else {
+        written_raw
+    };
+
+    let utf16 = &buf[..written];
+    let path_str = match String::from_utf16(utf16) {
+        Ok(s) => s,
+        Err(e) => {
+            log::warn!("Dropped path has invalid UTF-16 at index {}: {}", i, e);
+            return DroppedItem::Skip;
+        }
+    };
+
+    if path_str.is_empty() {
+        log::warn!("DragQueryFileW produced empty path string at index {}", i);
+        return DroppedItem::Skip;
+    }
+
+    match Utf8PathBuf::try_from(std::path::PathBuf::from(path_str)) {
+        Ok(p) => DroppedItem::Path(p),
+        Err(e) => {
+            log::warn!("Dropped path is not valid UTF-8 at index {}: {}", i, e);
+            DroppedItem::RejectedNonUtf8
+        }
+    }
+}
+
 /// Install a message hook that intercepts `WM_DROPFILES` and forwards the
 /// paths through `tx`.  Must be called on the `EventLoopBuilder` *before*
 /// `.build()`.
@@ -120,28 +184,11 @@ pub fn build_msg_hook(
         for i in 0..count {
             let len = unsafe { DragQueryFileW(hdrop, i, None) } as usize;
             let mut buf = vec![0u16; len + 1];
-            let written = unsafe { DragQueryFileW(hdrop, i, Some(&mut buf)) } as usize;
-            if written == 0 && len > 0 {
-                log::warn!(
-                    "Dropped path could not be read from WM_DROPFILES at index {}",
-                    i
-                );
-                continue;
-            }
-            let utf16 = &buf[..written];
-            let path_str = match String::from_utf16(utf16) {
-                Ok(path) => path,
-                Err(e) => {
-                    log::warn!("Dropped path has invalid UTF-16 at index {}: {}", i, e);
-                    continue;
-                }
-            };
-            match Utf8PathBuf::try_from(std::path::PathBuf::from(path_str)) {
-                Ok(p) => paths.push(p),
-                Err(e) => {
-                    log::warn!("Dropped path is not valid UTF-8 at index {}: {}", i, e);
-                    rejected_non_utf8 += 1;
-                }
+            let written_raw = unsafe { DragQueryFileW(hdrop, i, Some(&mut buf)) } as usize;
+            match classify_drop_item(len, written_raw, &buf, i) {
+                DroppedItem::Path(p) => paths.push(p),
+                DroppedItem::Skip => continue,
+                DroppedItem::RejectedNonUtf8 => rejected_non_utf8 += 1,
             }
         }
         unsafe { DragFinish(hdrop) };
@@ -153,6 +200,58 @@ pub fn build_msg_hook(
             let _ = tx.send(DragDropMessage::RejectedNonUtf8(rejected_non_utf8));
         }
         true // we handled it — don't let winit see it
+    }
+}
+
+#[cfg(all(test, windows))]
+mod tests {
+    use super::*;
+
+    fn encode_utf16(s: &str) -> Vec<u16> {
+        s.encode_utf16().collect()
+    }
+
+    #[test]
+    fn zero_len_is_skipped() {
+        let buf = vec![0u16; 1];
+        assert!(matches!(
+            classify_drop_item(0, 0, &buf, 0),
+            DroppedItem::Skip
+        ));
+    }
+
+    #[test]
+    fn written_zero_with_nonzero_len_is_skipped() {
+        let buf = vec![0u16; 6];
+        assert!(matches!(
+            classify_drop_item(5, 0, &buf, 1),
+            DroppedItem::Skip
+        ));
+    }
+
+    #[test]
+    fn written_exceeds_buf_does_not_panic() {
+        // buf holds "C:\x" + null; written_raw reports more than buf.len().
+        let mut buf = encode_utf16("C:\\x");
+        buf.push(0); // null terminator slot
+        let path_len = buf.len() - 1; // length without null
+        let written_raw = buf.len() + 5; // exceeds buf.len()
+        // Must not panic; result may be Path or Skip depending on decoded content.
+        let result = classify_drop_item(path_len, written_raw, &buf, 2);
+        assert!(matches!(result, DroppedItem::Path(_) | DroppedItem::Skip));
+    }
+
+    #[test]
+    fn valid_path_produces_path_item() {
+        let path = "C:\\Users\\test\\image.png";
+        let mut buf = encode_utf16(path);
+        buf.push(0); // null terminator slot (not included in written)
+        let written = path.encode_utf16().count();
+        let result = classify_drop_item(written, written, &buf, 0);
+        assert!(matches!(result, DroppedItem::Path(_)));
+        if let DroppedItem::Path(p) = result {
+            assert_eq!(p.as_str(), path);
+        }
     }
 }
 
