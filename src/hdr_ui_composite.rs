@@ -37,6 +37,12 @@ use std::borrow::Cow;
 
 use wgpu::{Device, TextureFormat, TextureUsages};
 
+/// Clamp texture dimensions to at least 1 in each axis.
+/// wgpu panics on zero-size textures; this guard belongs in the public API.
+fn clamp_dims(w: u32, h: u32) -> (u32, u32) {
+    (w.max(1), h.max(1))
+}
+
 /// The render-target format for the egui intermediate texture in HDR mode.
 ///
 /// # Why `Rgba8UnormSrgb` and not `Rgba8Unorm`?
@@ -80,6 +86,7 @@ impl HdrUiComposite {
     /// * `output_format` — the swapchain format (must be `Rgba16Float`).
     /// * `width` / `height` — initial surface size in physical pixels.
     pub fn new(device: &Device, width: u32, height: u32, output_format: TextureFormat) -> Self {
+        let (width, height) = clamp_dims(width, height);
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("HDR UI Composite Shader"),
             source: wgpu::ShaderSource::Wgsl(Cow::Borrowed(include_str!(
@@ -179,6 +186,7 @@ impl HdrUiComposite {
 
     /// Recreate the intermediate texture for a new surface size.
     pub fn resize(&mut self, device: &Device, width: u32, height: u32) {
+        let (width, height) = clamp_dims(width, height);
         let (texture, view) = Self::create_texture(device, width, height);
         self.texture = texture;
         self.texture_view = view;
@@ -253,5 +261,23 @@ impl HdrUiComposite {
                 },
             ],
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::clamp_dims;
+
+    #[test]
+    fn clamp_dims_zero_becomes_one() {
+        assert_eq!(clamp_dims(0, 0), (1, 1));
+        assert_eq!(clamp_dims(0, 100), (1, 100));
+        assert_eq!(clamp_dims(800, 0), (800, 1));
+    }
+
+    #[test]
+    fn clamp_dims_nonzero_unchanged() {
+        assert_eq!(clamp_dims(1920, 1080), (1920, 1080));
+        assert_eq!(clamp_dims(1, 1), (1, 1));
     }
 }
