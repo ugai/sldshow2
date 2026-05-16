@@ -82,7 +82,12 @@ fn main() -> Result<()> {
     // viewer.image_paths in the loaded (or default) config.
     let (config_path, cli_image_paths): (Option<Utf8PathBuf>, Vec<Utf8PathBuf>) =
         match args.get(1).map(Utf8PathBuf::from) {
-            Some(p) if p.extension() == Some("sldshow") => (Some(p), vec![]),
+            Some(p)
+                if p.extension()
+                    .is_some_and(|e| e.eq_ignore_ascii_case("sldshow")) =>
+            {
+                (Some(p), vec![])
+            }
             Some(_) => (None, args[1..].iter().map(Utf8PathBuf::from).collect()),
             None => (None, vec![]),
         };
