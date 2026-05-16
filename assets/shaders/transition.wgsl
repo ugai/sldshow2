@@ -76,9 +76,10 @@ fn apply_zoom(uv: vec2<f32>) -> vec2<f32> {
 
 // UV adjustment: contain-fit (letterbox/pillarbox)
 fn adjust_uv(uv: vec2<f32>, image_size: vec2<f32>, window_size: vec2<f32>) -> vec2<f32> {
+    let safe_image_size = max(image_size, vec2<f32>(1.0));
     let zoomed_uv = apply_zoom(uv);
 
-    let img_aspect = image_size.x / image_size.y;
+    let img_aspect = safe_image_size.x / safe_image_size.y;
     let win_aspect = window_size.x / window_size.y;
 
     var scale: vec2<f32>;
@@ -97,7 +98,8 @@ fn adjust_uv(uv: vec2<f32>, image_size: vec2<f32>, window_size: vec2<f32>) -> ve
 
 // UV adjustment: cover-fit (fill viewport, crop excess)
 fn adjust_uv_cover(uv: vec2<f32>, image_size: vec2<f32>, window_size: vec2<f32>) -> vec2<f32> {
-    let img_aspect = image_size.x / image_size.y;
+    let safe_image_size = max(image_size, vec2<f32>(1.0));
+    let img_aspect = safe_image_size.x / safe_image_size.y;
     let win_aspect = window_size.x / window_size.y;
 
     var scale: vec2<f32>;
@@ -121,7 +123,7 @@ fn sample_ambient_bg(tex: texture_2d<f32>, smp: sampler, uv: vec2<f32>,
     let max_lod = f32(textureNumLevels(tex)) - 1.0;
     let lod = min(material.ambient_blur, max_lod);
     // 3x3 tap at 1.5 texel offsets to break up mip texel grid (9 taps)
-    let texel_step = pow(2.0, lod) / max(image_size.x, image_size.y) * 1.5;
+    let texel_step = pow(2.0, lod) / max(max(image_size.x, image_size.y), 1.0) * 1.5;
     var color = vec4<f32>(0.0);
     for (var i: i32 = -1; i <= 1; i = i + 1) {
         for (var j: i32 = -1; j <= 1; j = j + 1) {
