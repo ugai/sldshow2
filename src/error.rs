@@ -25,6 +25,13 @@ pub enum SldshowError {
     #[error("No images found in paths: {}", paths.iter().map(|p| p.as_str()).collect::<Vec<_>>().join(", "))]
     NoImagesFound { paths: Vec<Utf8PathBuf> },
 
+    #[error("Directory scan failed for {path}: {source}")]
+    ScanFailed {
+        path: Utf8PathBuf,
+        #[source]
+        source: std::io::Error,
+    },
+
     #[error("Failed to load config from {path}: {source}")]
     ConfigLoadError {
         path: Utf8PathBuf,

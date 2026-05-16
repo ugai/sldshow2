@@ -61,6 +61,9 @@ egui-phosphor = "0.12"
 fast_image_resize = "6.0.0"
 half = "2"
 
+[dev-dependencies]
+tempfile = "3"
+
 [[test]]
 name = "gpu_transition_invariants"
 path = "tests/gpu/transition_invariants.rs"
