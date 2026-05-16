@@ -16,6 +16,26 @@ use decode::load_image_mips;
 use exif::extract_exr_fps;
 pub(crate) use exif::{apply_orientation, read_exif_orientation};
 
+/// Spawn a rayon task that scans `paths` for the first EXR file with a
+/// `framesPerSecond` attribute and sends the result on the returned channel.
+/// If no FPS is found the sender is dropped, so `try_recv` will return
+/// `Err(TryRecvError::Disconnected)` rather than hanging.
+pub(crate) fn spawn_detect_sequence_fps(paths: Vec<Utf8PathBuf>) -> Receiver<f32> {
+    let (tx, rx) = channel();
+    rayon::spawn(move || {
+        for path in &paths {
+            if path.extension().unwrap_or("").eq_ignore_ascii_case("exr")
+                && let Some(fps) = extract_exr_fps(path)
+            {
+                let _ = tx.send(fps);
+                return;
+            }
+        }
+        // sender drops here → receiver gets Disconnected
+    });
+    rx
+}
+
 /// Maximum number of concurrent loading tasks
 const MAX_CONCURRENT_TASKS: usize = 4;
 
@@ -200,19 +220,6 @@ impl TextureManager {
         self.paths.extend(new_paths);
         // Do not bump epoch or clear existing textures because the existing indices remain valid.
         // The new images will naturally be fetched when navigated to.
-    }
-
-    /// Detect framerate from EXR metadata if available.
-    /// Returns the FPS from the first EXR file found in the path list.
-    pub fn detect_sequence_fps(&self) -> Option<f32> {
-        for path in &self.paths {
-            if path.extension().unwrap_or("").eq_ignore_ascii_case("exr")
-                && let Some(fps) = extract_exr_fps(path)
-            {
-                return Some(fps);
-            }
-        }
-        None
     }
 
     pub fn len(&self) -> usize {

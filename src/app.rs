@@ -13,7 +13,7 @@ use crate::clipboard;
 use crate::color_adjust::ColorAdjustments;
 use crate::config::{self, Config, TransitionMode};
 use crate::drag_drop::DragDropHandler;
-use crate::image_loader::{self, TextureManager};
+use crate::image_loader::{self, TextureManager, spawn_detect_sequence_fps};
 use crate::input::{InputAction, InputContext, InputHandler};
 use crate::osc::OscAction;
 use crate::overlay::EguiOverlay;
@@ -109,6 +109,10 @@ pub struct ApplicationState {
 
     // Async drag-and-drop scan
     scan_receiver: Option<std::sync::mpsc::Receiver<PendingScanResult>>,
+
+    // Async EXR FPS detection — populated at startup in Sequence mode,
+    // cleared once the result is applied or the sender disconnects.
+    fps_receiver: Option<std::sync::mpsc::Receiver<f32>>,
 }
 
 struct PendingScanResult {
@@ -170,18 +174,15 @@ impl ApplicationState {
         let thumbnail_manager = ThumbnailManager::new(200);
 
         let slideshow = SlideshowTimer::new(config.viewer.timer);
-        let mut sequence_timer = SequenceTimer::new(config.viewer.sequence_fps);
+        let sequence_timer = SequenceTimer::new(config.viewer.sequence_fps);
 
-        // Auto-detect EXR framerate for sequence playback
-        if config.viewer.playback_mode == config::PlaybackMode::Sequence
-            && let Some(detected_fps) = texture_manager.detect_sequence_fps()
-        {
-            info!(
-                "Detected EXR framerate: {:.2} fps (overriding config value {})",
-                detected_fps, config.viewer.sequence_fps
-            );
-            sequence_timer.set_fps(detected_fps);
-        }
+        // Spawn async EXR FPS detection so startup is not blocked.
+        // The result is applied lazily in the update loop.
+        let fps_receiver = if config.viewer.playback_mode == config::PlaybackMode::Sequence {
+            Some(spawn_detect_sequence_fps(texture_manager.paths.clone()))
+        } else {
+            None
+        };
 
         // Initialize egui overlay
         let mut egui_overlay = EguiOverlay::new(
@@ -236,6 +237,7 @@ impl ApplicationState {
             resize_dragging,
             clipboard_receiver: None,
             scan_receiver: None,
+            fps_receiver,
         };
 
         state.update_window_title();
@@ -1063,6 +1065,13 @@ impl ApplicationState {
             self.renderer.invalidate_bind_group();
         }
 
+        // Drain the async EXR FPS detection result (populated once at startup).
+        apply_pending_fps(
+            &mut self.fps_receiver,
+            &mut self.sequence_timer,
+            self.config.viewer.sequence_fps,
+        );
+
         if self.transition.is_none() && !self.texture_manager.paths.is_empty() {
             if self.config.viewer.playback_mode == config::PlaybackMode::Sequence {
                 let frames_to_advance = self.sequence_timer.update();
@@ -1417,6 +1426,32 @@ fn try_spawn_file_manager(cmd: &str, extra_args: &[&str], target: &std::path::Pa
     }
 }
 
+/// Drain the async EXR FPS receiver, applying the result to `timer` once.
+/// Clears the receiver after the value is applied or the channel disconnects.
+fn apply_pending_fps(
+    rx: &mut Option<std::sync::mpsc::Receiver<f32>>,
+    timer: &mut SequenceTimer,
+    config_fps: f32,
+) {
+    use std::sync::mpsc::TryRecvError;
+    let Some(receiver) = rx.as_ref() else { return };
+    match receiver.try_recv() {
+        Ok(detected_fps) => {
+            info!(
+                "Detected EXR framerate: {:.2} fps (overriding config value {})",
+                detected_fps, config_fps
+            );
+            timer.set_fps(detected_fps);
+            *rx = None;
+        }
+        Err(TryRecvError::Disconnected) => {
+            // No EXR FPS attribute found; keep the configured value.
+            *rx = None;
+        }
+        Err(TryRecvError::Empty) => {} // detection still in progress
+    }
+}
+
 /// Returns true for pointer-related window events.
 ///
 /// Used to guard InputHandler from receiving pointer events when egui has
@@ -1609,5 +1644,58 @@ mod tests {
     #[test]
     fn is_pointer_event_rejects_close_requested() {
         assert!(!is_pointer_event(&WindowEvent::CloseRequested));
+    }
+
+    // --- apply_pending_fps ---
+
+    #[test]
+    fn apply_pending_fps_sets_fps_and_clears_receiver() {
+        let (tx, rx) = std::sync::mpsc::channel::<f32>();
+        tx.send(24.0).unwrap();
+        drop(tx);
+        let mut rx_opt = Some(rx);
+        let mut timer = crate::timer::SequenceTimer::new(10.0);
+        apply_pending_fps(&mut rx_opt, &mut timer, 10.0);
+        assert!(rx_opt.is_none(), "receiver should be cleared after apply");
+        assert!((timer.fps - 24.0).abs() < 1e-5, "fps should be updated");
+    }
+
+    #[test]
+    fn apply_pending_fps_clears_receiver_on_disconnect() {
+        let (tx, rx) = std::sync::mpsc::channel::<f32>();
+        drop(tx);
+        let mut rx_opt = Some(rx);
+        let mut timer = crate::timer::SequenceTimer::new(10.0);
+        apply_pending_fps(&mut rx_opt, &mut timer, 10.0);
+        assert!(rx_opt.is_none(), "receiver should be cleared on disconnect");
+        assert!(
+            (timer.fps - 10.0).abs() < 1e-5,
+            "fps should remain unchanged"
+        );
+    }
+
+    #[test]
+    fn apply_pending_fps_is_noop_when_receiver_is_none() {
+        let mut rx_opt: Option<std::sync::mpsc::Receiver<f32>> = None;
+        let mut timer = crate::timer::SequenceTimer::new(10.0);
+        apply_pending_fps(&mut rx_opt, &mut timer, 10.0);
+        assert!(rx_opt.is_none());
+        assert!((timer.fps - 10.0).abs() < 1e-5);
+    }
+
+    #[test]
+    fn apply_pending_fps_does_not_clear_while_still_pending() {
+        let (_tx, rx) = std::sync::mpsc::channel::<f32>();
+        let mut rx_opt = Some(rx);
+        let mut timer = crate::timer::SequenceTimer::new(10.0);
+        apply_pending_fps(&mut rx_opt, &mut timer, 10.0);
+        assert!(
+            rx_opt.is_some(),
+            "receiver should remain while sender is alive"
+        );
+        assert!(
+            (timer.fps - 10.0).abs() < 1e-5,
+            "fps unchanged while pending"
+        );
     }
 }
