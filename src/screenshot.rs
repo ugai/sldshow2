@@ -35,6 +35,9 @@ impl ScreenshotCapture {
     ) -> Result<String, String> {
         let width = surface_config.width;
         let height = surface_config.height;
+        if width == 0 || height == 0 {
+            return Err("Screenshot failed: surface has zero dimensions".to_string());
+        }
         let (bytes_per_pixel, is_bgra, is_rgba16f) = match surface_config.format {
             wgpu::TextureFormat::Rgba8Unorm | wgpu::TextureFormat::Rgba8UnormSrgb => {
                 (4u32, false, false)
