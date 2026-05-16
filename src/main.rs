@@ -92,11 +92,20 @@ fn main() -> Result<()> {
             None => (None, vec![]),
         };
 
-    let mut config = Config::load_default(config_path).unwrap_or_else(|e| {
-        error!("Failed to load config: {}", e);
-        warn!("Using default configuration");
-        Config::default()
-    });
+    let explicit_config = config_path.is_some();
+    let mut config = match Config::load_default(config_path) {
+        Ok(c) => c,
+        Err(e) if explicit_config => {
+            error!("Failed to load config: {}", e);
+            eprintln!("Error: Failed to load config: {e}");
+            std::process::exit(1);
+        }
+        Err(e) => {
+            error!("Failed to load config: {}", e);
+            warn!("Using default configuration");
+            Config::default()
+        }
+    };
 
     if !cli_image_paths.is_empty() {
         config.viewer.image_paths = cli_image_paths;
