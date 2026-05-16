@@ -45,7 +45,12 @@ impl Drop for ScreenSaverGuard {
     fn drop(&mut self) {
         unsafe {
             use windows::Win32::System::Power::{ES_CONTINUOUS, SetThreadExecutionState};
-            SetThreadExecutionState(ES_CONTINUOUS);
+            let prev = SetThreadExecutionState(ES_CONTINUOUS);
+            if prev.0 == 0 {
+                warn!(
+                    "SetThreadExecutionState restore returned 0; system may remain in ES_CONTINUOUS until reboot"
+                );
+            }
         }
     }
 }
@@ -61,7 +66,11 @@ fn main() -> Result<()> {
                 ES_CONTINUOUS, ES_DISPLAY_REQUIRED, ES_SYSTEM_REQUIRED, SetThreadExecutionState,
             };
             // Prevents sleep and screen saver
-            SetThreadExecutionState(ES_CONTINUOUS | ES_DISPLAY_REQUIRED | ES_SYSTEM_REQUIRED);
+            let prev =
+                SetThreadExecutionState(ES_CONTINUOUS | ES_DISPLAY_REQUIRED | ES_SYSTEM_REQUIRED);
+            if prev.0 == 0 {
+                warn!("SetThreadExecutionState failed; screensaver may activate during slideshow");
+            }
         }
         ScreenSaverGuard
     };
