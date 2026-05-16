@@ -2,6 +2,7 @@
 
 use crate::error::{Result, SldshowError};
 use camino::{Utf8Path, Utf8PathBuf};
+use log::warn;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use validator::Validate;
 
@@ -351,10 +352,16 @@ impl Config {
 
         if let Some(home) = dirs::home_dir() {
             let home_config = home.join(".sldshow");
-            if home_config.exists()
-                && let Ok(utf8_path) = Utf8PathBuf::try_from(home_config)
-            {
-                return Self::load(&utf8_path);
+            if home_config.exists() {
+                match Utf8PathBuf::try_from(home_config) {
+                    Ok(utf8_path) => return Self::load(&utf8_path),
+                    Err(e) => {
+                        warn!(
+                            "found ~/.sldshow but home path is not UTF-8; ignoring config: {}",
+                            e.into_path_buf().display()
+                        );
+                    }
+                }
             }
         }
 
