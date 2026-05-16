@@ -23,7 +23,7 @@ fn create_checkered_image(width: u32, height: u32, square_size: u32) -> RgbImage
         let square_x = x / square_size;
         let square_y = y / square_size;
 
-        if (square_x + square_y) % 2 == 0 {
+        if (square_x + square_y).is_multiple_of(2) {
             Rgb([255, 255, 255])
         } else {
             Rgb([200, 200, 200])
