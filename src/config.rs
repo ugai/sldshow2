@@ -522,49 +522,41 @@ mod tests {
         assert!(w.decorations);
     }
 
+    fn viewer_with_timer(timer: f32) -> ViewerConfig {
+        ViewerConfig {
+            timer,
+            ..ViewerConfig::default()
+        }
+    }
+
     #[test]
     fn test_timer_validation_zero_is_valid() {
-        let mut config = ViewerConfig::default();
-        config.timer = 0.0;
-        assert!(config.validate().is_ok());
+        assert!(viewer_with_timer(0.0).validate().is_ok());
     }
 
     #[test]
     fn test_timer_validation_above_minimum_is_valid() {
-        let mut config = ViewerConfig::default();
-        config.timer = 0.1;
-        assert!(config.validate().is_ok());
-        config.timer = 5.0;
-        assert!(config.validate().is_ok());
+        assert!(viewer_with_timer(0.1).validate().is_ok());
+        assert!(viewer_with_timer(5.0).validate().is_ok());
     }
 
     #[test]
     fn test_timer_validation_between_zero_and_minimum_is_invalid() {
-        let mut config = ViewerConfig::default();
-        config.timer = 0.05;
-        assert!(config.validate().is_err());
-        config.timer = 0.01;
-        assert!(config.validate().is_err());
-        config.timer = 0.099;
-        assert!(config.validate().is_err());
+        assert!(viewer_with_timer(0.05).validate().is_err());
+        assert!(viewer_with_timer(0.01).validate().is_err());
+        assert!(viewer_with_timer(0.099).validate().is_err());
     }
 
     #[test]
     fn test_timer_validation_negative_is_invalid() {
-        let mut config = ViewerConfig::default();
-        config.timer = -1.0;
-        assert!(config.validate().is_err());
+        assert!(viewer_with_timer(-1.0).validate().is_err());
     }
 
     #[test]
     fn test_timer_validation_non_finite_is_invalid() {
-        let mut config = ViewerConfig::default();
-        config.timer = f32::INFINITY;
-        assert!(config.validate().is_err());
-        config.timer = f32::NEG_INFINITY;
-        assert!(config.validate().is_err());
-        config.timer = f32::NAN;
-        assert!(config.validate().is_err());
+        assert!(viewer_with_timer(f32::INFINITY).validate().is_err());
+        assert!(viewer_with_timer(f32::NEG_INFINITY).validate().is_err());
+        assert!(viewer_with_timer(f32::NAN).validate().is_err());
     }
 
     #[test]

@@ -290,7 +290,7 @@ pub fn render_transition(
 /// Returns `[r_avg, g_avg, b_avg, a_avg]` as `f32` in `0.0..=255.0`.
 pub fn pixel_avg(pixels: &[u8]) -> [f32; 4] {
     assert!(
-        pixels.len() % 4 == 0,
+        pixels.len().is_multiple_of(4),
         "pixel buffer length not a multiple of 4"
     );
     let count = (pixels.len() / 4) as f32;
