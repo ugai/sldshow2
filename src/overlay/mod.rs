@@ -192,8 +192,8 @@ impl EguiOverlay {
             let size = window.inner_size();
             Some(HdrUiComposite::new(
                 device,
-                size.width.max(1),
-                size.height.max(1),
+                size.width,
+                size.height,
                 surface_format,
             ))
         } else {
@@ -635,7 +635,7 @@ impl EguiOverlay {
         // ScaleFactorChanged events trigger a window resize, which updates the surface,
         // and egui automatically adapts to the new scale factor on the next frame.
         if let Some(ref mut hdr) = self.hdr_composite {
-            hdr.resize(device, width.max(1), height.max(1));
+            hdr.resize(device, width, height);
         }
     }
 }
