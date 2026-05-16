@@ -80,8 +80,8 @@ impl Renderer {
         let surface_config = wgpu::SurfaceConfiguration {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
             format: config_format,
-            width: size.width,
-            height: size.height,
+            width: size.width.max(1),
+            height: size.height.max(1),
             present_mode: wgpu::PresentMode::AutoVsync,
             alpha_mode: {
                 let transparent = config.style.bg_color[3] < 255;
