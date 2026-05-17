@@ -1507,15 +1507,19 @@ impl ApplicationHandler for ApplicationState {
         }
 
         // imgui WantCaptureMouse pattern: block pointer events from reaching
-        // InputHandler when egui is interested in the pointer.
+        // InputHandler when egui is interested in the pointer, or when a
+        // popup-style overlay is open (so outside clicks dismiss it rather
+        // than passing through to slideshow controls).
         let mut needs_redraw = egui_consumed;
         let egui_wants_pointer = self.egui_overlay.wants_pointer_input();
+        let modal_overlay_open = self.egui_overlay.has_modal_overlay();
         let is_pointer = is_pointer_event(&event);
-        let should_forward = !(egui_consumed || egui_wants_pointer && is_pointer);
+        let should_forward =
+            !(egui_consumed || (egui_wants_pointer || modal_overlay_open) && is_pointer);
 
         // When blocking pointer events, cancel any in-progress drag to
         // prevent stale state from causing unwanted window movement later.
-        if !should_forward && egui_wants_pointer && is_pointer {
+        if !should_forward && (egui_wants_pointer || modal_overlay_open) && is_pointer {
             self.input_handler.cancel_drag();
         }
 

@@ -313,6 +313,13 @@ impl EguiOverlay {
         self.show_settings || self.show_help_overlay || self.show_gallery || self.osc.visible
     }
 
+    /// Returns `true` when a popup-style overlay is open and should capture
+    /// pointer input even outside its own bounds (so outside clicks dismiss
+    /// it rather than activating slideshow controls underneath).
+    pub fn has_modal_overlay(&self) -> bool {
+        self.show_settings
+    }
+
     fn cleanup_gallery_textures(&mut self, thumbnail_manager: &mut ThumbnailManager) {
         // Remove handles for thumbnails that are no longer in the cache (evicted).
         let cached_indices: std::collections::HashSet<_> =
