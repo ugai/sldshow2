@@ -12,7 +12,7 @@ pub(super) fn render_settings(
 ) -> Option<OverlayAction> {
     let mut action = None;
 
-    egui::Window::new("Settings")
+    let window_response = egui::Window::new("Settings")
         .anchor(Align2::CENTER_CENTER, [0.0, 0.0])
         .collapsible(false)
         .resizable(true)
@@ -150,6 +150,19 @@ pub(super) fn render_settings(
                 action = Some(OverlayAction::ToggleFullscreen(config.window.fullscreen));
             }
         });
+
+    // Dismiss on primary click outside the window rect (popup-style UX).
+    if let Some(inner) = window_response {
+        let dismiss = ctx.input(|i| {
+            i.pointer.primary_clicked()
+                && i.pointer
+                    .interact_pos()
+                    .is_some_and(|pos| !inner.response.rect.contains(pos))
+        });
+        if dismiss {
+            *show = false;
+        }
+    }
 
     action
 }
