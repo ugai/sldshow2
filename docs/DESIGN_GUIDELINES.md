@@ -4,6 +4,12 @@ All overlay visual styling is centralized in `apply_theme(ctx, &config.style)`
 in `src/overlay/mod.rs`. This document defines the rules, tokens, and review
 checklist that govern every overlay UI change.
 
+> **Note:** `apply_theme()` is not yet implemented. It is the target state
+> described by this document and will be introduced in [#420]. Until #420 lands,
+> styling is applied in `EguiOverlay::new()` via `context.set_global_style()`.
+> The rules in this document are aspirational — follow them in new code and
+> apply them when modifying existing overlays.
+
 **Scope:** Settings, Help, Gallery, OSC overlays.  
 **Out of scope:** HUD (filename bar, OSD, info bar) — uses `config.style.text_color` directly.  
 **Light theme:** Not supported. All rules apply to Dark theme only.
@@ -46,9 +52,14 @@ All tokens are fixed constants defined in `apply_theme()`. Values follow the
 | `TEXT_HEADING`          | Gray Dark 12  | `#eeeeee`   | Headings                           |
 | `STROKE_NONINTERACTIVE` | Gray Dark 12  | `#eeeeee`   | Non-interactive widget text        |
 
+> **Source:** Hex values are from `@radix-ui/colors@3.0.0` (fetched 2026-05-17).
+> If updating, copy values directly from <https://www.radix-ui.com/colors> (Gray Dark scale).
+
 **Contrast requirements (measured against `PANEL_FILL`):**
 - Body text / labels: **≥ 7:1**
 - Headings: **≥ 4.5:1**
+  (WCAG AA body-text standard applied to headings for consistency; WCAG permits ≥ 3:1
+  for large text but we use the stricter threshold throughout.)
 - Non-text UI elements (separators, widget borders): no minimum.
 
 **Contrast formula:**
@@ -59,7 +70,7 @@ L = 0.2126·R + 0.7152·G + 0.0722·B
 ```
 
 where R, G, B are linearized from sRGB:
-`c_lin = (c/255 / 12.92)` if `c/255 ≤ 0.04045`, else `((c/255 + 0.055) / 1.055)^2.4`
+`c_lin = (c/255) / 12.92` if `c/255 ≤ 0.04045`, else `((c/255 + 0.055) / 1.055)^2.4`
 
 ## Spacing Tokens
 
@@ -79,7 +90,7 @@ override these locally.
 
 ## PR Review Checklist
 
-Apply to every PR that touches `src/overlay/` or `src/osc.rs`.
+Apply to every PR that touches `src/overlay/` or `src/osc.rs` (OSC renders egui widgets directly and is subject to the same theming rules as the overlay modules).
 
 ### Required checks
 
@@ -96,6 +107,10 @@ Compute contrast ratio against `PANEL_FILL` using the formula in the Color
 Tokens section. Confirm:
 - Body text: ≥ 7:1
 - Headings: ≥ 4.5:1
+
+> **Semantic constants exempt:** `COLOR_ERROR`, `COLOR_WARN`, and `COLOR_HINT` are
+> pre-approved and do not require per-PR contrast computation. Their values are
+> intentionally chosen for semantic clarity, not strict WCAG compliance.
 
 ### Screenshot (required when adding or changing an overlay)
 
