@@ -62,6 +62,7 @@ cargo build --release    # Build (use --release for visual testing)
 - **English** for all comments and documentation
 - **Structured logging** via `log` crate (`info!`, `warn!`, `error!`)
 - Avoid global mutable state
+- **Overlay UI styling**: Follow [docs/DESIGN_GUIDELINES.md](docs/DESIGN_GUIDELINES.md) — centralized theming via `apply_theme()`, color tokens from Radix Gray Dark, WCAG contrast rules, and PR checklist.
 
 ## Architecture
 For detailed architecture documentation, see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).

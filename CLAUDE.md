@@ -26,6 +26,7 @@ For the full Module Map and Architecture details, see **[docs/ARCHITECTURE.md](d
 - **PRs**: Squash merge only. Reference issues with `Closes #N`. No direct push to `main`.
 - **Pre-commit hook**: Runs `cargo fmt --check`, `cargo clippy -D warnings`, `cargo test`. Do not skip with `--no-verify`.
 - Always run `cargo fmt --all` before committing.
+- **Overlay UI**: See **[docs/DESIGN_GUIDELINES.md](docs/DESIGN_GUIDELINES.md)** for color tokens, contrast rules, and the PR checklist for overlay-touching changes.
 
 ## AI Agent Rules
 
