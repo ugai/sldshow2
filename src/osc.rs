@@ -87,7 +87,7 @@ impl Osc {
                         bottom: 12,
                     })
                     .corner_radius(12.0)
-                    .stroke(Stroke::new(1.0, Color32::from_white_alpha(30)));
+                    .stroke(Stroke::new(1.0_f32, Color32::from_white_alpha(30)));
 
                 frame.show(ui, |ui| {
                     ui.vertical(|ui| {
